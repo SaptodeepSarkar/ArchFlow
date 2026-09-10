@@ -301,7 +301,9 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
                 !matches!(g.session.state, State::Idle | State::Ready | State::Cancelled | State::Error)
             };
             if busy {
-                stop_flow(shared.clone(), &tx).await
+                // SUPER+H mid-session: discard everything and close.
+                // (Finishing happens hands-free on end-of-speech silence.)
+                cancel_flow(shared.clone(), &tx, &rid).await
             } else if !take_activation(&shared).await {
                 let g = shared.lock().await;
                 resp_ok(&rid, &g.session, Some("ignoring key repeat".into()), None)
@@ -515,6 +517,13 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
             let t2 = tx.clone();
             let sess = sid.clone();
             tokio::spawn(async move { amplitude_loop(sh, t2, sess).await });
+            // Silero end-of-speech watch (all modes: hands-free finish).
+            {
+                let sh = shared.clone();
+                let t4 = tx.clone();
+                let sess = sid.clone();
+                tokio::spawn(async move { auto_stop_watch(sh, t4, sess).await });
+            }
             // Live dictation: commit stabilized words while recording.
             if live {
                 let sh = shared.clone();
@@ -549,8 +558,13 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
 }
 
 /// Drain capture blocks -> session audio, emit coalesced amplitude ≤30 Hz.
+/// Hands-free finish: after speech was heard, sustained silence (auto_stop
+/// config) ends the session via stop_flow (transcribe → inject → close).
 async fn amplitude_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, sess: String) {
     let mut last_emit = std::time::Instant::now();
+    let mut vad = vaani_core::vad::Vad::default();
+    let mut speech_seen = false;
+    let mut last_voice = std::time::Instant::now();
     loop {
         tokio::time::sleep(std::time::Duration::from_millis(33)).await;
         let (alive, amp, sid_ok) = {
@@ -567,6 +581,10 @@ async fn amplitude_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>
                     }
                 }
                 for b in blocks {
+                    if b.len() == vaani_core::vad::BLOCK_SAMPLES && vad.push_block(&b) {
+                        last_voice = std::time::Instant::now();
+                        speech_seen = true;
+                    }
                     let peak = b.iter().fold(0.0f32, |a, &x| a.max(x.abs()));
                     g.amplitude = peak;
                     g.audio.extend_from_slice(&b);
@@ -581,7 +599,17 @@ async fn amplitude_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>
                 if g.audio.len() >= max {
                     (false, g.amplitude, true) // auto-stop at cap
                 } else {
-                    (true, g.amplitude, false)
+                    // Hands-free finish: speech + sustained silence.
+                    let auto = g.cfg.general.auto_stop_secs;
+                    if auto > 0
+                        && speech_seen
+                        && last_voice.elapsed().as_secs() >= auto
+                    {
+                        tracing::info!("auto-stop on end-of-speech silence");
+                        (false, g.amplitude, true)
+                    } else {
+                        (true, g.amplitude, false)
+                    }
                 }
             } else {
                 (false, 0.0, false)
@@ -666,6 +694,43 @@ enum LiveTick {
     Work(LiveSnap),
 }
 
+/// Silero end-of-speech watch (all modes): every 2 s, analyse trailing
+/// silence of the session so far. Speech followed by sustained silence
+/// finishes hands-free (transcribe → inject → close). Without the VAD
+/// binary, the energy gate in amplitude_loop is the fallback.
+async fn auto_stop_watch(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, sess: String) {
+    if worker_sup::vad_bin().is_none() {
+        return;
+    }
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let snap: Option<(Vec<f32>, u64)> = {
+            let g = shared.lock().await;
+            if g.session.id != sess || !matches!(g.session.state, State::Recording) {
+                None
+            } else if g.cfg.general.auto_stop_secs == 0 || g.audio.len() < 16_000 {
+                Some((Vec::new(), 0)) // skip tick
+            } else {
+                Some((g.audio.clone(), g.cfg.general.auto_stop_secs))
+            }
+        };
+        let (audio, auto) = match snap {
+            None => break,
+            Some((a, _)) if a.is_empty() => continue,
+            Some(v) => v,
+        };
+        let res = tokio::task::spawn_blocking(move || worker_sup::silero_trailing(&audio)).await;
+        let trailing = match res {
+            Ok(Some((true, tr))) => tr,
+            _ => continue, // no speech yet, or VAD hiccup: retry next tick
+        };
+        if trailing >= auto as f32 {
+            tracing::info!(trailing_s = trailing, "silero end-of-speech: auto finish");
+            stop_flow(shared.clone(), &tx).await;
+            break;
+        }
+    }
+}
 /// Live loop (SUPER+H): every chunk, transcribe cumulative audio, commit only
 /// the newly stabilized prefix (last TAIL words held back as provisional).
 /// A worker failure retries next tick; the controller stays up.
@@ -700,12 +765,14 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
             LiveTick::Work(s) => s,
         };
         let work = tokio::task::spawn_blocking(move || {
+            let cuda = snap.cfg.recognition.device == "cuda";
             worker_sup::transcribe(
                 &snap.audio,
                 &snap.cfg.recognition.model,
                 &snap.cfg.recognition.language,
                 snap.cfg.recognition.translate_to_en,
                 snap.cfg.audio.worker_threads,
+                cuda,
             )
         })
         .await;
@@ -851,8 +918,9 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
     // Run inference off the async runtime (blocking worker process).
     // Clone for the worker thread; keep the original for error-path retry.
     let samples_for_worker = samples.clone();
+    let cuda = cfg_snap.recognition.device == "cuda";
     let work = tokio::task::spawn_blocking(move || {
-        worker_sup::transcribe(&samples_for_worker, &cfg_snap.recognition.model, &cfg_snap.recognition.language, cfg_snap.recognition.translate_to_en, cfg_snap.audio.worker_threads)
+        worker_sup::transcribe(&samples_for_worker, &cfg_snap.recognition.model, &cfg_snap.recognition.language, cfg_snap.recognition.translate_to_en, cfg_snap.audio.worker_threads, cuda)
     })
     .await;
 
@@ -973,12 +1041,17 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                     resp_ok("", &s, Some(m), Some(serde_json::json!({"text": final_text})))
                 }
                 inserter::InsertOutcome::CopyReady(m) => {
+                    // Drop the session guard: copy_fallback awaits and
+                    // re-locks (holding it across .await self-deadlocks).
+                    drop(g);
                     copy_fallback(shared.clone(), &tx, &sid, &final_text, m).await
                 }
                 inserter::InsertOutcome::Failed(m) => {
+                    drop(g);
                     copy_fallback(shared.clone(), &tx, &sid, &final_text, m).await
                 }
                 inserter::InsertOutcome::Unsupported(m) => {
+                    drop(g);
                     copy_fallback(shared.clone(), &tx, &sid, &final_text, m).await
                 }
             }
@@ -1025,7 +1098,7 @@ async fn cancel_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, 
     let _ = g.session.transition(State::Idle);
     emit(tx, &ev_state(Some(g.session.id.clone()), State::Idle, None));
     let s = g.session.clone();
-    resp_ok(rid, &s, Some("cancelled".into()), None)
+    resp_ok(rid, &s, Some("discarded".into()), None)
 }
 
 /// Lock/suspend/compositor-disconnect guard: cancel capture, forbid insertion.
@@ -1085,6 +1158,8 @@ async fn doctor() -> serde_json::Value {
     checks.insert("hyprctl", serde_json::json!(bin("hyprctl")));
     checks.insert("quickshell", serde_json::json!(bin("quickshell")));
     checks.insert("whisper-cli", serde_json::json!(bin("whisper-cli") || bin("whisper-cpp")));
+    checks.insert("whisper-cli-cuda", serde_json::json!(bin("whisper-cli-cuda")));
+    checks.insert("vad-speech-segments", serde_json::json!(bin("vad-speech-segments")));
     checks.insert("curl-cleanup", serde_json::json!(bin("curl")));
     let models = std::fs::read_dir(paths::models_dir())
         .map(|d| d.count())

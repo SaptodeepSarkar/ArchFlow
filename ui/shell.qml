@@ -20,13 +20,11 @@ Scope {
     property string statusText: ""
     property real amplitude: 0
     property var ampHistory: []
-    property int elapsedSecs: 0
     property bool showSettings: (Quickshell.env("VAANI_OPEN_SETTINGS") || "") === "1"
-    property bool hidePreview: false
     property string pendingText: ""
     property var settingsApi: null
     property string provisional: ""
-    property int committedWords: 0
+    property bool firstLine: true
 
     // Daemon wire format: {protocol_version, request_id, session_id, kind}
     // where kind = {op, args?}. Anything else is rejected as malformed.
@@ -55,6 +53,14 @@ Scope {
             return;
         }
         // Snapshot (first line per connection) has state but no event/op.
+        // A stale overlay that connects to an already-idle daemon exits now.
+        if (root.firstLine) {
+            root.firstLine = false;
+            if ((msg.state === "IDLE" || msg.state === "CANCELLED" || !msg.state) && !root.showSettings && !msg.event) {
+                Qt.quit();
+                return;
+            }
+        }
         if (msg.event === "state" || (msg.state && !msg.event && !msg.ok && msg.event !== undefined)) {
             applyState(msg);
             return;
@@ -62,8 +68,7 @@ Scope {
         if (msg.event === "provisional") {
             var tail = (msg.data && msg.data.tail) || "";
             var hidden = msg.data && msg.data.hidden;
-            root.provisional = hidden ? "" : String(tail).slice(-120);
-            root.committedWords = (msg.data && msg.data.committed_words) || 0;
+            root.provisional = hidden ? "" : String(tail).slice(-160);
             if (hidden)
                 root.statusText = "preview hidden";
             return;
@@ -79,7 +84,8 @@ Scope {
             root.pendingText = "";
             return;
         }
-        // Responses carry ok/state/message/data.
+        // Responses carry ok/state/message/data. Finished states linger
+        // briefly so the outcome is visible, then the overlay exits.
         if (msg.ok !== undefined) {
             if (msg.state)
                 root.state = msg.state;
@@ -91,6 +97,7 @@ Scope {
                 else if (root.settingsApi)
                     root.settingsApi.routeData(msg.data);
             }
+            root.checkFinished();
             return;
         }
         if (msg.state) {
@@ -108,24 +115,34 @@ Scope {
         if (msg.data && msg.data.text !== undefined)
             root.pendingText = msg.data.text;
         if (root.state === "RECORDING") {
-            elapsedTimer.restart();
-            if (msg.event === "state" && msg.message === "Listening") {
+            closeTimer.stop();
+            if (msg.event === "state") {
                 root.provisional = "";
-                root.committedWords = 0;
+                root.ampHistory = [];
             }
-        } else {
-            elapsedTimer.stop();
         }
-        // On-demand UI residency: exit when nothing needs us.
-        if ((root.state === "IDLE" || root.state === "CANCELLED") && !root.showSettings)
-            Qt.quit();
+        root.checkFinished();
+    }
+
+    // On-demand UI residency: linger 1.6 s on finished states so the outcome
+    // ("Pasted", "On clipboard", errors) is visible, then exit.
+    function checkFinished() {
+        if (root.showSettings)
+            return;
+        if (root.state === "IDLE" || root.state === "CANCELLED" || root.state === "ERROR")
+            closeTimer.restart();
+        else
+            closeTimer.stop();
     }
 
     Timer {
-        id: elapsedTimer
-        interval: 1000
-        repeat: true
-        onTriggered: root.elapsedSecs += 1
+        id: closeTimer
+        interval: 1600
+        repeat: false
+        onTriggered: {
+            if (!root.showSettings)
+                Qt.quit();
+        }
     }
 
     // Reconnect with bounded backoff; exit when daemon is gone and no
@@ -189,13 +206,15 @@ Scope {
             WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
+            // Minimal card: wave strip + live transcription only.
+            // No buttons (SUPER+H toggles), no state chrome. Outcome text
+            // lingers ~1.6 s after finish, then the process exits.
             Rectangle {
                 id: card
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
                 width: 320
-                // Grows by one line while provisional (unstable) text previews.
-                height: root.provisional !== "" ? 88 : 58
+                height: words.text !== "" ? 92 : 52
                 radius: 18
                 color: "#17181D"
                 border.color: "#2A2C36"
@@ -203,142 +222,46 @@ Scope {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 10
-                    anchors.topMargin: 7
-                    anchors.bottomMargin: 7
-                    spacing: 3
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 14
+                    anchors.topMargin: 9
+                    anchors.bottomMargin: 9
+                    spacing: 6
 
-                    RowLayout {
+                    // Wave: full-width strip, bars bottom-up.
+                    Item {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 30
-                        spacing: 8
-
-                        // Visualizer: fixed box, manually placed bars bottom-up.
-                        Item {
-                            Layout.preferredWidth: 80
-                            Layout.preferredHeight: 30
-                            Layout.alignment: Qt.AlignVCenter
-                            Repeater {
-                                model: 16
-                                Rectangle {
-                                    x: index * 5
-                                    y: parent.height - height
-                                    width: 3
-                                    height: root.barH(index)
-                                    radius: 1.5
-                                    color: root.state === "ERROR" ? "#FF8C9B" : "#B9A3FF"
-                                }
+                        Layout.preferredHeight: 26
+                        Repeater {
+                            model: 16
+                            Rectangle {
+                                x: index * 18.5
+                                y: parent.height - height
+                                width: 10
+                                height: root.barH(index)
+                                radius: 2
+                                color: root.state === "ERROR" ? "#FF8C9B" : "#B9A3FF"
                             }
-                        }
-
-                        ColumnLayout {
-                            spacing: 1
-                            Layout.fillWidth: true
-                            Layout.alignment: Qt.AlignVCenter
-                            Text {
-                                text: stateLabel(root.state)
-                                color: "#F5F5F7"
-                                font.pixelSize: 13
-                                font.bold: true
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-                            Text {
-                                text: overlaySub()
-                                color: "#B7BAC5"
-                                font.pixelSize: 11
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-                        }
-
-                        // Compact round buttons that always fit the 58px card.
-                        Rectangle {
-                            Layout.preferredWidth: 30
-                            Layout.preferredHeight: 30
-                            Layout.alignment: Qt.AlignVCenter
-                            radius: 15
-                            color: stopArea.containsMouse ? "#3A3D4A" : "#26282F"
-                            Text {
-                                anchors.centerIn: parent
-                                text: "■"
-                                color: "#F5F5F7"
-                                font.pixelSize: 11
-                            }
-                            MouseArea {
-                                id: stopArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                onClicked: root.sendOp("stop")
-                            }
-                            Accessible.role: Accessible.Button
-                            Accessible.name: "Stop dictation"
-                        }
-                        Rectangle {
-                            Layout.preferredWidth: 30
-                            Layout.preferredHeight: 30
-                            Layout.alignment: Qt.AlignVCenter
-                            radius: 15
-                            color: cancelArea.containsMouse ? "#4A2E36" : "#26282F"
-                            Text {
-                                anchors.centerIn: parent
-                                text: "✕"
-                                color: "#FF8C9B"
-                                font.pixelSize: 11
-                            }
-                            MouseArea {
-                                id: cancelArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                onClicked: root.sendOp("cancel")
-                            }
-                            Accessible.role: Accessible.Button
-                            Accessible.name: "Cancel dictation"
                         }
                     }
 
-                    // Live provisional tail: explicitly NOT inserted text.
-                    // Only stabilized words (committedWords) reach the app.
+                    // Word-by-word live transcription (provisional tail while
+                    // recording; outcome / error text after finish).
                     Text {
-                        visible: root.provisional !== ""
+                        id: words
+                        visible: text !== ""
                         Layout.fillWidth: true
-                        text: "…" + root.provisional + "  ·  " + root.committedWords + " typed"
-                        color: "#FFD18A"
-                        font.pixelSize: 11
-                        font.italic: true
-                        elide: Text.ElideLeft
+                        text: root.provisional !== "" ? root.provisional : root.statusText
+                        color: root.state === "ERROR" ? "#FF8C9B" : (root.provisional !== "" ? "#F5F5F7" : "#B7BAC5")
+                        font.pixelSize: 12
+                        font.italic: root.provisional !== ""
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
                     }
                 }
             }
         }
-    }
-
-    function stateLabel(s) {
-        if (s === "STARTING")
-            return "Starting microphone…";
-        if (s === "RECORDING")
-            return "Listening";
-        if (s === "TRANSCRIBING")
-            return "Transcribing…";
-        if (s === "CLEANING")
-            return "Cleaning up…";
-        if (s === "READY")
-            return "Text ready";
-        if (s === "INSERTING")
-            return "Text ready";
-        if (s === "CANCELLED")
-            return "Cancelled";
-        if (s === "ERROR")
-            return "Error";
-        return "Idle";
-    }
-
-    function overlaySub() {
-        var t = root.elapsedSecs + "s";
-        if (root.statusText && root.statusText !== "")
-            return t + " · " + root.statusText;
-        return t;
     }
 
     // ---- Settings window (normal focusable window, insertion disabled) ----

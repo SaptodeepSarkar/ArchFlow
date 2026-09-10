@@ -79,15 +79,20 @@ fn main() {
     }
 
     // Try real whisper.cpp CLI if a model file exists and binary is installed.
-    let backend_bin = if std::env::var("VAANI_CUDA").ok().as_deref() == Some("1") {
+    // CUDA requested: prefer the GPU binary, fall back to CPU visibly
+    // (backend label always says which one actually ran).
+    let want_cuda = std::env::var("VAANI_CUDA").ok().as_deref() == Some("1");
+    let backend_bin = if want_cuda {
         find_binary(&["whisper-cli-cuda", "whisper-cpp-cuda"])
+            .map(|b| (b, "whisper-cli-cuda"))
+            .or_else(|| find_binary(&["whisper-cli", "whisper-cpp", "whisper", "main"]).map(|b| (b, "whisper-cli")))
     } else {
-        find_binary(&["whisper-cli", "whisper-cpp", "whisper", "main"])
+        find_binary(&["whisper-cli", "whisper-cpp", "whisper", "main"]).map(|b| (b, "whisper-cli"))
     };
 
     let (text, backend) = match (backend_bin, model_exists(&model)) {
-        (Some(bin), true) => match run_whisper_cli(&bin, &model_resolve(&model), &language, threads, translate, &samples) {
-            Ok(t) => (t, "whisper-cli"),
+        (Some((bin, label)), true) => match run_whisper_cli(&bin, &model_resolve(&model), &language, threads, translate, &samples) {
+            Ok(t) => (t, label),
             Err(e) => {
                 eprintln!("vaani-worker: whisper backend failed ({e}), falling back to stub");
                 (stub_transcript(&samples), "cpu-stub")
@@ -132,6 +137,26 @@ fn model_resolve(m: &str) -> String {
         }
     }
     m.to_string()
+}
+
+/// Silero VAD model for whisper-cli gating. Env override first, then the
+/// standard models dir. None => plain inference (energy gate still applies
+/// controller-side).
+fn vad_model_path() -> Option<String> {
+    if let Ok(p) = std::env::var("VAANI_VAD_MODEL") {
+        if !p.is_empty() && std::path::Path::new(&p).exists() {
+            return Some(p);
+        }
+    }
+    let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
+        format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+    });
+    let cand = format!("{base}/vaani/models/ggml-silero-v5.1.2.bin");
+    if std::path::Path::new(&cand).exists() {
+        Some(cand)
+    } else {
+        None
+    }
 }
 
 fn find_binary(names: &[&str]) -> Option<String> {
@@ -186,6 +211,15 @@ fn run_whisper_cli(
         .arg(threads.to_string())
         .arg("-l")
         .arg(language);
+    // Silero VAD gate inside whisper: segments speech, ignores silence.
+    // Falls back to plain inference when the VAD model is absent.
+    if let Some(vad) = vad_model_path() {
+        cmd.arg("--vad")
+            .arg("--vad-model")
+            .arg(vad)
+            .arg("--vad-threshold")
+            .arg("0.5");
+    }
     if translate {
         cmd.arg("--translate");
     }

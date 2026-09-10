@@ -87,30 +87,61 @@ fn paste_chord_for(app_id: &str) -> String {
     }
 }
 
-/// Verified compositor key dispatch. Aborts to copy-only if modifier state
-/// cannot be established — never a blind sleep-and-hope.
+/// Key dispatch through the compositor's Lua API (`send_shortcut`).
+/// NOTE: the classic `hyprctl dispatch sendkey <mods>,<key>` CLI form is a
+/// Lua syntax error on Lua-driven Hyprland builds (0.56+), so every dispatch
+/// through it failed and all insertion silently fell back to copy-only.
+/// This was verified live against the installed compositor, including a
+/// paste-into-scratch-window proof. Only fixed chord fragments are ever
+/// interpolated (validated below); dictated text travels via clipboard.
 fn dispatch_key(chord: &str) -> anyhow::Result<()> {
-    // hyprctl dispatch sendkey <modifiers>,<key>. Verify hyprctl exists and
-    // the call succeeds; hyprctl itself resolves modifier state.
-    let (mods, key) = chord
-        .rsplit_once('+')
-        .map(|(m, k)| (m.to_lowercase(), k.to_string()))
-        .unwrap_or(("".into(), chord.into()));
-    let key_arg = if mods.is_empty() {
-        key
-    } else {
-        format!("{mods},{key}")
-    };
+    let (mods, key) = chord_parts(chord)?;
+    let lua = format!(
+        r#"hl.dispatch(hl.dsp.send_shortcut({{ mods = "{mods}", key = "{key}", window = "active" }}))"#
+    );
     let out = std::process::Command::new("hyprctl")
-        .arg("dispatch")
-        .arg("sendkey")
-        .arg(&key_arg)
+        .arg("eval")
+        .arg(&lua)
         .output()
         .map_err(|e| anyhow::anyhow!("hyprctl not available: {e}"))?;
-    if out.status.success() {
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if out.status.success() && stdout.trim() == "ok" {
         Ok(())
     } else {
-        anyhow::bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
+        let err = String::from_utf8_lossy(&out.stderr);
+        let detail = if err.trim().is_empty() { stdout.trim().to_string() } else { err.trim().to_string() };
+        anyhow::bail!("{detail}")
+    }
+}
+
+/// Split "SHIFT+CTRL+V" into Lua send_shortcut (mods, key), whitelisted to
+/// alphanumerics + space so only our fixed chords can interpolate.
+fn chord_parts(chord: &str) -> anyhow::Result<(String, String)> {
+    let mut parts: Vec<&str> = chord.split('+').collect();
+    if parts.is_empty() {
+        anyhow::bail!("empty chord");
+    }
+    let key = parts.pop().unwrap().to_lowercase();
+    let mods = parts.iter().map(|m| m.to_lowercase()).collect::<Vec<_>>().join(" ");
+    for s in std::iter::once(key.as_str()).chain(mods.split(' ')) {
+        if s.is_empty() || !s.chars().all(|c| c.is_ascii_alphanumeric()) {
+            anyhow::bail!("invalid chord fragment");
+        }
+    }
+    Ok((mods, key))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn chords_split_for_lua() {
+        assert_eq!(chord_parts("CTRL+V").unwrap(), ("ctrl".into(), "v".into()));
+        assert_eq!(
+            chord_parts("SHIFT+CTRL+V").unwrap(),
+            ("shift ctrl".into(), "v".into())
+        );
+        assert!(chord_parts("CTRL+$(evil)").is_err());
     }
 }
 

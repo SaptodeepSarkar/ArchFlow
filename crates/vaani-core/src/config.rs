@@ -41,6 +41,10 @@ pub struct General {
     /// responsive typing, more inference cost + clipboard churn.
     #[serde(default = "default_live_chunk")]
     pub live_chunk_secs: u64,
+    /// Hands-free finish: stop + transcribe after this many seconds of
+    /// silence following speech (1..=10). 0 disables (manual stop only).
+    #[serde(default = "default_auto_stop")]
+    pub auto_stop_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +118,9 @@ fn default_true() -> bool {
 fn default_live_chunk() -> u64 {
     4
 }
+fn default_auto_stop() -> u64 {
+    3
+}
 fn default_threads() -> u32 {
     4
 }
@@ -152,6 +159,7 @@ impl Default for General {
             review_before_insertion: false,
             unicode_output: true,
             live_chunk_secs: default_live_chunk(),
+            auto_stop_secs: default_auto_stop(),
         }
     }
 }
@@ -301,6 +309,14 @@ impl Config {
                     return Err("must be 2..10".into());
                 }
                 self.general.live_chunk_secs = n;
+                Ok(n.to_string())
+            }
+            "general.auto_stop_secs" => {
+                let n: u64 = v.parse().map_err(|_| "must be 0..10")?;
+                if n > 10 {
+                    return Err("must be 0..10".into());
+                }
+                self.general.auto_stop_secs = n;
                 Ok(n.to_string())
             },
             "audio.device_selector" => {
