@@ -48,6 +48,17 @@ fn all_ops_roundtrip() {
 }
 
 #[test]
+fn silence_shortcircuit_reaches_idle() {
+    // Regression: stop on silence must land back in IDLE, not stick.
+    use vaani_core::state::{Session, State};
+    let mut s = Session::new(1);
+    s.transition(State::Starting).unwrap();
+    s.transition(State::Recording).unwrap();
+    s.transition(State::Transcribing).unwrap();
+    s.transition(State::Idle).unwrap();
+}
+
+#[test]
 fn duplicate_commands_do_not_duplicate() {
     // stop is idempotent: Idle stays Idle, Transcribing stays Transcribing.
     use vaani_core::state::{Session, State};

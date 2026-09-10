@@ -36,6 +36,7 @@ pub fn allowed(from: State, to: State) -> bool {
             | (Recording, Error)
             | (Transcribing, Cleaning)
             | (Transcribing, Ready)
+            | (Transcribing, Idle) // silence short-circuit: nothing to insert
             | (Transcribing, Cancelled)
             | (Transcribing, Error)
             | (Cleaning, Ready)
