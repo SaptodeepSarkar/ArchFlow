@@ -1,1 +1,0 @@
-/usr/bin/c++ -fPIC -O3 -DNDEBUG -shared -Wl,--dependency-file=CMakeFiles/whisper.dir/link.d -Wl,-soname,libwhisper.so.1 -o libwhisper.so.1.7.6 CMakeFiles/whisper.dir/whisper.cpp.o  -Wl,-rpath,/home/saptodeep/Projects/ArchFlow/native/worker/build-cuda/ggml/src: ../ggml/src/libggml.so ../ggml/src/libggml-cpu.so ../ggml/src/libggml-base.so

@@ -1,5 +1,6 @@
 target/
 native/worker/build/
+native/worker/build-cuda/
 native/worker/upstream/
 native/worker/whisper.cpp/
 models/*.bin

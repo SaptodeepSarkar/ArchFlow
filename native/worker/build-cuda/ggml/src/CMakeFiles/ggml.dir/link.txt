@@ -1,1 +1,0 @@
-/usr/bin/c++ -fPIC -O3 -DNDEBUG -shared -Wl,--dependency-file=CMakeFiles/ggml.dir/link.d -Wl,-soname,libggml.so -o libggml.so "CMakeFiles/ggml.dir/ggml-backend-reg.cpp.o"  -Wl,-rpath,/home/saptodeep/Projects/ArchFlow/native/worker/build-cuda/ggml/src: -ldl libggml-cpu.so libggml-base.so
