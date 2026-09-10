@@ -39,6 +39,11 @@ impl CaptureHandle {
     pub fn start(device_selector: &str) -> anyhow::Result<Self> {
         let device = resolve_device(device_selector)?;
         let mut cmd = Command::new("pw-record");
+        // Options BEFORE the positional output ("-"): pw-record ignores
+        // options placed after it, silently capturing the default source.
+        if !device.is_empty() {
+            cmd.arg("--target").arg(&device);
+        }
         cmd.arg("--format")
             .arg("f32")
             .arg("--rate")
@@ -46,9 +51,6 @@ impl CaptureHandle {
             .arg("--channels")
             .arg("1")
             .arg("-"); // stdout
-        if !device.is_empty() {
-            cmd.arg("--target").arg(&device);
-        }
         // Never touch global graph: no --volume, no device switching.
         let mut child = cmd
             .stdin(Stdio::null())

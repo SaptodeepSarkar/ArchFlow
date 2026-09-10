@@ -21,6 +21,10 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.3.1** (2026-09-11): capture/insertion hardening. `pw-record --target`
+  before positional output (was silently ignored → wrong mic), clipboard
+  offer on every non-dispatched outcome, 800 ms activation repeat guard,
+  CLI skips interleaved event lines via `request_id` match. Tag `v0.3.1`.
 - **v0.3.0** (2026-09-11): real transcription. whisper.cpp v1.7.6 (local
   CPU build) + ggml base; worker `whisper-cli` backend proven on jfk.wav
   (1.6 s, WER≈0); room loopback toggle→paste end-to-end; sibling/user-bin

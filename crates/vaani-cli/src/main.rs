@@ -87,8 +87,26 @@ async fn main() -> anyhow::Result<()> {
     let mut lines = BufReader::new(r).lines();
     // First line is the state snapshot.
     let snapshot = lines.next_line().await?.unwrap_or_default();
+    let want_id = req.request_id.clone();
     w.write_all(req.to_line().unwrap().as_bytes()).await?;
-    let response = lines.next_line().await?.unwrap_or_default();
+    // The connection also carries async event lines (state/amplitude/
+    // provisional have no request_id). Skip them until OUR response.
+    let mut response = String::new();
+    loop {
+        let line = lines.next_line().await?.unwrap_or_default();
+        if line.trim().is_empty() {
+            continue;
+        }
+        let is_ours = serde_json::from_str::<serde_json::Value>(&line)
+            .ok()
+            .and_then(|v| v.get("request_id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+            == Some(want_id.clone());
+        if is_ours {
+            response = line;
+            break;
+        }
+        // Otherwise: an async event interleaved — ignore on the CLI path.
+    }
 
     if as_json {
         println!("{response}");

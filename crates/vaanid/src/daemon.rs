@@ -43,6 +43,9 @@ struct Shared {
     live: bool,
     /// Stable text already typed into the target in this live session.
     committed: String,
+    /// Last accepted activation (toggle/start): repeats inside the window
+    /// are ignored so key-repeat can't start+stop instantly.
+    last_activation: Option<std::time::Instant>,
     /// Focus lost mid-live-session: stop committing, keep accumulating.
     target_lost: bool,
 }
@@ -86,6 +89,7 @@ pub async fn run() -> anyhow::Result<()> {
         live: false,
         committed: String::new(),
         target_lost: false,
+        last_activation: None,
     }));
 
     // Session-lock/suspend guard: on lock, cancel capture + forbid insertion.
@@ -256,6 +260,21 @@ fn resp_ok(rid: &str, sess: &Session, msg: Option<String>, data: Option<serde_js
     }
 }
 
+/// Key-repeat guard: activations within 800 ms of the previous accepted one
+/// are ignored (a held shortcut must not start+stop instantly).
+/// Returns true when this activation is accepted.
+async fn take_activation(shared: &Arc<Mutex<Shared>>) -> bool {
+    let mut g = shared.lock().await;
+    let now = std::time::Instant::now();
+    if let Some(last) = g.last_activation {
+        if now.duration_since(last).as_millis() < 800 {
+            return false;
+        }
+    }
+    g.last_activation = Some(now);
+    true
+}
+
 async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>) -> Response {
     let rid = req.request_id.clone();
     tracing::info!(op = ?req.kind, rid = %rid, "ipc request");
@@ -267,6 +286,9 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
             };
             if busy {
                 stop_flow(shared.clone(), &tx).await
+            } else if !take_activation(&shared).await {
+                let g = shared.lock().await;
+                resp_ok(&rid, &g.session, Some("ignoring key repeat".into()), None)
             } else {
                 // If READY with pending text and target unchanged, toggle re-inserts? No:
                 // toggle from READY with pending just reports ready (explicit copy/insert).
@@ -280,11 +302,36 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
             };
             if busy {
                 stop_flow(shared.clone(), &tx).await
+            } else if !take_activation(&shared).await {
+                let g = shared.lock().await;
+                resp_ok(&rid, &g.session, Some("ignoring key repeat".into()), None)
             } else {
                 start_flow(shared.clone(), &tx, true).await
             }
         }
-        RequestKind::Start => start_flow(shared.clone(), &tx, false).await,
+        RequestKind::Start => {
+            let busy = {
+                let g = shared.lock().await;
+                !matches!(g.session.state, State::Idle | State::Ready | State::Cancelled | State::Error)
+            };
+            if busy {
+                let g = shared.lock().await;
+                return Response {
+                    protocol_version: vaani_core::PROTOCOL_VERSION,
+                    request_id: rid.clone(),
+                    session_id: Some(g.session.id.clone()),
+                    ok: false,
+                    state: Some(format!("{:?}", g.session.state).to_uppercase()),
+                    message: Some("busy: already recording/transcribing; stop or cancel first".into()),
+                    data: None,
+                };
+            }
+            if !take_activation(&shared).await {
+                let g = shared.lock().await;
+                return resp_ok(&rid, &g.session, Some("ignoring key repeat".into()), None);
+            }
+            start_flow(shared.clone(), &tx, false).await
+        }
         RequestKind::Stop => stop_flow(shared.clone(), &tx).await,
         RequestKind::Cancel => cancel_flow(shared.clone(), &tx, &rid).await,
         RequestKind::Status => {
@@ -732,6 +779,33 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
     }
 }
 
+/// Copy fallback: text wasn't typed into the target (target changed,
+/// terminal, failure). Place it on the Wayland clipboard so it's immediately
+/// pastable, and keep pending for explicit copy/recovery either way.
+async fn copy_fallback(
+    shared: Arc<Mutex<Shared>>,
+    tx: &broadcast::Sender<Event>,
+    sid: &str,
+    final_text: &str,
+    reason: String,
+) -> Response {
+    let text_c = final_text.to_string();
+    let clip_ok = tokio::task::spawn_blocking(move || clipboard::offer_text(&text_c))
+        .await
+        .map(|r| r.is_ok())
+        .unwrap_or(false);
+    let mut g = shared.lock().await;
+    let _ = g.session.transition(State::Ready);
+    let msg = if clip_ok {
+        format!("{reason} — text is on the clipboard, paste where you need it")
+    } else {
+        format!("{reason} — clipboard offer failed, use copy/recover")
+    };
+    emit(tx, &ev_state(Some(sid.to_string()), State::Ready, Some("Text ready — on clipboard")));
+    let s = g.session.clone();
+    resp_ok("", &s, Some(msg), Some(serde_json::json!({"text": final_text})))
+}
+
 /// Stop: idempotent, closes capture immediately, transcribes (blocking task),
 // then cleanup/insertion per policy. Late results for cancelled sessions die.
 async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) -> Response {
@@ -899,21 +973,13 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                     resp_ok("", &s, Some(m), Some(serde_json::json!({"text": final_text})))
                 }
                 inserter::InsertOutcome::CopyReady(m) => {
-                    let _ = g.session.transition(State::Ready);
-                    emit(tx, &ev_state(Some(sid), State::Ready, Some("Text ready — target changed")));
-                    let s = g.session.clone();
-                    resp_ok("", &s, Some(m), Some(serde_json::json!({"text": final_text})))
+                    copy_fallback(shared.clone(), &tx, &sid, &final_text, m).await
                 }
                 inserter::InsertOutcome::Failed(m) => {
-                    let _ = g.session.transition(State::Ready);
-                    emit(tx, &ev_state(Some(sid), State::Ready, Some("Insertion failed — text kept")));
-                    let s = g.session.clone();
-                    resp_ok("", &s, Some(m), Some(serde_json::json!({"text": final_text})))
+                    copy_fallback(shared.clone(), &tx, &sid, &final_text, m).await
                 }
                 inserter::InsertOutcome::Unsupported(m) => {
-                    let _ = g.session.transition(State::Ready);
-                    let s = g.session.clone();
-                    resp_ok("", &s, Some(m), Some(serde_json::json!({"text": final_text})))
+                    copy_fallback(shared.clone(), &tx, &sid, &final_text, m).await
                 }
             }
         }
