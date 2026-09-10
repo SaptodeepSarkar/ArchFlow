@@ -1,0 +1,7 @@
+target/
+native/worker/build/
+native/worker/whisper.cpp/
+models/*.bin
+models/*.pt
+*.log
+.vaani/
