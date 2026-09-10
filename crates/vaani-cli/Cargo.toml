@@ -1,0 +1,18 @@
+[package]
+name = "vaani"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[[bin]]
+name = "vaani"
+path = "src/main.rs"
+
+[dependencies]
+vaani-core = { path = "../vaani-core" }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
