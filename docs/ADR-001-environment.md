@@ -11,7 +11,14 @@ Date: 2026-09-10. Machine: the target laptop itself (NOT a remote container).
 - Quickshell 0.3.1 (AUR -git build 0.3.1.r10.g2d3b3e9; official extra has 0.3.1-1)
 - Qt 6 via qmake6, systemd 261, NVIDIA 610.57 / CUDA UMD 13.3, RTX 3050 6 GB
 - Rust stable 1.98.1 (user-local rustup; no sudo available in this env)
-- whisper.cpp / CUDA toolkit: NOT installed — worker runs cpu-stub until pinned build exists
+- whisper.cpp **v1.7.6 built locally** (`~/.local/bin/whisper-cli`, CPU,
+  `native/worker/build/`); ggml **base** model in
+  `~/.local/share/vaani/models/base.bin` (147951465 B, sha256 in
+  `models/manifest.toml`). whisper.cpp CUDA toolkit: NOT installed.
+- VAD note: production path uses the built-in energy VAD gate
+  (`vaani-core::vad`, active-dictation only) + whisper STT. No Silero/ONNX
+  runtime — spec bans heavy inference runtimes in the default path;
+  whisper.cpp ships a `vad-speech-segments` example if that's ever needed.
 
 ## Decisions
 

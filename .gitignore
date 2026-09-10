@@ -1,5 +1,6 @@
 target/
 native/worker/build/
+native/worker/upstream/
 native/worker/whisper.cpp/
 models/*.bin
 models/*.pt

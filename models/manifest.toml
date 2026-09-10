@@ -16,10 +16,13 @@ sha256 = "PUT_SHA256_HERE_AFTER_PIN_VERIFICATION"
 [[model]]
 name = "base"
 ggml_file = "ggml-base.bin"
-bytes = 147964211
+bytes = 147951465
 est_mem_mb = 400
 license = "MIT"
-sha256 = "PUT_SHA256_HERE_AFTER_PIN_VERIFICATION"
+# Observed 2026-09-11 via direct download (previous estimate 147964211 was
+# stale after upstream re-pack). Verified by loading + transcribing jfk.wav
+# (WER ~0). Re-verify with --sha256 on your own download.
+sha256 = "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"
 
 [[model]]
 name = "base.en"

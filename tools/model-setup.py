@@ -9,7 +9,7 @@ MANIFEST = {
     # url template + expected bytes; sha256 filled after pin verification
     # (see models/manifest.toml). Downloads refused on mismatch.
     "tiny":    ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin", 75_975_616),
-    "base":    ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin", 147_964_211),
+    "base":    ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin", 147_951_465),
     "base.en": ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin", 147_964_211),
     "small":   ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin", 487_626_665),
 }

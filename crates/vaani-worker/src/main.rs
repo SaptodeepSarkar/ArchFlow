@@ -86,7 +86,7 @@ fn main() {
     };
 
     let (text, backend) = match (backend_bin, model_exists(&model)) {
-        (Some(bin), true) => match run_whisper_cli(&bin, &model, &language, threads, translate, &samples) {
+        (Some(bin), true) => match run_whisper_cli(&bin, &model_resolve(&model), &language, threads, translate, &samples) {
             Ok(t) => (t, "whisper-cli"),
             Err(e) => {
                 eprintln!("vaani-worker: whisper backend failed ({e}), falling back to stub");
@@ -100,12 +100,54 @@ fn main() {
 }
 
 fn model_exists(m: &str) -> bool {
-    !m.is_empty() && std::path::Path::new(m).exists()
+    if !m.is_empty() && std::path::Path::new(m).exists() {
+        return true;
+    }
+    // Accept a bare model name too: resolve against the models dir.
+    if !m.contains('/') && !m.is_empty() {
+        let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
+            format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+        });
+        for cand in [format!("{base}/vaani/models/{m}.bin"), format!("{base}/vaani/models/{m}")] {
+            if std::path::Path::new(&cand).exists() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn model_resolve(m: &str) -> String {
+    if !m.is_empty() && std::path::Path::new(m).exists() {
+        return m.to_string();
+    }
+    if !m.contains('/') && !m.is_empty() {
+        let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
+            format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+        });
+        for cand in [format!("{base}/vaani/models/{m}.bin"), format!("{base}/vaani/models/{m}")] {
+            if std::path::Path::new(&cand).exists() {
+                return cand;
+            }
+        }
+    }
+    m.to_string()
 }
 
 fn find_binary(names: &[&str]) -> Option<String> {
-    let path = std::env::var("PATH").unwrap_or_default();
-    for dir in path.split(':') {
+    let mut dirs: Vec<String> = std::env::var("PATH").unwrap_or_default().split(':').map(|s| s.to_string()).collect();
+    // User-local + admin prefixes the systemd service PATH may lack.
+    if let Ok(home) = std::env::var("HOME") {
+        dirs.push(format!("{home}/.local/bin"));
+    }
+    dirs.push("/usr/local/bin".into());
+    // Sibling of this executable (same install prefix as the daemon).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            dirs.push(dir.to_string_lossy().into_owned());
+        }
+    }
+    for dir in &dirs {
         for n in names {
             let p = format!("{dir}/{n}");
             if std::path::Path::new(&p).exists() {

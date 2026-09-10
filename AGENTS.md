@@ -21,6 +21,11 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.3.0** (2026-09-11): real transcription. whisper.cpp v1.7.6 (local
+  CPU build) + ggml base; worker `whisper-cli` backend proven on jfk.wav
+  (1.6 s, WER≈0); room loopback toggle→paste end-to-end; sibling/user-bin
+  lookup, bare-name model resolve, manifest hash + sizes corrected.
+  One commit: `v0.3.0 stt`, tag `v0.3.0`. Weights never in repo.
 - **v0.2.2** (2026-09-11): service readiness. Worker resolved as sibling of
   the daemon binary (systemd minimal PATH), user unit without EROFS-causing
   lockdown. Lua keybinds (`SUPER+H` etc.) in user config + runtime eval.
