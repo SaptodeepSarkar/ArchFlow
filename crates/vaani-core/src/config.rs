@@ -37,6 +37,10 @@ pub struct General {
     pub review_before_insertion: bool,
     #[serde(default = "default_true")]
     pub unicode_output: bool,
+    /// live-dictation commit cadence, seconds (2..=10). Lower = more
+    /// responsive typing, more inference cost + clipboard churn.
+    #[serde(default = "default_live_chunk")]
+    pub live_chunk_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +111,9 @@ fn default_profile() -> String {
 fn default_true() -> bool {
     true
 }
+fn default_live_chunk() -> u64 {
+    4
+}
 fn default_threads() -> u32 {
     4
 }
@@ -144,6 +151,7 @@ impl Default for General {
             residency_profile: default_profile(),
             review_before_insertion: false,
             unicode_output: true,
+            live_chunk_secs: default_live_chunk(),
         }
     }
 }
@@ -286,6 +294,14 @@ impl Config {
                     Ok(v.into())
                 }
                 _ => Err("must be true|false".into()),
+            },
+            "general.live_chunk_secs" => {
+                let n: u64 = v.parse().map_err(|_| "must be 2..10")?;
+                if !(2..=10).contains(&n) {
+                    return Err("must be 2..10".into());
+                }
+                self.general.live_chunk_secs = n;
+                Ok(n.to_string())
             },
             "audio.device_selector" => {
                 if v.len() > 256 {

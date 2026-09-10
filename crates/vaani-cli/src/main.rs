@@ -20,6 +20,8 @@ enum Cmd {
     Start,
     Stop,
     Cancel,
+    #[command(name = "live-toggle")]
+    LiveToggle,
     Status {
         #[arg(long)]
         json: bool,
@@ -61,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Start => RequestKind::Start,
         Cmd::Stop => RequestKind::Stop,
         Cmd::Cancel => RequestKind::Cancel,
+        Cmd::LiveToggle => RequestKind::LiveToggle,
         Cmd::Status { .. } => RequestKind::Status,
         Cmd::Settings => RequestKind::Settings,
         Cmd::Doctor => RequestKind::Doctor,

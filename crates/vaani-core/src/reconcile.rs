@@ -36,6 +36,51 @@ fn norm(w: &str) -> String {
         .to_lowercase()
 }
 
+/// Live dictation: split a cumulative transcript into a committable stable
+/// prefix and an unstable tail. Only the stable part may be inserted; the
+/// tail stays provisional (never typed into another application).
+pub fn stable_prefix(text: &str, tail_words: usize) -> (String, String) {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.len() <= tail_words {
+        return (String::new(), text.trim().to_string());
+    }
+    let cut = words.len() - tail_words;
+    (words[..cut].join(" "), words[cut..].join(" "))
+}
+
+/// Delta between already-committed text and a new stable prefix.
+/// Returns None when the recognizer revised earlier words (no commit this
+/// round — wait for stability rather than duplicating or deleting).
+pub fn delta_vs(committed: &str, stable: &str) -> Option<String> {
+    let c = committed.trim();
+    let s = stable.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if c.is_empty() {
+        return Some(s.to_string());
+    }
+    if s == c {
+        return None;
+    }
+    match s.strip_prefix(c) {
+        Some(rest) => {
+            // Word-boundary safe: committed must end on a boundary.
+            if rest.starts_with(char::is_whitespace) {
+                let d = rest.trim_start().to_string();
+                if d.is_empty() {
+                    None
+                } else {
+                    Some(d)
+                }
+            } else {
+                None
+            }
+        }
+        None => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,5 +102,26 @@ mod tests {
     fn empty_segments_ok() {
         assert_eq!(reconcile(&["", "  ", "hi"]), "hi");
         assert_eq!(reconcile(&[]), "");
+    }
+
+    #[test]
+    fn stable_holds_back_tail() {
+        let (s, t) = stable_prefix("one two three four five six", 2);
+        assert_eq!(s, "one two three four");
+        assert_eq!(t, "five six");
+        let (s, t) = stable_prefix("hi there", 4);
+        assert_eq!(s, "");
+        assert_eq!(t, "hi there");
+    }
+
+    #[test]
+    fn delta_advances_and_detects_revision() {
+        assert_eq!(delta_vs("", "hello world"), Some("hello world".into()));
+        assert_eq!(delta_vs("hello world", "hello world of rust"), Some("of rust".into()));
+        assert_eq!(delta_vs("hello world", "hello world"), None);
+        // Revised earlier words -> None (wait, don't duplicate).
+        assert_eq!(delta_vs("hello world", "hello there world peace"), None);
+        // Mid-word boundary -> None.
+        assert_eq!(delta_vs("hello wor", "hello world peace"), None);
     }
 }

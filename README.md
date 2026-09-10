@@ -7,6 +7,11 @@ Focus a text field → `Super+Alt+Space` → speak → `Super+Alt+Space` →
 transcribe → insert (or explicit copy). No account, telemetry, cloud,
 history, or always-listening mic.
 
+Live dictation: `Super+H` types stabilized words into the focused field as
+you speak (overlay shows the provisional tail in italics — that part is not
+yet typed). Press `Super+H` again to finish. Terminals and review mode
+preview only, then copy.
+
 ## Quick start (this laptop)
 
 ```sh

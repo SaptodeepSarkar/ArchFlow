@@ -23,6 +23,7 @@ fn oversize_rejected() {
 fn all_ops_roundtrip() {
     for kind in [
         RequestKind::Toggle,
+        RequestKind::LiveToggle,
         RequestKind::Start,
         RequestKind::Stop,
         RequestKind::Cancel,

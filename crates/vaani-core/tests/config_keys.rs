@@ -23,3 +23,12 @@ fn rejects_unknown_and_bad_values() {
     assert!(c.set_key("hacker.key", "1").is_err());
     assert!(c.set_key("recognition.language", "auto").is_err());
 }
+
+#[test]
+fn live_chunk_bounded() {
+    let mut c = Config::default();
+    assert_eq!(c.general.live_chunk_secs, 4);
+    assert_eq!(c.set_key("general.live_chunk_secs", "6").unwrap(), "6");
+    assert!(c.set_key("general.live_chunk_secs", "1").is_err());
+    assert!(c.set_key("general.live_chunk_secs", "30").is_err());
+}

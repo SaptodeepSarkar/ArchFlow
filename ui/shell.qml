@@ -25,6 +25,8 @@ Scope {
     property bool hidePreview: false
     property string pendingText: ""
     property var settingsApi: null
+    property string provisional: ""
+    property int committedWords: 0
 
     function send(obj) {
         obj.protocol_version = 1;
@@ -47,8 +49,13 @@ Scope {
             applyState(msg);
             return;
         }
-        if (msg.event === "state") {
-            applyState(msg);
+        if (msg.event === "provisional") {
+            var tail = (msg.data && msg.data.tail) || "";
+            var hidden = msg.data && msg.data.hidden;
+            root.provisional = hidden ? "" : String(tail).slice(-120);
+            root.committedWords = (msg.data && msg.data.committed_words) || 0;
+            if (hidden)
+                root.statusText = "preview hidden";
             return;
         }
         if (msg.event === "amplitude") {
@@ -90,10 +97,15 @@ Scope {
             root.statusText = msg.message;
         if (msg.data && msg.data.text !== undefined)
             root.pendingText = msg.data.text;
-        if (root.state === "RECORDING")
+        if (root.state === "RECORDING") {
             elapsedTimer.restart();
-        else
+            if (msg.event === "state" && msg.message === "Listening") {
+                root.provisional = "";
+                root.committedWords = 0;
+            }
+        } else {
             elapsedTimer.stop();
+        }
         // On-demand UI residency: exit when nothing needs us.
         if ((root.state === "IDLE" || root.state === "CANCELLED") && !root.showSettings)
             Qt.quit();
@@ -162,17 +174,25 @@ Scope {
             Rectangle {
                 anchors.centerIn: parent
                 width: 300
-                height: 56
+                // Grows by one line while provisional (unstable) text previews.
+                height: root.provisional !== "" ? 88 : 56
                 radius: 18
                 color: "#17181D"
                 border.color: "#2A2C36"
                 border.width: 1
 
-                RowLayout {
+                ColumnLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 12
                     anchors.rightMargin: 8
-                    spacing: 8
+                    anchors.topMargin: 6
+                    anchors.bottomMargin: 6
+                    spacing: 2
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        spacing: 8
 
                     // Live amplitude: 16 mini-bars, updates <=30 Hz.
                     Row {
@@ -224,6 +244,19 @@ Scope {
                             "op": "cancel"
                         })
                     }
+                    }
+
+                    // Live provisional tail: explicitly NOT inserted text.
+                    // Only stabilized words (committedWords) reach the app.
+                    Text {
+                        visible: root.provisional !== ""
+                        Layout.fillWidth: true
+                        text: "…" + root.provisional + "  ·  " + root.committedWords + " typed"
+                        color: "#FFD18A"
+                        font.pixelSize: 11
+                        font.italic: true
+                        elide: Text.ElideLeft
+                    }
                 }
             }
         }
@@ -263,8 +296,6 @@ Scope {
             id: settingsWin
             implicitWidth: 760
             implicitHeight: 560
-            minimumWidth: 640
-            minimumHeight: 480
             title: "Vaani Settings"
             visible: true
             color: "#1E1F26"

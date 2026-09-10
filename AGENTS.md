@@ -21,6 +21,10 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.2.0** (2026-09-11): live dictation (`SUPER+H` → `vaani live-toggle`).
+  Stable-prefix commits while recording (last 4 words held provisional),
+  per-commit focus recheck, terminal/review preview-only, remainder on finish.
+  One commit: `v0.2.0 live`, tag `v0.2.0`.
 - **v0.1.0** (2026-09-10): first dependable vertical slice. Toggle dictation
   end-to-end on the laptop (capture → stub transcription → silence policy →
   copy-only insertion), event-driven overlay, settings, packaging, 31 tests.

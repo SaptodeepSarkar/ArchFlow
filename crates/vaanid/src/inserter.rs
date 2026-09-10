@@ -67,6 +67,17 @@ pub fn insert_automatic(
     }
 }
 
+/// Live-dictation commit: type one stabilized delta into the target.
+/// Rechecks focus immediately before dispatch; any failure freezes live
+/// commits (caller keeps the full text recoverable). Never appends Enter.
+pub(crate) fn commit_delta(text: &str, target: &FocusTarget) -> Result<(), String> {
+    let current = focus::recheck_target(target)?;
+    clipboard::offer_text(text).map_err(|e| format!("clipboard offer failed: {e}"))?;
+    let chord = paste_chord_for(&current.app_id);
+    dispatch_key(&chord).map_err(|e| format!("dispatch failed: {e}"))?;
+    Ok(())
+}
+
 fn paste_chord_for(app_id: &str) -> String {
     let l = app_id.to_lowercase();
     if l.contains("foot") || l.contains("kitty") || l.contains("alacritty") || l.contains("wezterm") {

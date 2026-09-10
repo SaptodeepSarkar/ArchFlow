@@ -19,6 +19,9 @@ pub enum RequestKind {
     Start,
     Stop,
     Cancel,
+    /// Live dictation: commits stabilized words while recording (SUPER+H).
+    /// Only stable prefixes are inserted; the trailing tail stays provisional.
+    LiveToggle,
     Status,
     Settings,
     Doctor,
