@@ -24,6 +24,16 @@ pub fn worker_bin() -> String {
             return p;
         }
     }
+    // Sibling of this executable: robust under systemd's minimal PATH for
+    // both ~/.local/bin and /usr/bin installs.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let sib = dir.join("vaani-worker");
+            if sib.exists() {
+                return sib.to_string_lossy().into_owned();
+            }
+        }
+    }
     "vaani-worker".into()
 }
 

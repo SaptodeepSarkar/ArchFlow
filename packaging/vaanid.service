@@ -15,13 +15,15 @@ StartLimitBurst=5
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=5
-# Hardening tested for compatibility: must NOT block Wayland, PipeWire,
-# or the explicitly enabled GPU worker.
+# Hardening, compatibility-checked on Arch/systemd 261: the controller MUST
+# write $XDG_RUNTIME_DIR/vaani + $HOME config/data dirs and spawn
+# pw-record/wl-copy/hyprctl/quickshell, so ProtectSystem=strict and
+# ProtectHome=read-only are INCOMPATIBLE (they abort startup with EROFS).
+# Keep the containment that doesn't break the app's job:
 NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
 PrivateTmp=true
 RestrictSUIDSGID=true
+UMask=0077
 # NOTE: paths below assume install prefix ~/.local/bin. Adjust ExecStart if
 # you install elsewhere. StateDirectory not used: XDG paths are resolved
 # by the binary itself.
