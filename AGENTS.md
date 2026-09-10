@@ -21,6 +21,10 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.2.2** (2026-09-11): service readiness. Worker resolved as sibling of
+  the daemon binary (systemd minimal PATH), user unit without EROFS-causing
+  lockdown. Lua keybinds (`SUPER+H` etc.) in user config + runtime eval.
+  One commit: `v0.2.2 service`, tag `v0.2.2`.
 - **v0.2.1** (2026-09-11): UI event stream (daemon forwards state/amplitude/
   provisional to subscribers — visualizer was starved before), QML `sendOp`
   wire format (buttons sent malformed `kind`-less messages), typing-space
