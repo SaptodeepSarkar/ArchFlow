@@ -1,0 +1,54 @@
+# Maintainer: Vaani contributors
+pkgname=vaani
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Local-first voice dictation for Hyprland/Wayland (Rust + whisper.cpp + Quickshell)"
+arch=('x86_64')
+url="https://github.com/example/vaani"
+license=('MIT')
+# Official repo dependencies (verify with `pacman -Si <pkg>`):
+depends=('pipewire' 'wl-clipboard' 'hyprland' 'quickshell' 'qt6-base' 'qt6-declarative' 'curl' 'gcc-libs' 'glibc')
+# whisper.cpp is OPTIONAL at runtime (cpu-stub is silence-safe without it).
+# For real transcription: build pinned whisper.cpp per native/worker/README.md
+# or install whisper.cpp from AUR (aur/whisper.cpp) — kept optdepends on purpose.
+optdepends=('whisper.cpp: local transcription backend'
+            'cuda: optional GPU worker (user-selected build only)')
+makedepends=('rust' 'cargo' 'cmake' 'pkgconf')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')  # release tarballs get pinned checksums; VCS builds use --skipinteg in dev only
+
+build() {
+  cd "$pkgname-$pkgver"
+  # Reproducible build inputs: locked deps via Cargo.lock, pinned toolchain.
+  cargo build --locked --release
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/vaanid "$pkgdir/usr/bin/vaanid"
+  install -Dm755 target/release/vaani "$pkgdir/usr/bin/vaani"
+  install -Dm755 target/release/vaani-worker "$pkgdir/usr/bin/vaani-worker"
+  install -Dm644 packaging/vaanid.service "$pkgdir/usr/lib/systemd/user/vaanid.service"
+  install -Dm644 packaging/vaani.desktop "$pkgdir/usr/share/applications/vaani.desktop"
+  install -Dm644 packaging/hyprland/vaani.conf "$pkgdir/usr/share/vaani/hyprland/vaani.conf"
+  install -Dm644 config.example.toml "$pkgdir/usr/share/vaani/config.example.toml"
+  install -Dm644 models/manifest.toml "$pkgdir/usr/share/vaani/models/manifest.toml"
+  # Quickshell app-owned config (NOT the user's desktop shell):
+  install -Dm644 ui/shell.qml "$pkgdir/usr/share/quickshell/vaani/shell.qml"
+  install -Dm644 ui/SettingsView.qml "$pkgdir/usr/share/quickshell/vaani/SettingsView.qml"
+  install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+post_install() {
+  echo "==> vaani installed. Next steps (no dotfiles touched, no hooks run):"
+  echo "    1. systemctl --user enable --now vaanid.service  (or with UWSM: see docs/configuration.md)"
+  echo "    2. cp /usr/share/vaani/hyprland/vaani.conf ~/.config/hypr/vaani.conf"
+  echo "       and add 'source = ~/.config/hypr/vaani.conf' to hyprland.conf"
+  echo "    3. vaani settings  -> choose/download model, test mic, test insertion"
+  echo "Models download on first-run setup, never at build/install time."
+}
+
+post_remove() {
+  echo "==> vaani removed. User config (~/.config/vaani) and models"
+  echo "    (~/.local/share/vaani/models) were left in place by design."
+}

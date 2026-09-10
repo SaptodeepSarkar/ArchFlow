@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Vaani Settings
+Comment=Local-first voice dictation settings
+Exec=vaani settings
+Icon=audio-input-microphone
+Terminal=false
+Categories=Utility;Accessibility;
+NoDisplay=true

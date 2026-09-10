@@ -1,0 +1,10 @@
+# whisper.cpp pin for vaani-worker
+#
+# Pinned release: v1.7.6 (ggml-org/whisper.cpp)
+# Format required by this build: ggml .bin models (NOT arbitrary GGUF/Ollama blobs).
+# Verify at build time:
+#   git clone --branch v1.7.6 --depth 1 https://github.com/ggml-org/whisper.cpp
+# CPU build:  cmake -B build -DWHISPER_BUILD_TESTS=OFF && cmake --build build -j
+# CUDA build (optional, user-selected): -DWHISPER_CUDA=ON (needs CUDA toolkit)
+# The produced `whisper-cli` binary + chosen ggml model are used by vaani-worker.
+# Without them, vaani-worker runs in cpu-stub mode (silence-safe, inserts nothing).

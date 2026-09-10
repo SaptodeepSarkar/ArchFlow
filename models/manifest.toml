@@ -1,0 +1,38 @@
+# Model manifest — first-run choice precedes download. Weights are NEVER
+# bundled in the package. Download to tmp, verify sha256, then rename.
+# Sizes/memories are upstream estimates to display, not guarantees.
+# Sources: https://huggingface.co/ggerganov/whisper.cpp
+schema_version = 1
+whisper_cpp_pin = "see native/worker/WHISPER_PIN"
+
+[[model]]
+name = "tiny"
+ggml_file = "ggml-tiny.bin"
+bytes = 75975616
+est_mem_mb = 200
+license = "MIT"
+sha256 = "PUT_SHA256_HERE_AFTER_PIN_VERIFICATION"
+
+[[model]]
+name = "base"
+ggml_file = "ggml-base.bin"
+bytes = 147964211
+est_mem_mb = 400
+license = "MIT"
+sha256 = "PUT_SHA256_HERE_AFTER_PIN_VERIFICATION"
+
+[[model]]
+name = "base.en"
+ggml_file = "ggml-base.en.bin"
+bytes = 147964211
+est_mem_mb = 400
+license = "MIT"
+sha256 = "PUT_SHA256_HERE_AFTER_PIN_VERIFICATION"
+
+[[model]]
+name = "small"
+ggml_file = "ggml-small.bin"
+bytes = 487626665
+est_mem_mb = 900
+license = "MIT"
+sha256 = "PUT_SHA256_HERE_AFTER_PIN_VERIFICATION"

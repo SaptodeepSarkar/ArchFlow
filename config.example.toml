@@ -1,0 +1,50 @@
+# Vaani example configuration — copy to ~/.config/vaani/config.toml
+# Schema version 1. Unknown keys are ignored; invalid values fall back to defaults.
+schema_version = 1
+
+[general]
+# economy = exit worker + UI when idle (lowest inactive RAM, default)
+# balanced = keep worker 60 s after activity (roadmap: currently same as economy + model prefetch)
+# ready = keep model resident while enabled (roadmap)
+residency_profile = "economy"
+review_before_insertion = false
+unicode_output = true
+
+[audio]
+# Empty = PipeWire default source at session start. Otherwise a stable
+# device property (never a transient numeric node id).
+device_selector = ""
+worker_threads = 4
+max_secs = 120
+
+[recognition]
+# tiny | base | base.en | small — multilingual base default; base.en English-only; small accuracy-focused
+model = "base"
+# en | hi | bn — explicit; short utterances must not rely on auto-detect
+language = "en"
+translate_to_en = false
+# cpu (default) | cuda (only with a user-selected GPU worker build)
+device = "cpu"
+
+[insertion]
+# automatic | review | copy-only
+mode = "automatic"
+clipboard_serve_secs = 30
+# pending final text expiry, in-memory only, seconds
+pending_expiry_secs = 300
+# per-application overrides: substring of Hyprland class -> mode
+[insertion.app_overrides]
+foot = "copy-only"
+kitty = "copy-only"
+Alacritty = "copy-only"
+
+[cleanup]
+# raw (default, dependable) | clean (needs endpoint below)
+mode = "raw"
+endpoint = ""
+timeout_secs = 8
+vocabulary = []
+
+[privacy]
+save_history = false
+hide_preview_on_sharing = false

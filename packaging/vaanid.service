@@ -1,0 +1,30 @@
+[Unit]
+Description=Vaani voice dictation controller (per-user)
+Documentation=https://github.com/anomalyco/opencode
+After=pipewire.service wireplumber.service
+Wants=pipewire.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/vaanid --foreground
+Restart=on-failure
+# Bounded restarts: 5 tries in 60 s, then stop hammering.
+StartLimitBurst=5
+# Clean process-group teardown (no orphaned pw-record / workers).
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=5
+# Hardening tested for compatibility: must NOT block Wayland, PipeWire,
+# or the explicitly enabled GPU worker.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+RestrictSUIDSGID=true
+# NOTE: paths below assume install prefix ~/.local/bin. Adjust ExecStart if
+# you install elsewhere. StateDirectory not used: XDG paths are resolved
+# by the binary itself.
+
+[Install]
+WantedBy=graphical-session.target
