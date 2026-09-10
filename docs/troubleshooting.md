@@ -1,0 +1,24 @@
+# Troubleshooting
+
+- `cannot reach vaanid` → `systemctl --user status vaanid` (user unit, not root).
+- `capture failed` → PipeWire running? `pw-record --help`; EasyEffects virtual
+  source selectable via audio.device_selector (stable name).
+- `Microphone disconnected` → input vanished; captured audio kept for explicit
+  `vaani recover`/`vaani copy`, retry, or `vaani discard`. Future sessions
+  re-resolve the default source; never hot-swaps mid-utterance.
+- `Text ready — target changed` → focus moved; nothing forced back. Copy/review.
+- `Paste requested` ≠ confirmed inserted — delivery can't be confirmed; check.
+- Terminal got nothing auto-pasted → by design (copy-only; `vaani copy`).
+- Multiline shell-like text → copy-only to avoid accidental execution; Enter
+  is never synthesized.
+- Transcription failed → worker crash leaves controller up; audio kept briefly
+  for retry with visible controls and bounded expiry.
+- Clipboard replaced → expected in automatic mode (setup consent); restoration
+  only of our own bounded plain-text snapshot, never clobbering newer copies.
+- Lock/suspend during recording → capture cancelled, insertion forbidden for
+  that op; re-unlock before next recording. If lock detection is unavailable
+  on your setup, automatic insertion is disabled (documented, not silent).
+- Model download interrupted → tmp file removed, rename never happens; rerun
+  `tools/model-setup.py` (checksum enforced with --sha256).
+- Memory-only handling is NOT a guarantee against swap/crash dumps/same-user
+  readers — stated plainly, not oversold.
