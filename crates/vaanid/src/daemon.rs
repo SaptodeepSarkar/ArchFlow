@@ -149,7 +149,8 @@ fn ev_state(session: Option<String>, state: State, msg: Option<&str>) -> Event {
 }
 
 async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>) {
-    let (r, mut w) = stream.into_split();
+    let (r, w) = stream.into_split();
+    let w = Arc::new(Mutex::new(w));
     let mut lines = BufReader::new(r).lines();
     // Snapshot first for subscribers.
     let snap = {
@@ -160,9 +161,49 @@ async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadca
             "pending": g.pending.is_some(),
         })
     };
-    let _ = w
-        .write_all(format!("{snap}\n").as_bytes())
-        .await;
+    {
+        let mut g = w.lock().await;
+        let _ = g
+            .write_all(format!("{snap}\n").as_bytes())
+            .await;
+    }
+
+    // Event forwarder: state/amplitude/provisional events reach subscribers
+    // over this same connection (no polling). Stale amplitude updates are
+    // coalesced under load — only the latest is forwarded.
+    let mut rx = tx.subscribe();
+    let w2 = w.clone();
+    let fwd = tokio::spawn(async move {
+        loop {
+            let mut ev = match rx.recv().await {
+                Ok(ev) => ev,
+                Err(_) => break, // sender gone
+            };
+            if ev.event == "amplitude" {
+                // Drain queued amplitudes, keep the newest.
+                while let Ok(nxt) = rx.try_recv() {
+                    if nxt.event == "amplitude" {
+                        ev = nxt;
+                    } else {
+                        // Non-amplitude event queued behind: flush the latest
+                        // amplitude first, then forward the other event below.
+                        let line = serde_json::to_string(&ev).unwrap_or_default() + "\n";
+                        let mut g = w2.lock().await;
+                        if g.write_all(line.as_bytes()).await.is_err() {
+                            return;
+                        }
+                        ev = nxt;
+                        break;
+                    }
+                }
+            }
+            let line = serde_json::to_string(&ev).unwrap_or_default() + "\n";
+            let mut g = w2.lock().await;
+            if g.write_all(line.as_bytes()).await.is_err() {
+                break;
+            }
+        }
+    });
 
     while let Ok(Some(line)) = lines.next_line().await {
         if line.trim().is_empty() {
@@ -180,7 +221,8 @@ async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadca
                     message: Some(e),
                     data: None,
                 };
-                let _ = w.write_all(format!("{}\n", serde_json::to_string(&resp).unwrap()).as_bytes()).await;
+                let mut g = w.lock().await;
+                let _ = g.write_all(format!("{}\n", serde_json::to_string(&resp).unwrap()).as_bytes()).await;
                 continue;
             }
         };
@@ -190,10 +232,16 @@ async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadca
         if resp.request_id.is_empty() {
             resp.request_id = rid;
         }
-        let _ = w
+        let mut g = w.lock().await;
+        if g
             .write_all(format!("{}\n", serde_json::to_string(&resp).unwrap()).as_bytes())
-            .await;
+            .await
+            .is_err()
+        {
+            break;
+        }
     }
+    fwd.abort();
 }
 
 fn resp_ok(rid: &str, sess: &Session, msg: Option<String>, data: Option<serde_json::Value>) -> Response {
@@ -210,6 +258,7 @@ fn resp_ok(rid: &str, sess: &Session, msg: Option<String>, data: Option<serde_js
 
 async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>) -> Response {
     let rid = req.request_id.clone();
+    tracing::info!(op = ?req.kind, rid = %rid, "ipc request");
     match req.kind {
         RequestKind::Toggle => {
             let busy = {
@@ -403,7 +452,17 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
             g.capture = Some(h);
             let sid = g.session.id.clone();
             let _ = g.session.transition(State::Recording);
-            emit(tx, &ev_state(Some(sid.clone()), State::Recording, Some("Listening")));
+            // Tell the user immediately if this is not a typable space.
+            let note = space_note_for(&g.target, &g.cfg);
+            let rec_msg;
+            let msg: &str = match &note {
+                Some(n) => {
+                    rec_msg = n.clone();
+                    &rec_msg
+                }
+                None => "Listening",
+            };
+            emit(tx, &ev_state(Some(sid.clone()), State::Recording, Some(msg)));
             // Spawn amplitude pump: drains blocks, forwards audio, emits ≤30 Hz.
             let sh = shared.clone();
             let t2 = tx.clone();
@@ -417,7 +476,11 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
                 tokio::spawn(async move { live_loop(sh, t3, sess).await });
             }
             let s = g.session.clone();
-            resp_ok("", &s, Some("Listening".into()), None)
+            let started_msg = match space_note_for(&g.target, &g.cfg) {
+                Some(n) => format!("Listening{} — {n}", if live { " (live)" } else { "" }),
+                None => format!("Listening{}", if live { " (live)" } else { "" }),
+            };
+            resp_ok("", &s, Some(started_msg), None)
         }
         Err(e) => {
             let _ = g.session.transition(State::Error);
@@ -480,6 +543,7 @@ async fn amplitude_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>
         if !alive {
             if sid_ok {
                 // Auto-stop at session limit: drop lock before stop_flow.
+                tracing::info!(sess = %sess, "auto-stop at session cap");
                 stop_flow(shared.clone(), &tx).await;
             }
             break;
@@ -497,6 +561,24 @@ async fn amplitude_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>
             });
         }
     }
+}
+
+/// Tell the user UP FRONT where their words will go. Returns a note when
+/// the session will NOT type into the target (terminal, no focus, review).
+fn space_note_for(t: &FocusTarget, cfg: &vaani_core::config::Config) -> Option<String> {
+    if t.address.is_empty() {
+        return Some("No focused window — recording anyway, text kept for copy".into());
+    }
+    if focus::is_terminal(&t.app_id) || cfg.insertion_mode_for(&t.app_id) == "copy-only" {
+        return Some(format!(
+            "{}: copy-only space — nothing auto-typed, finish then copy",
+            if t.app_id.is_empty() { "this window" } else { t.app_id.as_str() }
+        ));
+    }
+    if cfg.insertion.mode == "review" || cfg.general.review_before_insertion {
+        return Some("Review mode — nothing typed until you confirm".into());
+    }
+    None
 }
 
 /// Provisional transcript event for the overlay. `tail` is explicitly NOT
@@ -603,6 +685,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
         // Policy gate: review/terminal/no-auto sessions preview only.
         let mode = g.cfg.insertion_mode_for(&snap.target.app_id);
         let preview_only = mode == "review"
+            || mode == "copy-only"
             || g.cfg.general.review_before_insertion
             || g.no_auto.as_deref() == Some(sess.as_str())
             || focus::is_terminal(&snap.target.app_id);
@@ -652,6 +735,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
 /// Stop: idempotent, closes capture immediately, transcribes (blocking task),
 // then cleanup/insertion per policy. Late results for cancelled sessions die.
 async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) -> Response {
+    tracing::info!("stop_flow entry");
     // Capture close is synchronous and immediate, independent of transcription.
     let (samples, sid, cfg_snap, target) = {
         let mut g = shared.lock().await;
@@ -854,6 +938,7 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
 }
 
 async fn cancel_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, rid: &str) -> Response {
+    tracing::info!("cancel_flow entry");
     let mut g = shared.lock().await;
     if matches!(g.session.state, State::Idle) {
         let s = g.session.clone();

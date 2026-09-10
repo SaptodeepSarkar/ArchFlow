@@ -106,6 +106,13 @@ async fn main() -> anyhow::Result<()> {
                     } else {
                         println!("no pending text");
                     }
+                } else if ok && v.get("data").and_then(|d| d.get("peak")).is_some() {
+                    // mic-test: show levels so users can judge gain/source.
+                    let d = v.get("data").unwrap();
+                    let peak = d.get("peak").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                    let rms = d.get("rms").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                    let verdict = if rms > 0.02 { "level OK" } else { "very quiet — check input gain/source" };
+                    println!("peak {peak:.3} rms {rms:.3} — {verdict}");
                 } else if ok {
                     println!("{state}: {msg}");
                 } else {

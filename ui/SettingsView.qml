@@ -16,7 +16,7 @@ ColumnLayout {
 
     Component.onCompleted: {
         var p = parent;
-        while (p && !p.send)
+        while (p && !p.sendOp)
             p = p.parent;
         if (p) {
             p.settingsApi = settingsRoot;
@@ -25,14 +25,12 @@ ColumnLayout {
     }
 
     function requestConfig() {
-        // Ask the parent scope to send; parent exposes root.send().
+        // Ask the parent scope to send; parent exposes root.sendOp().
         var p = parent;
-        while (p && !p.send)
+        while (p && !p.sendOp)
             p = p.parent;
         if (p)
-            p.send({
-                "op": "config_get"
-            });
+            p.sendOp("config_get");
     }
 
     TabBar {
@@ -69,15 +67,12 @@ ColumnLayout {
 
     function setKey(key, value) {
         var p = parent;
-        while (p && !p.send)
+        while (p && !p.sendOp)
             p = p.parent;
         if (p)
-            p.send({
-                "op": "config_set",
-                "args": {
-                    "key": key,
-                    "value": value
-                }
+            p.sendOp("config_set", {
+                "key": key,
+                "value": value
             });
     }
 
@@ -139,14 +134,11 @@ ColumnLayout {
                 text: "Test microphone (3 s)"
                 onClicked: {
                     var p = parent;
-                    while (p && !p.send)
+                    while (p && !p.sendOp)
                         p = p.parent;
                     if (p)
-                        p.send({
-                            "op": "mic_test",
-                            "args": {
-                                "secs": 3
-                            }
+                        p.sendOp("mic_test", {
+                            "secs": 3
                         });
                 }
             }
@@ -253,12 +245,10 @@ ColumnLayout {
                 text: "Run diagnostics"
                 onClicked: {
                     var p = parent;
-                    while (p && !p.send)
+                    while (p && !p.sendOp)
                         p = p.parent;
                     if (p)
-                        p.send({
-                            "op": "doctor"
-                        });
+                        p.sendOp("doctor");
                 }
             }
             ScrollView {

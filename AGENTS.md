@@ -21,6 +21,11 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.2.1** (2026-09-11): UI event stream (daemon forwards state/amplitude/
+  provisional to subscribers — visualizer was starved before), QML `sendOp`
+  wire format (buttons sent malformed `kind`-less messages), typing-space
+  notice at record start, copy-only enforced for live commits, mic-test
+  levels in CLI, child reaping. One commit: `v0.2.1 ui+feedback`, tag `v0.2.1`.
 - **v0.2.0** (2026-09-11): live dictation (`SUPER+H` → `vaani live-toggle`).
   Stable-prefix commits while recording (last 4 words held provisional),
   per-commit focus recheck, terminal/review preview-only, remainder on finish.

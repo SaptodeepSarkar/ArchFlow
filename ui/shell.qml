@@ -28,10 +28,20 @@ Scope {
     property string provisional: ""
     property int committedWords: 0
 
-    function send(obj) {
-        obj.protocol_version = 1;
-        obj.request_id = "qml-" + Math.floor(Math.random() * 1e9);
-        sock.write(JSON.stringify(obj) + "\n");
+    // Daemon wire format: {protocol_version, request_id, session_id, kind}
+    // where kind = {op, args?}. Anything else is rejected as malformed.
+    function sendOp(op, args) {
+        var msg = {
+            protocol_version: 1,
+            request_id: "qml-" + Math.floor(Math.random() * 1e9),
+            session_id: null,
+            kind: {
+                op: op
+            }
+        };
+        if (args !== undefined)
+            msg.kind.args = args;
+        sock.write(JSON.stringify(msg) + "\n");
         sock.flush();
     }
 
@@ -150,13 +160,21 @@ Scope {
         }
     }
 
-    // ---- Recording overlay: bottom-center, 300x56, no keyboard focus ----
+    // Bar height for visualizer slot i (0..15), visibility-scaled so quiet
+    // mics still move. Updates arrive <=30 Hz while recording only.
+    function barH(i) {
+        var v = root.ampHistory[root.ampHistory.length - 16 + i] || 0;
+        v = Math.min(1, v * 6);
+        return 3 + 25 * Math.pow(v, 0.6);
+    }
+
+    // ---- Recording overlay: bottom-center, no keyboard focus ----
     LazyLoader {
         active: root.state !== "IDLE" && !root.showSettings
         PanelWindow {
             id: overlay
-            implicitWidth: 300
-            implicitHeight: 56
+            implicitWidth: 320
+            implicitHeight: card.height + 48
             color: "transparent"
             // Anchor bottom-center, 24px above usable edge, no exclusive zone.
             anchors {
@@ -172,10 +190,12 @@ Scope {
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
             Rectangle {
-                anchors.centerIn: parent
-                width: 300
+                id: card
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                width: 320
                 // Grows by one line while provisional (unstable) text previews.
-                height: root.provisional !== "" ? 88 : 56
+                height: root.provisional !== "" ? 88 : 58
                 radius: 18
                 color: "#17181D"
                 border.color: "#2A2C36"
@@ -184,66 +204,98 @@ Scope {
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 12
-                    anchors.rightMargin: 8
-                    anchors.topMargin: 6
-                    anchors.bottomMargin: 6
-                    spacing: 2
+                    anchors.rightMargin: 10
+                    anchors.topMargin: 7
+                    anchors.bottomMargin: 7
+                    spacing: 3
 
                     RowLayout {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        Layout.preferredHeight: 30
                         spacing: 8
 
-                    // Live amplitude: 16 mini-bars, updates <=30 Hz.
-                    Row {
-                        spacing: 2
-                        Repeater {
-                            model: 16
-                            Rectangle {
-                                width: 3
-                                height: {
-                                    var v = root.ampHistory[root.ampHistory.length - 16 + index] || 0;
-                                    return 4 + v * 20;
+                        // Visualizer: fixed box, manually placed bars bottom-up.
+                        Item {
+                            Layout.preferredWidth: 80
+                            Layout.preferredHeight: 30
+                            Layout.alignment: Qt.AlignVCenter
+                            Repeater {
+                                model: 16
+                                Rectangle {
+                                    x: index * 5
+                                    y: parent.height - height
+                                    width: 3
+                                    height: root.barH(index)
+                                    radius: 1.5
+                                    color: root.state === "ERROR" ? "#FF8C9B" : "#B9A3FF"
                                 }
-                                radius: 1.5
-                                color: root.state === "ERROR" ? "#FF8C9B" : "#B9A3FF"
-                                anchors.verticalCenter: parent.verticalCenter
                             }
                         }
-                    }
 
-                    ColumnLayout {
-                        spacing: 0
-                        Layout.fillWidth: true
-                        Text {
-                            text: stateLabel(root.state)
-                            color: "#F5F5F7"
-                            font.pixelSize: 13
-                            font.bold: true
-                            elide: Text.ElideRight
+                        ColumnLayout {
+                            spacing: 1
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            Text {
+                                text: stateLabel(root.state)
+                                color: "#F5F5F7"
+                                font.pixelSize: 13
+                                font.bold: true
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            Text {
+                                text: overlaySub()
+                                color: "#B7BAC5"
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
                         }
-                        Text {
-                            text: overlaySub()
-                            color: "#B7BAC5"
-                            font.pixelSize: 11
-                            elide: Text.ElideRight
-                        }
-                    }
 
-                    Button {
-                        text: "■"
-                        Accessible.name: "Stop dictation"
-                        onClicked: root.send({
-                            "op": "stop"
-                        })
-                    }
-                    Button {
-                        text: "✕"
-                        Accessible.name: "Cancel dictation"
-                        onClicked: root.send({
-                            "op": "cancel"
-                        })
-                    }
+                        // Compact round buttons that always fit the 58px card.
+                        Rectangle {
+                            Layout.preferredWidth: 30
+                            Layout.preferredHeight: 30
+                            Layout.alignment: Qt.AlignVCenter
+                            radius: 15
+                            color: stopArea.containsMouse ? "#3A3D4A" : "#26282F"
+                            Text {
+                                anchors.centerIn: parent
+                                text: "■"
+                                color: "#F5F5F7"
+                                font.pixelSize: 11
+                            }
+                            MouseArea {
+                                id: stopArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: root.sendOp("stop")
+                            }
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Stop dictation"
+                        }
+                        Rectangle {
+                            Layout.preferredWidth: 30
+                            Layout.preferredHeight: 30
+                            Layout.alignment: Qt.AlignVCenter
+                            radius: 15
+                            color: cancelArea.containsMouse ? "#4A2E36" : "#26282F"
+                            Text {
+                                anchors.centerIn: parent
+                                text: "✕"
+                                color: "#FF8C9B"
+                                font.pixelSize: 11
+                            }
+                            MouseArea {
+                                id: cancelArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: root.sendOp("cancel")
+                            }
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Cancel dictation"
+                        }
                     }
 
                     // Live provisional tail: explicitly NOT inserted text.
