@@ -43,6 +43,10 @@ struct Shared {
     live: bool,
     /// Stable text already typed into the target in this live session.
     committed: String,
+    /// Cumulative transcript assembled from incremental audio chunks.
+    live_transcript: String,
+    /// End sample represented by the last accepted live chunk.
+    live_audio_cursor: usize,
     /// Last accepted activation (toggle/start): repeats inside the window
     /// are ignored so key-repeat can't start+stop instantly.
     last_activation: Option<std::time::Instant>,
@@ -91,6 +95,8 @@ pub async fn run() -> anyhow::Result<()> {
         no_auto: None,
         live: false,
         committed: String::new(),
+        live_transcript: String::new(),
+        live_audio_cursor: 0,
         target_lost: false,
         last_activation: None,
     }));
@@ -482,6 +488,8 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
         g.target = focus::active_target();
         g.live = live;
         g.committed = String::new();
+        g.live_transcript.clear();
+        g.live_audio_cursor = 0;
         g.target_lost = false;
         emit(tx, &ev_state(Some(sid), State::Starting, Some("Starting microphone…")));
         // On-demand overlay UI (separate app-owned Quickshell config).
@@ -698,9 +706,10 @@ fn emit_provisional(
 
 struct LiveSnap {
     audio: Vec<f32>,
+    audio_end: usize,
+    transcript: String,
     cfg: vaani_core::config::Config,
     target: FocusTarget,
-    committed: String,
 }
 
 enum LiveTick {
@@ -750,12 +759,12 @@ async fn auto_stop_watch(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event
 /// the newly stabilized prefix (last TAIL words held back as provisional).
 /// A worker failure retries next tick; the controller stays up.
 fn live_tail_words() -> usize {
-    4
+    1
 }
 
 async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, sess: String) {
     loop {
-        let chunk_secs = { shared.lock().await.cfg.general.live_chunk_secs.clamp(2, 10) };
+        let chunk_secs = { shared.lock().await.cfg.general.live_chunk_secs.clamp(1, 10) };
         tokio::time::sleep(std::time::Duration::from_secs(chunk_secs)).await;
         let tick: LiveTick = {
             let g = shared.lock().await;
@@ -763,14 +772,18 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
                 LiveTick::Exit
             } else if g.target_lost {
                 LiveTick::Skip // focus lost: keep recording, commit nothing
-            } else if g.audio.len() < 16_000 {
+            } else if g.audio.len().saturating_sub(g.live_audio_cursor) < 8_000 {
                 LiveTick::Skip // <1 s: not worth an inference pass
             } else {
+                // One-second overlap lets reconciliation remove words split
+                // across chunks without retranscribing the whole recording.
+                let start = g.live_audio_cursor.saturating_sub(16_000);
                 LiveTick::Work(LiveSnap {
-                    audio: g.audio.clone(),
+                    audio: g.audio[start..].to_vec(),
+                    audio_end: g.audio.len(),
+                    transcript: g.live_transcript.clone(),
                     cfg: g.cfg.clone(),
                     target: g.target.clone(),
-                    committed: g.committed.clone(),
                 })
             }
         };
@@ -779,6 +792,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
             LiveTick::Skip => continue,
             LiveTick::Work(s) => s,
         };
+        let previous_transcript = snap.transcript.clone();
         let work = tokio::task::spawn_blocking(move || {
             let cuda = snap.cfg.recognition.device == "cuda";
             worker_sup::transcribe(
@@ -810,7 +824,10 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
             emit_provisional(&tx, &sess, "", hide, committed_n);
             continue;
         }
-        let (stable, _tail) = vaani_core::reconcile::stable_prefix(&t.text, live_tail_words());
+        let combined = vaani_core::reconcile::reconcile(&[&previous_transcript, &t.text]);
+        g.live_transcript = combined.clone();
+        g.live_audio_cursor = snap.audio_end;
+        let (stable, _tail) = vaani_core::reconcile::stable_prefix(&combined, live_tail_words());
         // Policy gate: review/terminal/no-auto sessions preview only.
         let mode = g.cfg.insertion_mode_for(&snap.target.app_id);
         let preview_only = mode == "review"
@@ -820,7 +837,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
             || focus::is_terminal(&snap.target.app_id);
         if preview_only {
             // Show everything beyond committed as provisional; commit nothing.
-            emit_provisional(&tx, &sess, &t.text, hide, committed_n);
+            emit_provisional(&tx, &sess, &combined, hide, committed_n);
             continue;
         }
         match vaani_core::reconcile::delta_vs(&g.committed, &stable) {
@@ -837,7 +854,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
                     Ok(Ok(())) => {
                         g.committed = stable;
                         let n = g.committed.split_whitespace().count();
-                        emit_provisional(&tx, &sess, &t.text, hide, n);
+                        emit_provisional(&tx, &sess, &combined, hide, n);
                     }
                     _ => {
                         // Focus moved or dispatch failed: freeze commits,
@@ -845,13 +862,13 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
                         g.target_lost = true;
                         let n = g.committed.split_whitespace().count();
                         emit(&tx, &ev_state(Some(sess.clone()), State::Recording, Some("Text ready — target changed; finishing keeps text for copy")));
-                        emit_provisional(&tx, &sess, &t.text, hide, n);
+                        emit_provisional(&tx, &sess, &combined, hide, n);
                     }
                 }
             }
             None => {
                 // No new stable words (or recognizer revised): preview tail only.
-                emit_provisional(&tx, &sess, &t.text, hide, committed_n);
+                emit_provisional(&tx, &sess, &combined, hide, committed_n);
             }
         }
     }
@@ -891,7 +908,7 @@ async fn copy_fallback(
 async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) -> Response {
     tracing::info!("stop_flow entry");
     // Capture close is synchronous and immediate, independent of transcription.
-    let (samples, sid, cfg_snap, target) = {
+    let (samples, sid, cfg_snap, target, live_seed, live_cursor, was_live_at_stop) = {
         let mut g = shared.lock().await;
         if matches!(g.session.state, State::Idle) {
             let s = g.session.clone();
@@ -924,7 +941,15 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
         let _ = g.session.transition(State::Transcribing);
         let sid = g.session.id.clone();
         emit(tx, &ev_state(Some(sid.clone()), State::Transcribing, Some("Transcribing…")));
-        (g.audio.clone(), sid, g.cfg.clone(), g.target.clone())
+        (
+            g.audio.clone(),
+            sid,
+            g.cfg.clone(),
+            g.target.clone(),
+            g.live_transcript.clone(),
+            g.live_audio_cursor,
+            g.live,
+        )
     };
 
     let t0 = std::time::Instant::now();
@@ -933,7 +958,24 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
     let samples_for_worker = samples.clone();
     let cuda = cfg_snap.recognition.device == "cuda";
     let work = tokio::task::spawn_blocking(move || {
-        worker_sup::transcribe(&samples_for_worker, &cfg_snap.recognition.model, &cfg_snap.recognition.language, cfg_snap.recognition.translate_to_en, cfg_snap.audio.worker_threads, cuda)
+        let start = if was_live_at_stop && !live_seed.is_empty() {
+            live_cursor.saturating_sub(16_000).min(samples_for_worker.len())
+        } else {
+            0
+        };
+        let mut result = worker_sup::transcribe(
+            &samples_for_worker[start..],
+            &cfg_snap.recognition.model,
+            &cfg_snap.recognition.language,
+            cfg_snap.recognition.translate_to_en,
+            cfg_snap.audio.worker_threads,
+            cuda,
+        )?;
+        if !live_seed.is_empty() {
+            result.text = vaani_core::reconcile::reconcile(&[&live_seed, &result.text]);
+            result.is_silence = result.text.is_empty();
+        }
+        Ok::<_, anyhow::Error>(result)
     })
     .await;
 
@@ -944,6 +986,8 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
         return resp_ok("", &s, Some("stale result discarded".into()), None);
     }
     g.audio.clear(); // default audio retention ends after transcription
+    g.live_transcript.clear();
+    g.live_audio_cursor = 0;
     match work {
         Ok(Ok(t)) => {
             g.last_lat.stop_to_text_ms = t0.elapsed().as_millis() as u64;
@@ -1041,17 +1085,48 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                 g.no_auto = None; // one-shot: applies to this operation only
             }
             if mode == "review" || g.cfg.general.review_before_insertion || settings_open {
-                let s = g.session.clone();
+                // Review gate: never auto-paste, but never park the session in
+                // READY either — the overlay only auto-exits from finished
+                // states. Clipboard + pending keep the text recoverable
+                // (SUPER+ALT+C / copy), then the session closes itself.
                 let why = if settings_open { "Text ready — settings open, review required" } else { "Text ready — review required" };
-                return resp_ok("", &s, Some(why.into()), Some(serde_json::json!({"text": final_text})));
+                let text_c = final_text.clone();
+                drop(g);
+                let clip_ok = tokio::task::spawn_blocking(move || clipboard::offer_text(&text_c))
+                    .await
+                    .map(|r| r.is_ok())
+                    .unwrap_or(false);
+                g = shared.lock().await;
+                if g.session.id != sid {
+                    let s = g.session.clone();
+                    return resp_ok("", &s, Some("stale review result discarded".into()), None);
+                }
+                let _ = g.session.transition(State::Idle);
+                let msg = if clip_ok {
+                    format!("{why} — text is on the clipboard")
+                } else {
+                    format!("{why} — clipboard offer failed, use copy/recover")
+                };
+                emit(tx, &ev_state(Some(sid), State::Idle, Some(&msg)));
+                let s = g.session.clone();
+                return resp_ok("", &s, Some(msg), Some(serde_json::json!({"text": final_text})));
             }
             let _ = g.session.transition(State::Inserting);
             let t0d = std::time::Instant::now();
             let mode_c = mode.clone();
             let text_c = insert_text.clone();
+            let full_text_c = final_text.clone();
             let tgt_c = target.clone();
             drop(g);
-            let outcome = tokio::task::spawn_blocking(move || inserter::insert_automatic(&text_c, &tgt_c, &mode_c)).await.unwrap();
+            let (outcome, clipboard_saved) = tokio::task::spawn_blocking(move || {
+                let outcome = inserter::insert_automatic(&text_c, &tgt_c, &mode_c);
+                let saved = if matches!(outcome, inserter::InsertOutcome::DispatchAttempted(_)) {
+                    clipboard::offer_text(&full_text_c).is_ok()
+                } else {
+                    false
+                };
+                (outcome, saved)
+            }).await.unwrap();
             g = shared.lock().await;
             if g.session.id != sid || g.session.state != State::Inserting {
                 return resp_ok("", &g.session, Some("stale insertion result discarded".into()), None);
@@ -1061,6 +1136,7 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                 session_id = %sid,
                 target_app = %target.app_id,
                 outcome = %outcome,
+                clipboard_saved,
                 "insertion completed"
             );
             match outcome {
@@ -1121,6 +1197,8 @@ async fn cancel_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, 
     g.pending_audio.clear();
     g.live = false;
     g.committed.clear();
+    g.live_transcript.clear();
+    g.live_audio_cursor = 0;
     g.target_lost = false;
     // Drive to CANCELLED from any active state, then IDLE.
     let _ = g.session.transition(State::Cancelled);

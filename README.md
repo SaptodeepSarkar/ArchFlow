@@ -12,7 +12,7 @@ Independent app; "Wispr Flow–style" describes the interaction only.
 
 ## Install (any Arch + Hyprland machine)
 
-Prerequisites (all official repos): `pipewire wireplumber wl-clipboard
+Prerequisites (all official repos): `pipewire wireplumber wl-clipboard wtype
 hyprland quickshell qt6-base qt6-declarative curl cmake git rustup python`
 
 ```sh
@@ -82,9 +82,13 @@ not a promise of compatibility with every Linux desktop.
 The compact overlay contains only the microphone visualizer and text. It shows
 the latest recognized word and a lighter provisional successor. When another
 word arrives, the provisional word moves left.
-Updates follow recognition chunks (default four seconds plus inference time),
+Updates follow incremental one-second audio chunks plus inference time,
 not predictions of words you have not spoken. Both words can be corrected by
 recognition; display position does not mean the word was inserted.
+Chunks overlap by one second and are reconciled into a cumulative transcript.
+Finalization transcribes only the unconsumed tail instead of the complete long
+recording again. A successful completion both requests paste and leaves the
+full transcript on the clipboard.
 After paste dispatch or clipboard fallback, the overlay slides below the screen
 edge and exits. Clipboard fallback keeps the full result available through
 `vaani recover` until its configured expiry.

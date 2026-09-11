@@ -1,6 +1,6 @@
 # Maintainer: Vaani contributors
 pkgname=vaani
-pkgver=0.5.2
+pkgver=0.6.0
 pkgrel=1
 install=vaani.install
 pkgdesc="Local-first voice dictation for Hyprland/Wayland (Rust + whisper.cpp + Quickshell)"
@@ -8,7 +8,7 @@ arch=('x86_64')
 url="https://github.com/SaptodeepSarkar/ArchFlow"
 license=('MIT')
 # Official repo dependencies (verify with `pacman -Si <pkg>`):
-depends=('pipewire' 'wl-clipboard' 'hyprland' 'quickshell' 'qt6-base' 'qt6-declarative' 'curl' 'gcc-libs' 'glibc')
+depends=('pipewire' 'wl-clipboard' 'wtype' 'hyprland' 'quickshell' 'qt6-base' 'qt6-declarative' 'curl' 'gcc-libs' 'glibc')
 # whisper.cpp is OPTIONAL at runtime (cpu-stub is silence-safe without it).
 # For real transcription: build pinned whisper.cpp per native/worker/README.md
 # or install whisper.cpp from AUR (aur/whisper.cpp) — kept optdepends on purpose.

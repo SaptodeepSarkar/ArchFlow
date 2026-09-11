@@ -116,10 +116,10 @@ fn default_true() -> bool {
     true
 }
 fn default_live_chunk() -> u64 {
-    4
+    1
 }
 fn default_auto_stop() -> u64 {
-    3
+    1
 }
 fn default_threads() -> u32 {
     4
@@ -304,9 +304,9 @@ impl Config {
                 _ => Err("must be true|false".into()),
             },
             "general.live_chunk_secs" => {
-                let n: u64 = v.parse().map_err(|_| "must be 2..10")?;
-                if !(2..=10).contains(&n) {
-                    return Err("must be 2..10".into());
+                let n: u64 = v.parse().map_err(|_| "must be 1..10")?;
+                if !(1..=10).contains(&n) {
+                    return Err("must be 1..10".into());
                 }
                 self.general.live_chunk_secs = n;
                 Ok(n.to_string())

@@ -9,12 +9,12 @@ schema_version = 1
 residency_profile = "economy"
 review_before_insertion = false
 unicode_output = true
-# live-dictation commit cadence, seconds (2-10): lower = more responsive
+# live-dictation commit cadence, seconds (1-10): lower = more responsive
 # typing, more inference cost + clipboard churn
-live_chunk_secs = 4
+live_chunk_secs = 1
 # hands-free finish: transcribe after N seconds of silence following speech
 # (1-10). 0 disables (manual stop only). SUPER+H mid-session discards.
-auto_stop_secs = 3
+auto_stop_secs = 1
 
 [audio]
 # Empty = PipeWire default source at session start. Otherwise a stable

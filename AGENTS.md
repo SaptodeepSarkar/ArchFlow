@@ -21,6 +21,16 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.6.0** (2026-09-11): incremental live transcription and dependable
+  completion. One-second chunks with overlap replace cumulative re-inference;
+  finalization processes only the unconsumed tail. VAD gate lowered to 0.003
+  so quiet microphones trip end-of-speech auto-stop. wtype virtual-keyboard
+  paste replaces unreliable compositor synthesis; terminals use primary
+  selection + Shift+Insert (single modifier) while GUI apps use clipboard +
+  Ctrl+V — completion always leaves the full transcript on the clipboard AND
+  requests paste. Review-gated sessions copy to clipboard and close to Idle
+  instead of parking on "Text ready", and the overlay auto-exits from READY.
+  One commit: `v0.6.0 streaming+insertion`, tag `v0.6.0`.
 - **v0.5.2** (2026-09-11): insertion handoff hardening. Verify clipboard
   readiness, recheck focus immediately before paste dispatch, log non-content
   outcomes, and slide the overlay down after paste or clipboard fallback. One

@@ -21,5 +21,8 @@ install -m644 packaging/hyprland/vaani.conf packaging/hyprland/vaani.lua "$confi
 install -m644 packaging/vaani.desktop "$data_root/applications/vaani.desktop"
 install -m644 ui/*.qml "$config_root/quickshell/vaani/"
 install -m644 config.example.toml "$data_root/vaani/"
+if ! command -v wtype >/dev/null 2>&1 && [ ! -x "$bin_root/wtype" ]; then
+  printf '%s\n' 'NOTE: wtype not found — automatic paste falls back to Hyprland send_shortcut, which some native Wayland apps ignore.' 'For dependable injection: pacman -S wtype (official repo, no sudo performed here).'
+fi
 systemctl --user daemon-reload || true
 printf '%s\n' 'Installed Vaani. Caelestia is optional.' 'Next: add ~/.local/bin to PATH, run ./tools/setup-stt.sh, then:' '  systemctl --user enable --now vaanid.service' '  vaani doctor' 'See README.md for compositor shortcuts and system package installation.'

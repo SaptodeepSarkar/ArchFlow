@@ -27,8 +27,8 @@ fn rejects_unknown_and_bad_values() {
 #[test]
 fn live_chunk_bounded() {
     let mut c = Config::default();
-    assert_eq!(c.general.live_chunk_secs, 4);
+    assert_eq!(c.general.live_chunk_secs, 1);
     assert_eq!(c.set_key("general.live_chunk_secs", "6").unwrap(), "6");
-    assert!(c.set_key("general.live_chunk_secs", "1").is_err());
+    assert_eq!(c.set_key("general.live_chunk_secs", "1").unwrap(), "1");
     assert!(c.set_key("general.live_chunk_secs", "30").is_err());
 }

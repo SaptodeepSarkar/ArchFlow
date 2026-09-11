@@ -139,12 +139,14 @@ Scope {
         root.checkFinished();
     }
 
-    // On-demand UI residency: linger 1.6 s on finished states so the outcome
-    // ("Pasted", "On clipboard", errors) is visible, then exit.
+    // On-demand UI residency: linger briefly on finished states so the
+    // outcome ("Pasted", "On clipboard", errors) is visible, then exit.
+    // READY is finished too: the daemon never parks there, but an old or
+    // racing event must not stick the overlay on "Text ready" forever.
     function checkFinished() {
         if (root.showSettings)
             return;
-        if (root.state === "IDLE" || root.state === "CANCELLED") {
+        if (root.state === "IDLE" || root.state === "CANCELLED" || root.state === "READY") {
             root.dismissing = true;
             closeTimer.restart();
         } else if (root.state === "ERROR") {
