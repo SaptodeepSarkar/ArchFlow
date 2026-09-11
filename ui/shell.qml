@@ -25,6 +25,8 @@ Scope {
     property var settingsApi: null
     property string provisional: ""
     property string liveWords: ""
+    property string ctxWords: ""
+    property string curWord: ""
     property bool firstLine: true
     property string sessionId: ""
     property bool dismissing: false
@@ -32,6 +34,19 @@ Scope {
     // the "Copied to clipboard" popup lingers long enough to be read.
     property bool copiedNotice: false
     Theme { id: theme }
+
+    // Split the running preview into trailing context (dim) and the
+    // current newest word (highlighted), so the speaker sees their place.
+    onLiveWordsChanged: {
+        var parts = String(root.liveWords).split(/\s+/).filter(function (w) { return w.length > 0; });
+        if (parts.length === 0) {
+            root.ctxWords = "";
+            root.curWord = "";
+        } else {
+            root.curWord = parts[parts.length - 1];
+            root.ctxWords = parts.slice(0, parts.length - 1).join(" ");
+        }
+    }
 
     // Daemon wire format: {protocol_version, request_id, session_id, kind}
     // where kind = {op, args?}. Anything else is rejected as malformed.
@@ -242,7 +257,7 @@ Scope {
                 id: card
                 anchors.centerIn: parent
                 width: 320
-                height: 120
+                height: 94
                 radius: 18
                 color: theme.surface
                 border.color: theme.outline
@@ -275,22 +290,35 @@ Scope {
                             }
                         }
                     }
-                    Text {
-                        id: liveWordsText
+                    Row {
                         visible: root.liveWords !== ""
-                        text: root.liveWords
-                        textFormat: Text.PlainText
-                        color: theme.text
-                        font.pixelSize: 15
-                        wrapMode: Text.WordWrap
-                        maximumLineCount: 3
-                        elide: Text.ElideRight
-                        horizontalAlignment: Text.AlignHCenter
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 57
-                        // New arrivals fade in quickly so updates read as a
-                        // running transcript instead of a flicker.
-                        onTextChanged: liveFadeAnim.restart()
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 8
+                        Text {
+                            text: root.ctxWords
+                            textFormat: Text.PlainText
+                            color: theme.text
+                            opacity: 0.55
+                            font.pixelSize: 17
+                            elide: Text.ElideLeft
+                            horizontalAlignment: Text.AlignRight
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.min(implicitWidth, 190)
+                        }
+                        Text {
+                            id: curWordText
+                            text: root.curWord
+                            textFormat: Text.PlainText
+                            color: theme.accent
+                            font.pixelSize: 19
+                            font.weight: Font.Bold
+                            elide: Text.ElideRight
+                            horizontalAlignment: Text.AlignLeft
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.min(implicitWidth, 120)
+                            // The current word pops on arrival.
+                            onTextChanged: liveFadeAnim.restart()
+                        }
                     }
                     Text {
                         visible: root.liveWords === ""
@@ -306,11 +334,11 @@ Scope {
                 // Word-transition animation (non-visual, never laid out).
                 PropertyAnimation {
                     id: liveFadeAnim
-                    target: liveWordsText
+                    target: curWordText
                     property: "opacity"
                     from: 0
                     to: 1
-                    duration: 140
+                    duration: 160
                 }
             }
         }

@@ -21,6 +21,9 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.6.5** (2026-09-11): place-tracking preview. At most five recent words:
+  dim trailing context plus the newest word highlighted, so no ellipsis hides
+  your place. One commit: `v0.6.5 place`, tag `v0.6.5`.
 - **v0.6.4** (2026-09-11): running preview. The overlay shows the last ~24
   recognized words (three wrapped lines) with a quick fade on arrival instead
   of a fixed two-word slot, so speech is never dropped from the display

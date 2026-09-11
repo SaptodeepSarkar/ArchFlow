@@ -721,9 +721,10 @@ fn emit_provisional(
     committed_words: usize,
 ) {
     let (last, next) = if hidden { ("", "") } else { vaani_core::reconcile::preview_words(tail) };
-    // Running multi-word preview: last 24 words fill the overlay box so
-    // spoken words are never dropped from the display between ticks.
-    let words = if hidden { String::new() } else { vaani_core::reconcile::recent_words(tail, 24) };
+    // Running preview: the newest words with the current (newest) word
+    // highlighted in the overlay, so the speaker always sees their place.
+    // Five words max — older context scrolls off, never ellipsized mid-stream.
+    let words = if hidden { String::new() } else { vaani_core::reconcile::recent_words(tail, 5) };
     emit(tx, &Event {
         protocol_version: vaani_core::PROTOCOL_VERSION,
         event: "provisional".into(),
