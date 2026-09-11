@@ -1,6 +1,6 @@
 //! `vaani`: short-lived CLI. Structured IPC only — never shell text with
 //! dictated content. Commands: toggle, start, stop, cancel, status --json,
-//! settings, doctor, copy, recover, discard, mic-test.
+//! settings, doctor, copy, recover, discard, mic-test, inject.
 
 use clap::{Parser, Subcommand};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -36,6 +36,8 @@ enum Cmd {
         #[arg(long, default_value = "3")]
         secs: u32,
     },
+    #[command(name = "inject")]
+    Inject,
     #[command(name = "config-get")]
     ConfigGet,
     #[command(name = "config-set")]
@@ -71,11 +73,12 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Recover => RequestKind::RecoverPending,
         Cmd::Discard => RequestKind::DiscardPending,
         Cmd::MicTest { secs } => RequestKind::MicTest { secs },
+        Cmd::Inject => RequestKind::Inject,
         Cmd::ConfigGet => RequestKind::ConfigGet,
         Cmd::ConfigSet { key, value } => RequestKind::ConfigSet { key, value },
     };
     let as_json = matches!(kind, RequestKind::Status | RequestKind::Doctor | RequestKind::ConfigGet);
-    let want_text = matches!(kind, RequestKind::RecoverPending);
+    let want_text = matches!(kind, RequestKind::RecoverPending | RequestKind::Inject);
 
     let mut req = Request::new(kind);
     req.session_id = None;

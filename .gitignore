@@ -7,3 +7,4 @@ models/*.bin
 models/*.pt
 *.log
 .vaani/
+.hf_cache

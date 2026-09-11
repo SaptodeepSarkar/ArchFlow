@@ -135,7 +135,48 @@ fn paste_chord_for(app_id: &str) -> String {
     }
 }
 
-/// Prefer the Wayland virtual-keyboard protocol. Chromium/Firefox-family
+/// Lock the real keyboard via wtype grab, type `text` through the
+/// virtual keyboard, then ungrab. The keyboard is held only during
+/// actual typing — nothing is grabbed when `text` is empty and the
+/// ungrab always runs (panic guard + finally block). Returns an
+/// error if typing fails (text stays on clipboard as fallback).
+pub fn inject_stream(text: &str) -> anyhow::Result<()> {
+    if text.is_empty() {
+        return Ok(());
+    }
+    let wtype = find_wtype().ok_or_else(|| anyhow::anyhow!("wtype not found"))?;
+
+    // 1. Grab the real keyboard — spawn in background so it blocks
+    //    without holding the async runtime.
+    let grab = std::process::Command::new(&wtype)
+        .arg("grabkeyboard")
+        .spawn();
+    let mut grab_handle = match grab {
+        Ok(h) => h,
+        Err(e) => return Err(anyhow::anyhow!("keyboard grab spawn failed: {e}")),
+    };
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    // Safety net: ungrab on every exit path, even if typing panics.
+    let res = (|| -> anyhow::Result<()> {
+        let out = std::process::Command::new(&wtype)
+            .arg(text)
+            .output()?;
+        if !out.status.success() {
+            anyhow::bail!(
+                "virtual keyboard type failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        Ok(())
+    })();
+    // 2. Release the keyboard. Best-effort, timeout-guarded.
+    let _ = std::process::Command::new(&wtype)
+        .arg("ungrabkeyboard")
+        .output();
+    // Make sure the grab process is reaped.
+    let _ = grab_handle.kill();
+    res
+}
 /// clients can ignore compositor-synthesized shortcuts even when Hyprland
 /// reports success. Dictated text remains in the clipboard (and the primary
 /// selection for terminals); only the paste chord itself is sent through

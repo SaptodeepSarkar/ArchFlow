@@ -56,11 +56,18 @@ kitty = "copy-only"
 Alacritty = "copy-only"
 
 [cleanup]
-# raw (default, dependable) | clean (needs endpoint below)
+# raw (default, dependable) | clean (needs endpoint below) | stream (local LLM cleanup via model_path)
 mode = "raw"
 endpoint = ""
 timeout_secs = 8
 vocabulary = []
+# stream only: path to local LLM model dir (e.g. output/base-model from training/cleanup-llm).
+# If empty, daemon auto-detects next to the binary.
+model_path = ""
+# stream only: skip LLM when transcript word count is below this (0 = always clean).
+word_threshold = 10
+# stream only: path to vaani_inject.py. If empty, daemon looks beside the binary.
+python_path = ""
 
 [privacy]
 save_history = false

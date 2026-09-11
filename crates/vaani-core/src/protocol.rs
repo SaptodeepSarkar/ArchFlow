@@ -34,6 +34,9 @@ pub enum RequestKind {
     ConfigSet { key: String, value: String },
     /// Returns current effective configuration as JSON.
     ConfigGet,
+    /// Stream cleaned text into the active target via virtual keyboard.
+    /// Args: none. Daemon reads transcript from pending/cleaned state.
+    Inject,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

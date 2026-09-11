@@ -101,16 +101,24 @@ pub struct Insertion {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cleanup {
-    /// raw | clean
+    /// raw | clean | stream
     #[serde(default = "default_cleanup_mode")]
     pub mode: String,
     #[serde(default)]
     pub endpoint: String,
     #[serde(default = "default_cleanup_timeout")]
     pub timeout_secs: u64,
-    /// user vocabulary terms (bounded hints)
     #[serde(default)]
     pub vocabulary: Vec<String>,
+    /// Path to the local LLM model dir (used when mode = "stream").
+    #[serde(default)]
+    pub model_path: String,
+    /// Word count threshold: skip LLM cleanup when transcript is shorter.
+    #[serde(default = "default_word_threshold")]
+    pub word_threshold: usize,
+    /// Path to vaani_inject.py (optional: daemon falls back to builtin call).
+    #[serde(default)]
+    pub python_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,6 +177,9 @@ fn default_cleanup_mode() -> String {
 fn default_cleanup_timeout() -> u64 {
     8
 }
+fn default_word_threshold() -> usize {
+    10
+}
 
 impl Default for General {
     fn default() -> Self {
@@ -219,6 +230,9 @@ impl Default for Cleanup {
             endpoint: String::new(),
             timeout_secs: default_cleanup_timeout(),
             vocabulary: Vec::new(),
+            model_path: String::new(),
+            word_threshold: default_word_threshold(),
+            python_path: String::new(),
         }
     }
 }
@@ -290,7 +304,7 @@ impl Config {
             _ => self.insertion.mode = "automatic".into(),
         }
         match self.cleanup.mode.as_str() {
-            "raw" | "clean" => {}
+            "raw" | "clean" | "stream" => {}
             _ => self.cleanup.mode = "raw".into(),
         }
     }
@@ -406,12 +420,34 @@ impl Config {
                 _ => Err("must be automatic|review|copy-only".into()),
             },
             "cleanup.mode" => match v {
-                "raw" | "clean" => {
+                "raw" | "clean" | "stream" => {
                     self.cleanup.mode = v.into();
                     Ok(v.into())
                 }
-                _ => Err("must be raw|clean".into()),
+                _ => Err("must be raw|clean|stream".into()),
             },
+            "cleanup.model_path" => {
+                if v.len() > 512 {
+                    return Err("too long".into());
+                }
+                self.cleanup.model_path = v.into();
+                Ok(v.into())
+            }
+            "cleanup.word_threshold" => {
+                let n: usize = v.parse().map_err(|_| "must be 1..1000")?;
+                if !(1..=1000).contains(&n) {
+                    return Err("must be 1..1000".into());
+                }
+                self.cleanup.word_threshold = n;
+                Ok(n.to_string())
+            }
+            "cleanup.python_path" => {
+                if v.len() > 512 {
+                    return Err("too long".into());
+                }
+                self.cleanup.python_path = v.into();
+                Ok(v.into())
+            }
             // Vocabulary (names/terms) for the recognizer prompt.
             // Comma-separated APPEND; empty value clears the list.
             "cleanup.vocabulary" => {

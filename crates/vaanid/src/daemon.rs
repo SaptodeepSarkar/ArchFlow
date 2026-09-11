@@ -509,6 +509,90 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
                 Response { ok: false, message: Some(format!("mic test failed: {e}")), ..resp_ok(&rid, &g.session, None, None) }
             }
         },
+        RequestKind::Inject => {
+            let (text, cfg) = {
+                let g = shared.lock().await;
+                match &g.pending {
+                    Some(p) => (p.text.clone(), g.cfg.clone()),
+                    None => {
+                        let s = g.session.clone();
+                        return Response { ok: false, message: Some("no pending text — finish a session first".into()), session_id: Some(s.id.clone()), ..resp_ok(&rid, &s, None, None) };
+                    }
+                }
+            };
+            let word_count = text.split_whitespace().count();
+            let threshold = cfg.cleanup.word_threshold;
+            let cleaned = if cfg.cleanup.mode == "stream" && word_count >= threshold {
+                let python_path = if cfg.cleanup.python_path.is_empty() {
+                    std::env::current_exe().ok()
+                        .and_then(|p| p.parent().map(|d| d.join("vaani_inject.py")))
+                } else {
+                    Some(std::path::PathBuf::from(&cfg.cleanup.python_path))
+                };
+                let model_dir = if cfg.cleanup.model_path.is_empty() {
+                    std::env::current_exe().ok()
+                        .and_then(|p| p.parent().map(|d| d.join("..").join("output").join("base-model")))
+                } else {
+                    Some(std::path::PathBuf::from(&cfg.cleanup.model_path))
+                };
+                let text_llm = text.clone();
+                let adapter = format!("{}/dpo-sft", cfg.cleanup.model_path);
+                tokio::task::spawn_blocking(move || -> String {
+                    let python = match python_path {
+                        Some(p) if p.exists() => p,
+                        _ => return text_llm.clone(),
+                    };
+                    let mut cmd = std::process::Command::new("python3");
+                    cmd.arg(&python)
+                       .arg("--adapter").arg(adapter)
+                       .arg("--threshold").arg(threshold.to_string())
+                       .arg("--model-dir").arg(model_dir.unwrap_or_default());
+                    let mut child = match cmd.stdin(std::process::Stdio::piped())
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        .spawn() {
+                        Ok(c) => c,
+                        Err(_) => return text_llm.clone(),
+                    };
+                    {
+                        let mut stdin = match child.stdin.take() {
+                            Some(s) => s,
+                            None => return text_llm.clone(),
+                        };
+                        if std::io::Write::write_all(&mut stdin, text_llm.as_bytes()).is_err() {
+                            return text_llm.clone();
+                        }
+                    }
+                    match child.wait_with_output() {
+                        Ok(out) => {
+                            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                            if !s.is_empty() { s } else { text_llm.clone() }
+                        }
+                        Err(_) => text_llm.clone(),
+                    }
+                }).await.unwrap_or(text.clone())
+            } else {
+                text.clone()
+            };
+            // Stream via virtual keyboard (keyboard locked only during typing).
+            let cleaned_for_inject = cleaned.clone();
+            let res = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                crate::inserter::inject_stream(&cleaned_for_inject)
+            }).await;
+            let g = shared.lock().await;
+            match res {
+                Ok(Ok(())) => {
+                    let s = g.session.clone();
+                    let mut g = shared.lock().await;
+                    g.pending = None;
+                    resp_ok(&rid, &s, Some("injected via keyboard".into()), Some(serde_json::json!({"text": cleaned, "words": word_count, "threshold": threshold})))
+                }
+                _ => {
+                    let s = g.session.clone();
+                    resp_ok(&rid, &s, Some("injection failed — text on clipboard".into()), Some(serde_json::json!({"text": cleaned, "words": word_count})))
+                }
+            }
+        }
     }
 }
 
