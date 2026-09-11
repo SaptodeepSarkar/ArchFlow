@@ -146,6 +146,18 @@ fn emit(tx: &broadcast::Sender<Event>, ev: &Event) {
 }
 
 fn ev_state(session: Option<String>, state: State, msg: Option<&str>) -> Event {
+    ev_state_data(session, state, msg, None)
+}
+
+/// State event with a data payload (e.g. `{"copied": true}` so the overlay
+/// can linger a confirmation even when the RPC response has no listener,
+/// as with hands-free auto-stop).
+fn ev_state_data(
+    session: Option<String>,
+    state: State,
+    msg: Option<&str>,
+    data: Option<serde_json::Value>,
+) -> Event {
     Event {
         protocol_version: vaani_core::PROTOCOL_VERSION,
         event: "state".into(),
@@ -153,7 +165,7 @@ fn ev_state(session: Option<String>, state: State, msg: Option<&str>) -> Event {
         state: Some(format!("{state:?}").to_uppercase()),
         amplitude: None,
         message: msg.map(|s| s.into()),
-        data: None,
+        data,
     }
 }
 
@@ -312,14 +324,17 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
             }
         }
         RequestKind::LiveToggle => {
-            let busy = {
-                let g = shared.lock().await;
-                !matches!(g.session.state, State::Idle | State::Ready | State::Cancelled | State::Error)
-            };
-            if busy {
-                // SUPER+H mid-session: discard everything and close.
+            let state = { shared.lock().await.session.state.clone() };
+            if matches!(state, State::Recording | State::Starting) {
+                // SUPER+H mid-recording: discard everything and close.
                 // (Finishing happens hands-free on end-of-speech silence.)
                 cancel_flow(shared.clone(), &tx, &rid).await
+            } else if matches!(state, State::Transcribing | State::Cleaning | State::Inserting) {
+                // Finishing stages: capture is already closed, so there is
+                // nothing to discard — and a habitual stop-press must never
+                // kill the transcript it just recorded. Report and keep going.
+                let g = shared.lock().await;
+                resp_ok(&rid, &g.session, Some("finishing transcription…".into()), None)
             } else if !take_activation(&shared).await {
                 let g = shared.lock().await;
                 resp_ok(&rid, &g.session, Some("ignoring key repeat".into()), None)
@@ -913,9 +928,10 @@ async fn copy_fallback(
     };
     let _ = g.session.transition(State::Ready);
     let _ = g.session.transition(State::Idle);
-    emit(tx, &ev_state(Some(sid.to_string()), State::Idle, Some(&msg)));
+    let data = serde_json::json!({"text": final_text, "copied": copied});
+    emit(tx, &ev_state_data(Some(sid.to_string()), State::Idle, Some(&msg), Some(data.clone())));
     let s = g.session.clone();
-    resp_ok("", &s, Some(msg), Some(serde_json::json!({"text": final_text, "copied": copied})))
+    resp_ok("", &s, Some(msg), Some(data))
 }
 
 /// Stop: idempotent, closes capture immediately, transcribes (blocking task),
@@ -1122,9 +1138,10 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                 } else {
                     (format!("{why} — clipboard offer failed, use copy/recover"), false)
                 };
-                emit(tx, &ev_state(Some(sid), State::Idle, Some(&msg)));
+                let data = serde_json::json!({"text": final_text, "copied": copied});
+                emit(tx, &ev_state_data(Some(sid), State::Idle, Some(&msg), Some(data.clone())));
                 let s = g.session.clone();
-                return resp_ok("", &s, Some(msg), Some(serde_json::json!({"text": final_text, "copied": copied})));
+                return resp_ok("", &s, Some(msg), Some(data));
             }
             let _ = g.session.transition(State::Inserting);
             let t0d = std::time::Instant::now();

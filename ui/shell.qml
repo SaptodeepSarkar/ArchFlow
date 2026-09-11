@@ -278,10 +278,36 @@ Scope {
                     }
                     RowLayout {
                         visible: root.lastWord !== "" || root.nextWord !== ""
-                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignHCenter
                         spacing: 12
-                        Text { text: root.lastWord; textFormat: Text.PlainText; color: theme.text; font.pixelSize: 18; font.weight: Font.DemiBold; elide: Text.ElideLeft; Layout.maximumWidth: 140 }
-                        Text { text: root.nextWord; textFormat: Text.PlainText; color: theme.accent; opacity: 0.72; font.pixelSize: 18; elide: Text.ElideRight; Layout.fillWidth: true }
+                        Text {
+                            id: lastWordText
+                            text: root.lastWord
+                            textFormat: Text.PlainText
+                            color: theme.text
+                            font.pixelSize: 18
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideLeft
+                            horizontalAlignment: Text.AlignRight
+                            Layout.maximumWidth: 140
+                            transform: Translate { id: lastSlide; x: 0 }
+                            // Slides left into place only when the word itself
+                            // changes, i.e. after the new word has arrived.
+                            onTextChanged: lastSlideAnim.restart()
+                        }
+                        Text {
+                            id: nextWordText
+                            text: root.nextWord
+                            textFormat: Text.PlainText
+                            color: theme.accent
+                            opacity: 0.72
+                            font.pixelSize: 18
+                            elide: Text.ElideRight
+                            horizontalAlignment: Text.AlignLeft
+                            Layout.maximumWidth: 140
+                            // New words fade in on arrival.
+                            onTextChanged: nextFadeAnim.restart()
+                        }
                     }
                     Text {
                         visible: root.lastWord === "" && root.nextWord === ""
@@ -293,6 +319,24 @@ Scope {
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
+                }
+                // Word-transition animations (non-visual, never laid out).
+                PropertyAnimation {
+                    id: lastSlideAnim
+                    target: lastSlide
+                    property: "x"
+                    from: 16
+                    to: 0
+                    duration: 240
+                    easing.type: Easing.OutCubic
+                }
+                PropertyAnimation {
+                    id: nextFadeAnim
+                    target: nextWordText
+                    property: "opacity"
+                    from: 0
+                    to: 0.72
+                    duration: 220
                 }
             }
         }

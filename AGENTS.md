@@ -21,6 +21,11 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.6.2** (2026-09-11): finish-stage Super+H is a harmless "finishing…"
+  instead of discarding the transcript; the "Copied to clipboard" flag rides
+  on the Idle state event so auto-stop shows the ~2 s popup; centered live
+  words with fade-in newcomers and slide-left successors. One commit:
+  `v0.6.2 finish+overlay`, tag `v0.6.2`.
 - **v0.6.1** (2026-09-11): copy-first completion. `copy-only` is the default
   insertion mode (injection code kept for `automatic`); every finish shows a
   "Copied to clipboard" popup that lingers ~2 s. Live preview no longer
