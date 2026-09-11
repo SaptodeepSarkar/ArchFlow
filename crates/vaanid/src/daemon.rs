@@ -50,6 +50,10 @@ struct Shared {
     /// Last accepted activation (toggle/start): repeats inside the window
     /// are ignored so key-repeat can't start+stop instantly.
     last_activation: Option<std::time::Instant>,
+    /// When the current session started recording. A second Super+H inside
+    /// the bounce window is key-repeat/mashing (the overlay takes ~1 s to
+    /// appear), not an intentional discard — it must not kill the session.
+    session_started_at: Option<std::time::Instant>,
     /// Focus lost mid-live-session: stop committing, keep accumulating.
     target_lost: bool,
 }
@@ -98,6 +102,7 @@ pub async fn run() -> anyhow::Result<()> {
         live_transcript: String::new(),
         live_audio_cursor: 0,
         target_lost: false,
+        session_started_at: None,
         last_activation: None,
     }));
 
@@ -324,11 +329,23 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
             }
         }
         RequestKind::LiveToggle => {
-            let state = { shared.lock().await.session.state.clone() };
-            if matches!(state, State::Recording | State::Starting) {
+            let (state, fresh) = {
+                let g = shared.lock().await;
+                let fresh = g
+                    .session_started_at
+                    .map(|t| t.elapsed().as_millis() < 1200)
+                    .unwrap_or(false);
+                (g.session.state, fresh)
+            };
+            if matches!(state, State::Recording | State::Starting) && !fresh {
                 // SUPER+H mid-recording: discard everything and close.
                 // (Finishing happens hands-free on end-of-speech silence.)
                 cancel_flow(shared.clone(), &tx, &rid).await
+            } else if matches!(state, State::Recording | State::Starting) {
+                // Bounce inside the first second: the overlay is still
+                // appearing, so this is mashing, not intent. Keep recording.
+                let g = shared.lock().await;
+                resp_ok(&rid, &g.session, Some("ignoring key repeat".into()), None)
             } else if matches!(state, State::Transcribing | State::Cleaning | State::Inserting) {
                 // Finishing stages: capture is already closed, so there is
                 // nothing to discard — and a habitual stop-press must never
@@ -506,6 +523,7 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
         g.live_transcript.clear();
         g.live_audio_cursor = 0;
         g.target_lost = false;
+        g.session_started_at = None;
         emit(tx, &ev_state(Some(sid), State::Starting, Some("Starting microphone…")));
         // On-demand overlay UI (separate app-owned Quickshell config).
         // The reaper thread keeps closed UI processes from becoming zombies.
@@ -536,6 +554,7 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
             g.capture = Some(h);
             let sid = g.session.id.clone();
             let _ = g.session.transition(State::Recording);
+            g.session_started_at = Some(std::time::Instant::now());
             // Tell the user immediately if this is not a typable space.
             let note = space_note_for(&g.target, &g.cfg);
             let rec_msg;
@@ -1232,6 +1251,7 @@ async fn cancel_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, 
     g.live_transcript.clear();
     g.live_audio_cursor = 0;
     g.target_lost = false;
+    g.session_started_at = None;
     // Drive to CANCELLED from any active state, then IDLE.
     let _ = g.session.transition(State::Cancelled);
     emit(tx, &ev_state(Some(g.session.id.clone()), State::Cancelled, Some("Cancelled")));

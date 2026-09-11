@@ -151,19 +151,21 @@ fn dispatch_paste(chord: &str) -> anyhow::Result<()> {
         for modifier in mods.split_whitespace().rev() {
             cmd.arg("-m").arg(modifier);
         }
-        let out = cmd.output().map_err(|e| anyhow::anyhow!("wtype failed to start: {e}"))?;
-        if out.status.success() {
-            return Ok(());
+        // Bounded: a hung virtual-keyboard roundtrip must not wedge the
+        // session in INSERTING (fall through to Hyprland on expiry).
+        if let Ok(out) = clipboard::run_timeout(cmd, None, 5, true) {
+            if out.status.success() {
+                return Ok(());
+            }
         }
     }
 
     let lua = format!(
         r#"hl.dispatch(hl.dsp.send_shortcut({{ mods = "{mods}", key = "{key}" }}))"#
     );
-    let out = std::process::Command::new("hyprctl")
-        .arg("eval")
-        .arg(&lua)
-        .output()
+    let mut cmd = std::process::Command::new("hyprctl");
+    cmd.arg("eval").arg(&lua);
+    let out = clipboard::run_timeout(cmd, None, 5, true)
         .map_err(|e| anyhow::anyhow!("hyprctl not available: {e}"))?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     if out.status.success() && stdout.trim() == "ok" {

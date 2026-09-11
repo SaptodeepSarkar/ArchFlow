@@ -48,7 +48,9 @@ Press `SUPER+H` in any text field and speak. Stop speaking → the overlay
 shows *Transcribing* → *Copied to clipboard* (lingers ~2 s so it can be
 read), and the transcript is on the clipboard for pasting. Nothing is typed
 into apps by default; set `insertion.mode = "automatic"` to paste via wtype
-instead. `SUPER+H` while recording/transcribing discards the utterance.
+instead. `SUPER+H` mid-recording discards the utterance (not in the first
+second — that's key bounce while the overlay appears — and never once
+transcription has started).
 
 | Shortcut | Action |
 |---|---|

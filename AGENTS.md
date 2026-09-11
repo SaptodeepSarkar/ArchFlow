@@ -21,6 +21,12 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.6.3** (2026-09-11): no-wedge completion. Every clipboard/dispatch
+  helper runs under a 5 s deadline, and wl-copy offers reap instead of
+  draining pipes (its forked server holds them open, which wedged sessions
+  in INSERTING deaf to Super+H); a second press inside the first 1.2 s of
+  recording is key bounce, not a discard. One commit: `v0.6.3 no-wedge`,
+  tag `v0.6.3`.
 - **v0.6.2** (2026-09-11): finish-stage Super+H is a harmless "finishing…"
   instead of discarding the transcript; the "Copied to clipboard" flag rides
   on the Idle state event so auto-stop shows the ~2 s popup; centered live
