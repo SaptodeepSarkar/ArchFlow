@@ -9,12 +9,15 @@ Date: 2026-09-10. Machine: the target laptop itself (NOT a remote container).
 - PipeWire 1.6.8 (server + pw-record client), default clock 48 kHz
 - wl-clipboard 2.3.0
 - Quickshell 0.3.1 (AUR -git build 0.3.1.r10.g2d3b3e9; official extra has 0.3.1-1)
-- Qt 6 via qmake6, systemd 261, NVIDIA 610.57 / CUDA UMD 13.3, RTX 3050 6 GB
+- Qt 6 via qmake6, systemd 261, NVIDIA 610.57 / CUDA 13.3 toolkit and UMD,
+  RTX 3050 6 GB (compute capability 8.6)
 - Rust stable 1.98.1 (user-local rustup; no sudo available in this env)
-- whisper.cpp **v1.7.6 built locally** (`~/.local/bin/whisper-cli`, CPU,
-  `native/worker/build/`); ggml **base** model in
+- whisper.cpp **v1.7.6 built locally** as separate CPU and CUDA binaries
+  (`~/.local/bin/whisper-cli`, `~/.local/bin/whisper-cli-cuda`); the CUDA
+  binary was built with `GGML_CUDA=ON`, CUDA architecture 86, and verified on
+  the RTX 3050 with the upstream JFK sample. ggml **base** model in
   `~/.local/share/vaani/models/base.bin` (147951465 B, sha256 in
-  `models/manifest.toml`). whisper.cpp CUDA toolkit: NOT installed.
+  `models/manifest.toml`).
 - VAD note: production path uses the built-in energy VAD gate
   (`vaani-core::vad`, active-dictation only) + whisper STT. No Silero/ONNX
   runtime — spec bans heavy inference runtimes in the default path;

@@ -218,7 +218,7 @@ fn run_whisper_cli(
             .arg("--vad-model")
             .arg(vad)
             .arg("--vad-threshold")
-            .arg("0.5");
+            .arg("0.35");
     }
     if translate {
         cmd.arg("--translate");

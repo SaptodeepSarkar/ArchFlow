@@ -21,6 +21,10 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.5.1** (2026-09-11): live hardware follow-up. Quiet-microphone VAD
+  tuning, CUDA whisper.cpp setup, and an overlay containing only the waveform
+  and two-word transcript/status text. One commit: `v0.5.1 live+cuda`, tag
+  `v0.5.1`.
 - **v0.5.0** (2026-09-11): UI and distribution redesign. Compact two-word
   live preview, optional Caelestia dynamic colors with an independent fallback
   theme, redesigned settings navigation, system-wide Arch packaging, portable

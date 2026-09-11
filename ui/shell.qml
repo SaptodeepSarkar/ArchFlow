@@ -206,7 +206,7 @@ Scope {
         active: (root.state !== "IDLE" || closeTimer.running) && !root.showSettings
         PanelWindow {
             id: overlay
-            implicitWidth: 380
+            implicitWidth: 320
             implicitHeight: card.height + 48
             color: "transparent"
             // Anchor bottom-center, 24px above usable edge, no exclusive zone.
@@ -223,30 +223,30 @@ Scope {
             Rectangle {
                 id: card
                 anchors.centerIn: parent
-                width: 380
-                height: root.state === "READY" ? 168 : 132
-                radius: 24
+                width: 320
+                height: 88
+                radius: 18
                 color: theme.surface
                 border.color: theme.outline
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 18
-                    spacing: 10
-                    RowLayout {
+                    anchors.margins: 14
+                    spacing: 8
+                    Item {
                         Layout.fillWidth: true
-                        Rectangle { width: 7; height: 7; radius: 4; color: root.state === "ERROR" ? theme.error : theme.accent }
-                        Text { text: "VAANI"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 2; color: theme.muted }
-                        Item { Layout.fillWidth: true }
-                        Text { text: root.state === "RECORDING" ? "Listening" : root.state.toLowerCase(); color: theme.muted; font.pixelSize: 11 }
+                        Layout.preferredHeight: 28
                         Row {
-                            spacing: 3
+                            anchors.centerIn: parent
+                            spacing: 6
                             Repeater {
-                                model: 12
+                                model: 16
                                 Rectangle {
                                     required property int index
-                                    width: 3; height: root.state === "RECORDING" ? root.barH(index) : 3
+                                    width: 4
+                                    height: root.state === "RECORDING" ? root.barH(index) : 3
                                     anchors.verticalCenter: parent.verticalCenter
-                                    radius: 2; color: theme.accent
+                                    radius: 2
+                                    color: root.state === "ERROR" ? theme.error : theme.accent
                                 }
                             }
                         }
@@ -255,28 +255,18 @@ Scope {
                         visible: root.lastWord !== "" || root.nextWord !== ""
                         Layout.fillWidth: true
                         spacing: 12
-                        Text { text: root.lastWord; textFormat: Text.PlainText; color: theme.text; font.pixelSize: 26; font.weight: Font.DemiBold; elide: Text.ElideLeft; Layout.maximumWidth: 166 }
-                        Text { text: root.nextWord; textFormat: Text.PlainText; color: theme.accent; opacity: 0.72; font.pixelSize: 26; elide: Text.ElideRight; Layout.fillWidth: true }
+                        Text { text: root.lastWord; textFormat: Text.PlainText; color: theme.text; font.pixelSize: 18; font.weight: Font.DemiBold; elide: Text.ElideLeft; Layout.maximumWidth: 140 }
+                        Text { text: root.nextWord; textFormat: Text.PlainText; color: theme.accent; opacity: 0.72; font.pixelSize: 18; elide: Text.ElideRight; Layout.fillWidth: true }
                     }
                     Text {
                         visible: root.lastWord === "" && root.nextWord === ""
                         text: root.statusText || "Speak naturally…"
                         textFormat: Text.PlainText
                         color: root.state === "ERROR" ? theme.error : theme.text
-                        font.pixelSize: 14; wrapMode: Text.WordWrap
-                        maximumLineCount: 2; elide: Text.ElideRight
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
                         Layout.fillWidth: true
-                    }
-                    RowLayout {
-                        visible: root.state === "READY"
-                        Button { text: "Copy text"; onClicked: root.sendOp("copy_pending") }
-                        Button { text: "Dismiss"; onClicked: root.sendOp("cancel") }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text { text: root.nextWord ? "Provisional · may change" : "Local voice dictation"; color: theme.muted; font.pixelSize: 10 }
-                        Item { Layout.fillWidth: true }
-                        Text { text: "SUPER + H"; color: theme.muted; font.pixelSize: 10 }
                     }
                 }
             }

@@ -39,6 +39,11 @@ vaani doctor     # capability probe — all lines should be true except cuda
 vaani settings   # recognition settings, mic test and diagnostics
 ```
 
+NVIDIA CUDA is optional. With the CUDA toolkit installed, run
+`./tools/setup-stt.sh --cuda`, select CUDA in settings, and restart the user
+service. Vaani keeps a separate `whisper-cli-cuda` binary and loads it only
+during transcription.
+
 Press `SUPER+H` in any text field and speak. Stop speaking → the overlay
 shows *Transcribing* → text is typed in. Nothing focused (or a terminal)?
 It lands on the clipboard instead, with the reason shown. `SUPER+H` while
@@ -74,8 +79,9 @@ not a promise of compatibility with every Linux desktop.
 
 ## UI and dynamic colors
 
-The compact overlay shows the latest recognized word and a lighter provisional
-successor. When another word arrives, the provisional word moves left.
+The compact overlay contains only the microphone visualizer and text. It shows
+the latest recognized word and a lighter provisional successor. When another
+word arrives, the provisional word moves left.
 Updates follow recognition chunks (default four seconds plus inference time),
 not predictions of words you have not spoken. Both words can be corrected by
 recognition; display position does not mean the word was inserted.

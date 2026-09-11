@@ -19,3 +19,16 @@ cmake -S native/worker/upstream -B native/worker/build -DWHISPER_BUILD_TESTS=OFF
 cmake --build native/worker/build -j"$(nproc)"
 sudo install -m755 native/worker/build/bin/whisper-cli /usr/local/bin/whisper-cli
 ```
+
+On an NVIDIA system with the CUDA toolkit, Vaani can build and verify a
+separate GPU worker without loading CUDA into the idle daemon:
+
+```sh
+./tools/setup-stt.sh --cuda
+vaani config-set recognition.device cuda
+systemctl --user restart vaanid.service
+vaani doctor
+```
+
+The current laptop target uses compute capability 8.6 (RTX 3050). Change
+`CMAKE_CUDA_ARCHITECTURES` in the setup script for a different GPU generation.

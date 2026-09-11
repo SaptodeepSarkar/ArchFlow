@@ -18,7 +18,9 @@ pub struct Vad {
 impl Default for Vad {
     fn default() -> Self {
         Self {
-            rms_thresh: 0.02,
+            // Laptop microphones and processed virtual sources can be quiet.
+            // Whisper's own VAD remains the second-stage false-positive gate.
+            rms_thresh: 0.005,
             hangover: 15, // 300 ms
             hang: 0,
             speech_blocks: 0,
@@ -97,6 +99,18 @@ mod tests {
         for i in 0..50 {
             let b: Vec<f32> = (0..BLOCK_SAMPLES)
                 .map(|n| 0.2 * ((i * BLOCK_SAMPLES + n) as f32 * 0.1).sin())
+                .collect();
+            v.push_block(&b);
+        }
+        assert!(!v.is_silence());
+    }
+
+    #[test]
+    fn quiet_voice_level_is_not_discarded() {
+        let mut v = Vad::default();
+        for i in 0..50 {
+            let b: Vec<f32> = (0..BLOCK_SAMPLES)
+                .map(|n| 0.008 * ((i * BLOCK_SAMPLES + n) as f32 * 0.08).sin())
                 .collect();
             v.push_block(&b);
         }
