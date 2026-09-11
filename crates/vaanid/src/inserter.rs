@@ -135,47 +135,66 @@ fn paste_chord_for(app_id: &str) -> String {
     }
 }
 
-/// Lock the real keyboard via wtype grab, type `text` through the
-/// virtual keyboard, then ungrab. The keyboard is held only during
-/// actual typing — nothing is grabbed when `text` is empty and the
-/// ungrab always runs (panic guard + finally block). Returns an
-/// error if typing fails (text stays on clipboard as fallback).
+/// KeyboardGuard: grabs the keyboard on creation, always
+/// releases on drop (panic-safe). Call `release()` to
+/// release early if needed.
+struct KeyboardGuard {
+    handle: Option<std::process::Child>,
+    wtype: std::path::PathBuf,
+}
+
+impl KeyboardGuard {
+    fn new(wtype: &std::path::PathBuf) -> anyhow::Result<Self> {
+        let handle = std::process::Command::new(wtype)
+            .arg("grabkeyboard")
+            .spawn()?;
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        Ok(Self {
+            handle: Some(handle),
+            wtype: wtype.clone(),
+        })
+    }
+    fn release(&mut self) {
+        if let Some(mut h) = self.handle.take() {
+            let _ = h.kill();
+            let _ = h.wait();
+        }
+        let _ = std::process::Command::new(&self.wtype)
+            .arg("ungrabkeyboard")
+            .output();
+    }
+}
+
+impl Drop for KeyboardGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// Lock the real keyboard via wtype grab, type `text` through
+/// the virtual keyboard, then ungrab. The keyboard is held
+/// only during actual typing — nothing is grabbed when text
+/// is empty. The guard always releases on drop (panic-safe).
+/// Returns an error if typing fails (text stays on clipboard
+/// as fallback).
 pub fn inject_stream(text: &str) -> anyhow::Result<()> {
     if text.is_empty() {
         return Ok(());
     }
     let wtype = find_wtype().ok_or_else(|| anyhow::anyhow!("wtype not found"))?;
-
-    // 1. Grab the real keyboard — spawn in background so it blocks
-    //    without holding the async runtime.
-    let grab = std::process::Command::new(&wtype)
-        .arg("grabkeyboard")
-        .spawn();
-    let mut grab_handle = match grab {
-        Ok(h) => h,
-        Err(e) => return Err(anyhow::anyhow!("keyboard grab spawn failed: {e}")),
-    };
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    // Safety net: ungrab on every exit path, even if typing panics.
-    let res = (|| -> anyhow::Result<()> {
-        let out = std::process::Command::new(&wtype)
-            .arg(text)
-            .output()?;
-        if !out.status.success() {
-            anyhow::bail!(
-                "virtual keyboard type failed: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-        }
-        Ok(())
-    })();
-    // 2. Release the keyboard. Best-effort, timeout-guarded.
-    let _ = std::process::Command::new(&wtype)
-        .arg("ungrabkeyboard")
+    let mut guard = KeyboardGuard::new(&wtype)?;
+    let res = std::process::Command::new(&wtype)
+        .arg(text)
         .output();
-    // Make sure the grab process is reaped.
-    let _ = grab_handle.kill();
-    res
+    guard.release();
+    match res {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => anyhow::bail!(
+            "virtual keyboard type failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ),
+        Err(e) => Err(anyhow::anyhow!("type failed: {e}")),
+    }
 }
 /// clients can ignore compositor-synthesized shortcuts even when Hyprland
 /// reports success. Dictated text remains in the clipboard (and the primary
