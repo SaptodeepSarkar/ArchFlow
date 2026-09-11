@@ -153,7 +153,7 @@ it stays at ~2 s updates. Stock ggml models still download via
 `tools/model-setup.py`.
 
 Streaming: directory models run through a persistent sidecar that loads once
-(~4 s) and then answers chunks in ~0.3 s, so the fine-tuned model can show
+(~1 s) and then answers chunks in ~0.3 s, so the fine-tuned model can show
 results on the go. It holds ~90 MiB VRAM while resident and is reaped after
 `recognition.server_idle_secs` (90 s default, 0 = one-shot per call) — idle
 Vaani still holds zero VRAM.

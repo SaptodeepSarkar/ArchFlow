@@ -16,7 +16,13 @@ First stdout line after startup is {"ready": true}.
 """
 
 import json
+import os
 import sys
+
+# Fully local like Cozy's env.sh: never touch the network (hub checks add
+# seconds per load and fail offline). Set before importing faster-whisper.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 
 def main() -> None:
@@ -70,11 +76,21 @@ def main() -> None:
                 "language": job.get("lang") or None,
                 "beam_size": max(1, beam),
                 "task": job.get("task") or "transcribe",
+                # Each chunk stands alone: never continue a previous chunk's
+                # output (runaway repetition), and drop non-speech segments
+                # (silence padding hallucinations) by probability.
+                "condition_on_previous_text": False,
             }
             if job.get("prompt"):
                 kwargs["initial_prompt"] = job["prompt"]
             segments, _info = model.transcribe(job["wav"], **kwargs)
-            text = " ".join(s.text.strip() for s in segments).strip()
+            kept = [
+                s.text.strip()
+                for s in segments
+                if s.text.strip()
+                and float(getattr(s, "no_speech_prob", 0.0)) <= 0.7
+            ]
+            text = " ".join(kept)
             sys.stdout.write(json.dumps({"id": jid, "text": text}) + "\n")
         except Exception as exc:  # noqa: BLE001 - must survive bad jobs
             sys.stdout.write(json.dumps({"id": jid, "error": str(exc)}) + "\n")

@@ -21,6 +21,12 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.8.1** (2026-09-11): streaming that actually streams. Unique temp
+  dirs per job (shared paths let a finished call delete a sibling's wav —
+  every server call fell back to slow one-shot), offline hub flags (load
+  ~1 s, chunks ~0.3 s), silence trim + no-speech filter against phantom
+  phrases, padded-audio regression test. One commit: `v0.8.1 fw-stream-fix`,
+  tag `v0.8.1`.
 - **v0.8.0** (2026-09-11): streaming fine-tuned STT. Directory models run
   through a persistent faster-whisper sidecar (loads once, ~0.3 s per chunk,
   ~90 MiB resident, reaped after `server_idle_secs`), so cozy shows results

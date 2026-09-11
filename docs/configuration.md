@@ -11,7 +11,7 @@ with a strict key whitelist — see `Config::set_key`.
 | audio.device_selector | "" or stable source name | "" = PipeWire default each session; never numeric node ids |
 | audio.worker_threads | 1–16 (4) | Responsiveness vs CPU |
 | recognition.model | tiny/base/base.en/small/cozy | Final transcript model; cozy = local fine-tuned CT2 (faster-whisper) |
-| recognition.live_model | tiny/base/base.en/small/cozy | Preview-tick model; keep a whisper.cpp one (CT2 reloads ~4 s/call) |
+| recognition.live_model | tiny/base/base.en/small/cozy | Preview-tick model; whisper.cpp default, cozy works via resident server (~0.3 s/chunk) |
 | recognition.server_idle_secs | 0–600 (90) | Resident faster-whisper TTL; 0 = one-shot per call |
 | recognition.language | en/hi/bn | Explicit — auto-detect fails on short utterances |
 | recognition.translate_to_en | bool | Opt-in translation; default preserves spoken language |

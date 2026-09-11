@@ -11,6 +11,11 @@ whisper.cpp's --prompt.
 """
 
 import sys
+import os
+
+# Fully local like Cozy's env.sh: never touch the network.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 
 def main() -> None:
@@ -58,11 +63,30 @@ def main() -> None:
             raise
         model = WhisperModel(model_dir, device="cpu", compute_type="int8")
 
-    kwargs = {"language": lang or None, "beam_size": max(1, beam)}
+    kwargs = {
+        "language": lang or None,
+        "beam_size": max(1, beam),
+        "condition_on_previous_text": False,
+    }
     if prompt:
         kwargs["initial_prompt"] = prompt
+
+    try:
+        model = WhisperModel(
+            model_dir, device=device, device_index=0,
+            compute_type="int8_float16",
+        )
+    except Exception:
+        if device == "cpu":
+            raise
+        model = WhisperModel(model_dir, device="cpu", compute_type="int8")
     segments, _info = model.transcribe(wav_path, **kwargs)
-    sys.stdout.write(" ".join(s.text.strip() for s in segments).strip())
+    kept = [
+        s.text.strip()
+        for s in segments
+        if s.text.strip() and float(getattr(s, "no_speech_prob", 0.0)) <= 0.7
+    ]
+    sys.stdout.write(" ".join(kept))
 
 
 main()

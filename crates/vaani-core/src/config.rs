@@ -65,13 +65,13 @@ pub struct Recognition {
     pub model: String,
     /// Fast model for the running live preview (1 s ticks). The final
     /// transcript always uses `model`: preview stays cheap (base loads in
-    /// ~1 s; fine-tuned CT2 reloads ~4 s per call) while completion keeps
+    /// ~1 s; without the resident server the fine-tuned CT2 reloads every call)
     /// the accurate model. Provisional either way.
     #[serde(default = "default_model")]
     pub live_model: String,
     /// Resident faster-whisper server idle TTL, seconds (10..=600). The
     /// fine-tuned model stays loaded this long after the last chunk so
-    /// streaming ticks skip the ~4 s reload; expiry frees the VRAM.
+    /// streaming ticks skip the model reload (~0.3 s/chunk); expiry frees VRAM.
     /// 0 disables the server (one-shot per call).
     #[serde(default = "default_server_idle")]
     pub server_idle_secs: u64,

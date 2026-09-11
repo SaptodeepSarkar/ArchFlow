@@ -79,7 +79,13 @@ pub fn silero_trailing(samples: &[f32]) -> Option<(bool, f32)> {
     if samples.len() < 16_000 {
         return Some((false, 0.0)); // too short to judge
     }
-    let dir = std::env::temp_dir().join(format!("vaani-vad-{}", std::process::id()));
+    static VAD_JOB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let jid = VAD_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "vaani-vad-{}-{}",
+        std::process::id(),
+        jid
+    ));
     std::fs::create_dir_all(&dir).ok()?;
     let wav = dir.join("in.wav");
     write_wav_mono16(&wav, samples).ok()?;
@@ -118,6 +124,21 @@ fn parse_vad_ends(text: &str) -> Option<f32> {
 }
 
 // ---- Persistent faster-whisper server (streaming STT) ----
+
+/// Trim leading/trailing sub-threshold samples, keeping `margin` samples of
+/// context on each side. Returns the trimmed slice (possibly empty).
+fn trim_silence(samples: &[f32], thresh: f32, margin: usize) -> &[f32] {
+    let first = samples.iter().position(|&x| x.abs() >= thresh);
+    let last = samples.iter().rposition(|&x| x.abs() >= thresh);
+    match (first, last) {
+        (Some(f), Some(l)) => {
+            let s = f.saturating_sub(margin);
+            let e = (l + margin + 1).min(samples.len());
+            &samples[s..e]
+        }
+        _ => &[],
+    }
+}
 
 struct FwServer {
     child: Child,
@@ -320,11 +341,25 @@ fn fw_server_transcribe(
             return Ok((String::new(), t0.elapsed().as_millis() as u64));
         }
     }
-    let dir = std::env::temp_dir().join(format!("vaani-fwjob-{}", std::process::id()));
+    // Trim leading/trailing silence (keep 0.2 s margins): inference on
+    // silence padding is where phantom phrases ("i'm gonna…", trailing
+    // echoes of nothing said) come from. Too-short remainders are noise.
+    // Threshold stays conservative (0.004) so quiet speech is never cut.
+    let samples = trim_silence(samples, 0.004, 3200);
+    if samples.len() < 4800 {
+        return Ok((String::new(), t0.elapsed().as_millis() as u64));
+    }
+    let id = FW_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // Unique dir per call: concurrent jobs (live tick vs finalize) share
+    // nothing, so a finished call can never delete a sibling's wav.
+    let dir = std::env::temp_dir().join(format!(
+        "vaani-fwjob-{}-{}",
+        std::process::id(),
+        id
+    ));
     std::fs::create_dir_all(&dir)?;
     let wav = dir.join("in.wav");
     write_wav_mono16(&wav, samples)?;
-    let id = FW_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut prompt = String::new();
     if !vocab.is_empty() {
         prompt = vocab.join(", ");
@@ -410,18 +445,33 @@ mod tests {
         }
         let samples = jfk_samples();
         assert!(samples.len() > 16_000);
+        // Two-second slice: warm inference is well under a second, so the
+        // threshold below has wide margin against the ~4 s cold reload.
+        let short: Vec<f32> = samples[..32_000].to_vec();
         let t0 = std::time::Instant::now();
-        let a = transcribe(&samples, "cozy", "en", false, 4, true, &[], 90).unwrap();
+        let a = transcribe(&short, "cozy", "en", false, 4, true, &[], 90).unwrap();
         let first_ms = t0.elapsed().as_millis();
         assert_eq!(a.backend, "fw-ct2");
         assert!(!a.text.is_empty(), "cozy heard nothing on jfk.wav");
         let t1 = std::time::Instant::now();
-        let b = transcribe(&samples, "cozy", "en", false, 4, true, &[], 90).unwrap();
+        let b = transcribe(&short, "cozy", "en", false, 4, true, &[], 90).unwrap();
         let second_ms = t1.elapsed().as_millis();
         assert_eq!(b.backend, "fw-ct2");
         assert!(
-            second_ms < 2500,
+            second_ms < 2000,
             "resident model should answer fast: second={second_ms}ms first={first_ms}ms"
+        );
+        // Silence padding must not hallucinate: padded input trims to the
+        // same speech, so the transcript matches the unpadded one.
+        let mut padded = vec![0.0f32; 16_000];
+        padded.extend_from_slice(&short);
+        padded.extend(vec![0.0f32; 16_000]);
+        let c = transcribe(&padded, "cozy", "en", false, 4, true, &[], 90).unwrap();
+        assert_eq!(c.backend, "fw-ct2");
+        assert_eq!(
+            c.text, a.text,
+            "padded speech must transcribe identically: {:?} vs {:?}",
+            c.text, a.text
         );
         reap_idle_servers(0);
     }

@@ -30,7 +30,7 @@ max_secs = 120
 # voice + Indian English. cozy needs the faster-whisper sidecar python.
 model = "base"
 # fast model for the live preview ticks (keep a whisper.cpp one here: the
-# fine-tuned CT2 reloads ~4 s per call, too slow for 1 s preview cadence)
+# fine-tuned CT2 one-shot loads ~1-2 s per call; resident server answers in ~0.3 s)
 live_model = "base"
 # resident faster-whisper server idle TTL, seconds (0 disables: one-shot).
 # While resident, streaming chunks skip the model reload (~0.3 s vs ~4.5 s).
