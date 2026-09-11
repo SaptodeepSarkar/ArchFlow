@@ -21,6 +21,10 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.7.1** (2026-09-11): backend visibility. `vaani status` latencies now
+  carry the STT backend label (`fw-ct2` vs `whisper-cli-cuda` vs `cpu-stub`)
+  so a wrong-model regression is caught from numbers. One commit:
+  `v0.7.1 backend-tag`, tag `v0.7.1`.
 - **v0.7.0** (2026-09-11): fine-tuned speech. `recognition.model = "cozy"`
   runs the Cozy whisper-small LoRA (Indian English + your voice) via a
   faster-whisper sidecar (CT2 int8, beam 1, CUDA; user-local copy, weights

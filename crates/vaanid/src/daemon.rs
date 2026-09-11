@@ -64,6 +64,10 @@ struct Latencies {
     stop_to_text_ms: u64,
     inference_ms: u64,
     dispatch_ms: u64,
+    /// Which backend produced the last final transcript
+    /// (whisper-cli-cuda | fw-ct2 | cpu-stub). Visible via `vaani status`
+    /// so a wrong-model regression is caught from numbers, not vibes.
+    backend: String,
 }
 
 pub async fn run() -> anyhow::Result<()> {
@@ -1049,6 +1053,7 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
         Ok(Ok(t)) => {
             g.last_lat.stop_to_text_ms = t0.elapsed().as_millis() as u64;
             g.last_lat.inference_ms = t.inference_ms;
+            g.last_lat.backend = t.backend.clone();
             if t.is_silence || t.text.is_empty() {
                 // Silence produces no inserted text.
                 g.pending_audio = Vec::new();
