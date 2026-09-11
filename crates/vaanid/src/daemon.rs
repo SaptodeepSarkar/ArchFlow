@@ -982,7 +982,7 @@ async fn copy_fallback(
 async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) -> Response {
     tracing::info!("stop_flow entry");
     // Capture close is synchronous and immediate, independent of transcription.
-    let (samples, sid, cfg_snap, target, live_seed, live_cursor, was_live_at_stop) = {
+    let (samples, sid, cfg_snap, target) = {
         let mut g = shared.lock().await;
         if matches!(g.session.state, State::Idle) {
             let s = g.session.clone();
@@ -1020,9 +1020,6 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
             sid,
             g.cfg.clone(),
             g.target.clone(),
-            g.live_transcript.clone(),
-            g.live_audio_cursor,
-            g.live,
         )
     };
 
@@ -1031,21 +1028,13 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
     // Clone for the worker thread; keep the original for error-path retry.
     let samples_for_worker = samples.clone();
     let cuda = cfg_snap.recognition.device == "cuda";
-    // Seed merge is only valid when the preview and final models agree: with
-    // different models (e.g. base preview, cozy final) the wordings diverge,
-    // overlap dedup fails, and base-model words corrupt the fine-tuned text.
-    // Then the final model transcribes the whole utterance instead.
-    let seed_usable = was_live_at_stop
-        && !live_seed.is_empty()
-        && cfg_snap.recognition.model == cfg_snap.recognition.live_model;
+    // Pure final: the final model always transcribes the whole utterance.
+    // Live-tick transcripts are provisional previews from short windows that
+    // diverge from full-context inference — merging them into the final
+    // bakes fragment salad ("asked to ask you") into the clipboard text.
     let work = tokio::task::spawn_blocking(move || {
-        let start = if seed_usable {
-            live_cursor.saturating_sub(16_000).min(samples_for_worker.len())
-        } else {
-            0
-        };
         let mut result = worker_sup::transcribe(
-            &samples_for_worker[start..],
+            &samples_for_worker,
             &cfg_snap.recognition.model,
             &cfg_snap.recognition.language,
             cfg_snap.recognition.translate_to_en,
@@ -1054,10 +1043,6 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
             &cfg_snap.cleanup.vocabulary,
             cfg_snap.recognition.server_idle_secs,
         )?;
-        if seed_usable {
-            result.text = vaani_core::reconcile::reconcile(&[&live_seed, &result.text]);
-            result.is_silence = result.text.is_empty();
-        }
         Ok::<_, anyhow::Error>(result)
     })
     .await;

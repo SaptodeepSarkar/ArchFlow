@@ -570,28 +570,41 @@ pub fn transcribe(
             inference_ms: 0,
         });
     }
-    // Directory models (fine-tuned CT2) go through the resident server in
-    // one call — faster-whisper windows long audio internally, and the
-    // model is already loaded, so this is both faster and more accurate
-    // than per-segment reloads. One-shot binary is the fallback.
-    // server_idle_secs == 0 disables the resident server entirely.
+    // Directory models (fine-tuned CT2) go through the resident server.
+    // Long audio is split into overlapping 30 s segments (same-model exact
+    // overlap dedups cleanly); short audio is one call. One-shot binary is
+    // the fallback. Short-window accumulation is preview-only and must never
+    // feed the final transcript (windows diverge; merging them makes salad).
     let resolved = model_path_for(model);
     if server_idle_secs > 0 && std::path::Path::new(&resolved).is_dir() {
-        match fw_server_transcribe(samples, &resolved, language, translate, vocab, cuda) {
-            Ok((text, ms)) => {
-                let t = vaani_core::transcript::polish(&text);
-                let empty = t.is_empty();
-                return Ok(Transcript {
-                    text: t,
-                    language: language.into(),
-                    is_silence: empty,
-                    backend: "fw-ct2".into(),
-                    inference_ms: ms,
-                });
+        let segs = segment(samples);
+        let mut parts: Vec<String> = Vec::new();
+        let mut ms_total = 0u64;
+        let mut failed = false;
+        for (s, e) in &segs {
+            match fw_server_transcribe(&samples[*s..*e], &resolved, language, translate, vocab, cuda) {
+                Ok((text, ms)) => {
+                    ms_total += ms;
+                    parts.push(text);
+                }
+                Err(e) => {
+                    eprintln!("vaani: fw-server failed ({e:#}), one-shot fallback");
+                    failed = true;
+                    break;
+                }
             }
-            Err(e) => {
-                eprintln!("vaani: fw-server failed ({e:#}), one-shot fallback");
-            }
+        }
+        if !failed {
+            let refs: Vec<&str> = parts.iter().map(|s| s.as_str()).collect();
+            let t = vaani_core::transcript::polish(&vaani_core::reconcile::reconcile(&refs));
+            let empty = t.is_empty();
+            return Ok(Transcript {
+                text: t,
+                language: language.into(),
+                is_silence: empty,
+                backend: "fw-ct2".into(),
+                inference_ms: ms_total,
+            });
         }
     }
     // Short path: single worker call.

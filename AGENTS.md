@@ -21,6 +21,10 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.8.3** (2026-09-11): pure final. Finalize always runs full-utterance
+  inference (long audio via overlapping same-model segments); live-tick
+  fragments are preview-only after proving 2 s windows diverge into salad
+  ("asked to ask you"). One commit: `v0.8.3 pure-final2`, tag `v0.8.3`.
 - **v0.8.2** (2026-09-11): message-safe transcripts. Local polish collapses
   false starts ("genuine genuinely") and duplicate phrases ("i can't i can't")
   while keeping intentional emphasis ("very very", "no no"); `cleanup.
