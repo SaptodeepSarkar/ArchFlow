@@ -1017,8 +1017,15 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
     // Clone for the worker thread; keep the original for error-path retry.
     let samples_for_worker = samples.clone();
     let cuda = cfg_snap.recognition.device == "cuda";
+    // Seed merge is only valid when the preview and final models agree: with
+    // different models (e.g. base preview, cozy final) the wordings diverge,
+    // overlap dedup fails, and base-model words corrupt the fine-tuned text.
+    // Then the final model transcribes the whole utterance instead.
+    let seed_usable = was_live_at_stop
+        && !live_seed.is_empty()
+        && cfg_snap.recognition.model == cfg_snap.recognition.live_model;
     let work = tokio::task::spawn_blocking(move || {
-        let start = if was_live_at_stop && !live_seed.is_empty() {
+        let start = if seed_usable {
             live_cursor.saturating_sub(16_000).min(samples_for_worker.len())
         } else {
             0
@@ -1032,7 +1039,7 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
             cuda,
             &cfg_snap.cleanup.vocabulary,
         )?;
-        if !live_seed.is_empty() {
+        if seed_usable {
             result.text = vaani_core::reconcile::reconcile(&[&live_seed, &result.text]);
             result.is_silence = result.text.is_empty();
         }

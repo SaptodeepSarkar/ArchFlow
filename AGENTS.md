@@ -21,6 +21,11 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.7.2** (2026-09-11): pure final. The live-preview seed is only merged
+  into the final transcript when preview and final models agree; with split
+  models (base preview, cozy final) the final model transcribes the whole
+  utterance so base-model wording can't corrupt it. One commit:
+  `v0.7.2 pure-final`, tag `v0.7.2`.
 - **v0.7.1** (2026-09-11): backend visibility. `vaani status` latencies now
   carry the STT backend label (`fw-ct2` vs `whisper-cli-cuda` vs `cpu-stub`)
   so a wrong-model regression is caught from numbers. One commit:
