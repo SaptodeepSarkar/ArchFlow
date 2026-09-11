@@ -579,7 +579,7 @@ pub fn transcribe(
     if server_idle_secs > 0 && std::path::Path::new(&resolved).is_dir() {
         match fw_server_transcribe(samples, &resolved, language, translate, vocab, cuda) {
             Ok((text, ms)) => {
-                let t = vaani_core::transcript::strip_fillers(&text);
+                let t = vaani_core::transcript::polish(&text);
                 let empty = t.is_empty();
                 return Ok(Transcript {
                     text: t,

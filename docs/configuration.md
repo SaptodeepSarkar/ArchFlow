@@ -20,6 +20,7 @@ with a strict key whitelist — see `Config::set_key`.
 | insertion.app_overrides | map | Terminals default copy-only (multiline can execute!) |
 | cleanup.mode | raw/clean | raw dependable; clean needs explicit local endpoint |
 | cleanup.endpoint/timeout | URL / 2–30 s | No default server; timeout falls back to raw |
+| cleanup.vocabulary | comma list (append; empty clears) | Names/terms fed to the recognizer prompt; always-on local polish (fillers, false starts, duplicate phrases) needs no endpoint |
 | privacy.save_history | bool (off) | Retention + delete controls when enabled |
 
 ## UWSM / session integration

@@ -21,6 +21,11 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.8.2** (2026-09-11): message-safe transcripts. Local polish collapses
+  false starts ("genuine genuinely") and duplicate phrases ("i can't i can't")
+  while keeping intentional emphasis ("very very", "no no"); `cleanup.
+  vocabulary` appends names/terms to the recognizer prompt. Misheard content
+  words are never guessed. One commit: `v0.8.2 polish`, tag `v0.8.2`.
 - **v0.8.1** (2026-09-11): streaming that actually streams. Unique temp
   dirs per job (shared paths let a finished call delete a sibling's wav —
   every server call fell back to slow one-shot), offline hub flags (load

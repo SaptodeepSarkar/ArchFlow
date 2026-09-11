@@ -122,7 +122,7 @@ fn main() {
         }
     };
 
-    emit_ok(&vaani_core::transcript::strip_fillers(&text), &language, false, backend, t0.elapsed().as_millis() as u64);
+    emit_ok(&vaani_core::transcript::polish(&text), &language, false, backend, t0.elapsed().as_millis() as u64);
 }
 
 fn want_cuda_flag() -> bool {

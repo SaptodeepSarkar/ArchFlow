@@ -412,6 +412,23 @@ impl Config {
                 }
                 _ => Err("must be raw|clean".into()),
             },
+            // Vocabulary (names/terms) for the recognizer prompt.
+            // Comma-separated APPEND; empty value clears the list.
+            "cleanup.vocabulary" => {
+                if v.is_empty() {
+                    self.cleanup.vocabulary.clear();
+                    return Ok(String::new());
+                }
+                for term in v.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+                    let mut t = term.to_string();
+                    t.truncate(80);
+                    if !self.cleanup.vocabulary.iter().any(|e| e.eq_ignore_ascii_case(&t)) {
+                        self.cleanup.vocabulary.push(t);
+                    }
+                }
+                self.cleanup.vocabulary.truncate(200);
+                Ok(self.cleanup.vocabulary.join(", "))
+            }
             "cleanup.endpoint" => {
                 if v.len() > 256 {
                     return Err("too long".into());

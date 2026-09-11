@@ -33,3 +33,19 @@ fn live_chunk_bounded() {
     assert_eq!(c.set_key("general.live_chunk_secs", "1").unwrap(), "1");
     assert!(c.set_key("general.live_chunk_secs", "30").is_err());
 }
+
+#[test]
+fn vocabulary_appends_dedupes_and_clears() {
+    let mut c = Config::default();
+    assert_eq!(
+        c.set_key("cleanup.vocabulary", "Aarav, forgiveness").unwrap(),
+        "Aarav, forgiveness"
+    );
+    // Case-insensitive dedupe on append.
+    assert_eq!(
+        c.set_key("cleanup.vocabulary", "aarav, Diya").unwrap(),
+        "Aarav, forgiveness, Diya"
+    );
+    assert_eq!(c.set_key("cleanup.vocabulary", "").unwrap(), "");
+    assert!(c.cleanup.vocabulary.is_empty());
+}
