@@ -52,7 +52,7 @@ def main() -> None:
     tok = AutoTokenizer.from_pretrained(os.path.join(OUT, "base-model"), trust_remote_code=True)
     base = AutoModelForCausalLM.from_pretrained(
         os.path.join(OUT, "base-model"), torch_dtype=torch.bfloat16, trust_remote_code=True
-    )
+    ).to("cuda")
     model = PeftModel.from_pretrained(base, os.path.join(OUT, f"lora-{a.tag}")).eval()
 
     prefs = []

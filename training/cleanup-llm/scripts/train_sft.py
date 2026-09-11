@@ -54,7 +54,6 @@ def main() -> None:
         torch_dtype=torch.bfloat16,
         trust_remote_code=True,
     )
-    model.gradient_checkpointing_enable()
     model.config.use_cache = False
     peft = LoraConfig(
         r=32,

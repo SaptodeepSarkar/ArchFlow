@@ -47,11 +47,14 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=60)
     a = ap.parse_args()
 
-    adapter = os.path.join(OUT, f"lora-{a.tag}")
+    if a.tag == "dpo":
+        adapter = os.path.join(OUT, "dpo-sft")
+    else:
+        adapter = os.path.join(OUT, f"lora-{a.tag}")
     tok = AutoTokenizer.from_pretrained(os.path.join(OUT, "base-model"), trust_remote_code=True)
     base = AutoModelForCausalLM.from_pretrained(
         os.path.join(OUT, "base-model"), torch_dtype=torch.bfloat16, trust_remote_code=True
-    )
+    ).to("cuda")
     model = PeftModel.from_pretrained(base, adapter).eval()
 
     grammar = load_pairs(os.path.join(DATA, "eval_grammar.jsonl"), a.n)

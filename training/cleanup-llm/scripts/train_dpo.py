@@ -29,10 +29,24 @@ def main() -> None:
     tok = AutoTokenizer.from_pretrained(os.path.join(OUT, "base-model"), trust_remote_code=True)
     base = AutoModelForCausalLM.from_pretrained(
         os.path.join(OUT, "base-model"), torch_dtype=torch.bfloat16, trust_remote_code=True
-    )
+    ).to("cuda")
     model = PeftModel.from_pretrained(base, os.path.join(OUT, f"lora-{a.tag}"))
-    model.gradient_checkpointing_enable()
-    model.config.use_cache = False
+    if hasattr(model, "gradient_checkpointing_disable"):
+        model.gradient_checkpointing_disable()
+    model.config.use_cache = True
+    model.train()
+    for p in model.base_model.model.parameters():
+        p.requires_grad = False
+    for name, p in model.named_parameters():
+        if "lora" in name or "adapter" in name:
+            p.requires_grad = True
+
+    ref_model = AutoModelForCausalLM.from_pretrained(
+        os.path.join(OUT, "base-model"), torch_dtype=torch.bfloat16, trust_remote_code=True
+    ).to("cuda")
+    for p in ref_model.parameters():
+        p.requires_grad = False
+    ref_model.eval()
 
     ds = load_dataset("json", data_files=os.path.join(DATA, "dpo_prefs.jsonl"), split="train")
     args = DPOConfig(
@@ -47,8 +61,9 @@ def main() -> None:
         save_total_limit=2,
         beta=0.1,
         report_to="none",
+        gradient_checkpointing=False,
     )
-    trainer = DPOTrainer(model=model, args=args, train_dataset=ds, processing_class=tok)
+    trainer = DPOTrainer(model=model, ref_model=ref_model, args=args, train_dataset=ds, processing_class=tok)
     trainer.train()
     trainer.save_model()
     print("saved:", args.output_dir)
