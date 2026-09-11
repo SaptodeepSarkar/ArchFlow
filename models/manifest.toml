@@ -47,7 +47,9 @@ bytes = 244612629
 est_mem_mb = 1200
 license = "local fine-tune (Cozy stt-finetune, whisper-small + LoRA)"
 # Local-only: CTranslate2 int8 dir at ~/.local/share/vaani/models/cozy/
-# (config.json + model.bin + vocabulary.json), copied from
-# ~/Projects/Cozy/models/cozy_stt-v1.1/ct2. Never downloaded, never bundled.
+# (config.json + model.bin + vocabulary.json). Currently cozy_stt-v1.2
+# (copied 2026-09-11 from ~/Projects/Cozy/stt-finetune/output/
+# cozy_stt_v1.2_ct2_int8, md5-verified); previous v1.1 kept at
+# ~/.local/share/vaani/models/cozy-v1.1/. Never downloaded, never bundled.
 # Runs via faster-whisper (Cozy venv python) with beam_size=1, int8_float16.
 source = "local"
