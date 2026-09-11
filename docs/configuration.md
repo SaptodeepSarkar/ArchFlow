@@ -10,7 +10,8 @@ with a strict key whitelist — see `Config::set_key`.
 | general.review_before_insertion | bool | Stricter control; window match ≠ same cursor field |
 | audio.device_selector | "" or stable source name | "" = PipeWire default each session; never numeric node ids |
 | audio.worker_threads | 1–16 (4) | Responsiveness vs CPU |
-| recognition.model | tiny/base/base.en/small | base multilingual default; base.en English-only; small accuracy-focused |
+| recognition.model | tiny/base/base.en/small/cozy | Final transcript model; cozy = local fine-tuned CT2 (faster-whisper) |
+| recognition.live_model | tiny/base/base.en/small/cozy | Preview-tick model; keep a whisper.cpp one (CT2 reloads ~4 s/call) |
 | recognition.language | en/hi/bn | Explicit — auto-detect fails on short utterances |
 | recognition.translate_to_en | bool | Opt-in translation; default preserves spoken language |
 | recognition.device | cpu/cuda | CUDA only with user GPU build; failure falls back to CPU visibly |

@@ -2,9 +2,13 @@
 //! Spawned only on dictation activation; exits per residency profile.
 //!
 //! Protocol (inherited pipes, NOT the control socket):
-//!   argv: vaani-worker --model <path> --language <lang> --threads <n> [--translate]
+//!   argv: vaani-worker --model <path> --language <lang> --threads <n> [--translate] [--prompt TEXT]
 //!   stdin:  raw float32 LE mono 16 kHz PCM (bounded, max 120 s).
-//!   stdout: single JSON line: {"text": "...", "language": "...", "is_silence": bool, "backend": "whisper-cli|cpu-stub", "ms": u64}
+//!   stdout: single JSON line: {"text": "...", "language": "...", "is_silence": bool, "backend": "whisper-cli|fw-ct2|cpu-stub", "ms": u64}
+//! Backends: whisper.cpp CLI for ggml .bin files; faster-whisper (CT2 dir)
+//! for fine-tuned models such as cozy-stt. --prompt carries user-configured
+//! vocabulary (names/terms) to bias recognition; transcripts never travel
+//! via argv. Filler words (uh/um/...) are stripped from every backend output.
 //! Never dynamically loads CUDA into the idle controller — CUDA only here,
 //! only if the user selected a GPU build (env VAANI_CUDA=1 + cuda binary).
 
@@ -17,6 +21,7 @@ fn main() {
     let mut language = "en".to_string();
     let mut threads = 4u32;
     let mut translate = false;
+    let mut prompt = String::new();
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -33,6 +38,10 @@ fn main() {
                 threads = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(4);
             }
             "--translate" => translate = true,
+            "--prompt" => {
+                i += 1;
+                prompt = args.get(i).cloned().unwrap_or_default();
+            }
             _ => {}
         }
         i += 1;
@@ -90,8 +99,19 @@ fn main() {
         find_binary(&["whisper-cli", "whisper-cpp", "whisper", "main"]).map(|b| (b, "whisper-cli"))
     };
 
-    let (text, backend) = match (backend_bin, model_exists(&model)) {
-        (Some((bin, label)), true) => match run_whisper_cli(&bin, &model_resolve(&model), &language, threads, translate, &samples) {
+    let model_path = model_resolve(&model);
+    let (text, backend) = if std::path::Path::new(&model_path).is_dir() {
+        // Fine-tuned CTranslate2 directory (e.g. cozy-stt): faster-whisper.
+        match run_faster_whisper(&model_path, &language, &prompt, want_cuda_flag(), &samples) {
+            Ok(t) => (t, "fw-ct2"),
+            Err(e) => {
+                eprintln!("vaani-worker: faster-whisper backend failed ({e}), falling back to stub");
+                (stub_transcript(&samples), "cpu-stub")
+            }
+        }
+    } else {
+        match (backend_bin, model_exists(&model)) {
+        (Some((bin, label)), true) => match run_whisper_cli(&bin, &model_path, &language, threads, translate, &prompt, &samples) {
             Ok(t) => (t, label),
             Err(e) => {
                 eprintln!("vaani-worker: whisper backend failed ({e}), falling back to stub");
@@ -99,40 +119,158 @@ fn main() {
             }
         },
         _ => (stub_transcript(&samples), "cpu-stub"),
+        }
     };
 
-    emit_ok(&text, &language, false, backend, t0.elapsed().as_millis() as u64);
+    emit_ok(&strip_fillers(&text), &language, false, backend, t0.elapsed().as_millis() as u64);
 }
 
-fn model_exists(m: &str) -> bool {
-    if !m.is_empty() && std::path::Path::new(m).exists() {
-        return true;
+fn want_cuda_flag() -> bool {
+    std::env::var("VAANI_CUDA").ok().as_deref() == Some("1")
+}
+
+/// Python interpreter for the faster-whisper sidecar: explicit override,
+/// then the Cozy fine-tune venv ( validated CUDA faster-whisper), then PATH.
+fn fw_python() -> anyhow::Result<String> {
+    if let Ok(p) = std::env::var("VAANI_FW_PYTHON") {
+        if !p.is_empty() && std::path::Path::new(&p).exists() {
+            return Ok(p);
+        }
     }
-    // Accept a bare model name too: resolve against the models dir.
-    if !m.contains('/') && !m.is_empty() {
-        let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
-            format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
-        });
-        for cand in [format!("{base}/vaani/models/{m}.bin"), format!("{base}/vaani/models/{m}")] {
-            if std::path::Path::new(&cand).exists() {
-                return true;
+    if let Ok(home) = std::env::var("HOME") {
+        let venv = format!("{home}/Projects/Cozy/stt-finetune/.venv/bin/python");
+        if std::path::Path::new(&venv).exists() {
+            return Ok(venv);
+        }
+    }
+    Ok("python3".into())
+}
+
+/// Library path for the sidecar: CTranslate2 needs CUDA-12 libs, which on
+/// this machine live in ollama's runtime dir (NOT on the default search
+/// path). Missing entries are skipped; an existing LD_LIBRARY_PATH is kept.
+fn fw_lib_path() -> Option<String> {
+    let mut dirs: Vec<String> = Vec::new();
+    if let Ok(cur) = std::env::var("LD_LIBRARY_PATH") {
+        dirs.extend(cur.split(':').map(|s| s.to_string()));
+    }
+    for cand in [
+        "/usr/local/lib/ollama/cuda_v12",
+        "/opt/cuda/lib64",
+        "/usr/local/cuda/lib64",
+    ] {
+        if std::path::Path::new(&cand).exists() && !dirs.iter().any(|d| d == cand) {
+            dirs.push(cand.into());
+        }
+    }
+    if dirs.is_empty() {
+        None
+    } else {
+        Some(dirs.join(":"))
+    }
+}
+
+/// Sidecar script: sibling of the worker binary (user-local install), then
+/// ~/.local/bin, then PATH. Installed by install.sh, never edited by hand.
+fn fw_script() -> anyhow::Result<String> {
+    if let Ok(p) = std::env::var("VAANI_FW_SCRIPT") {
+        if !p.is_empty() && std::path::Path::new(&p).exists() {
+            return Ok(p);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let sib = dir.join("fw-transcribe.py");
+            if sib.exists() {
+                return Ok(sib.to_string_lossy().into_owned());
             }
         }
     }
-    false
+    if let Ok(home) = std::env::var("HOME") {
+        let p = format!("{home}/.local/bin/fw-transcribe.py");
+        if std::path::Path::new(&p).exists() {
+            return Ok(p);
+        }
+    }
+    Ok("fw-transcribe.py".into())
+}
+
+/// faster-whisper backend for directory models (CTranslate2, e.g. cozy-stt).
+/// Audio reaches the script as a wav file path; only paths travel via argv.
+fn run_faster_whisper(
+    model_dir: &str,
+    language: &str,
+    prompt: &str,
+    cuda: bool,
+    samples: &[f32],
+) -> anyhow::Result<String> {
+    let script = fw_script()?;
+    let python = fw_python()?;
+    let dir = std::env::temp_dir().join(format!("vaani-fw-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let wav = dir.join("in.wav");
+    write_wav_mono16(&wav, samples)?;
+    let mut cmd = std::process::Command::new(&python);
+    cmd.arg(&script)
+        .arg(model_dir)
+        .arg(&wav)
+        .arg(language)
+        .arg("--device")
+        .arg(if cuda { "cuda" } else { "cpu" });
+    if let Some(libs) = fw_lib_path() {
+        cmd.env("LD_LIBRARY_PATH", libs);
+    }
+    if !prompt.is_empty() {
+        cmd.arg("--prompt").arg(prompt);
+    }
+    let out = cmd.output().map_err(|e| anyhow::anyhow!("fw sidecar spawn failed: {e}"))?;
+    let _ = std::fs::remove_dir_all(&dir);
+    if !out.status.success() {
+        anyhow::bail!(
+            "fw sidecar exit {}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+fn model_exists(m: &str) -> bool {
+    // Single source of truth: whatever model_resolve lands on must exist.
+    // A stale supervisor path (e.g. cozy.bin for the cozy/ directory) is
+    // rescued to the real artifact instead of silently falling to cpu-stub.
+    let r = model_resolve(m);
+    !r.is_empty() && std::path::Path::new(&r).exists()
 }
 
 fn model_resolve(m: &str) -> String {
     if !m.is_empty() && std::path::Path::new(m).exists() {
         return m.to_string();
     }
+    // Bare name: resolve against the models dir (file first, then dir).
+    // Also rescue a stale supervisor path: basename minus .bin extension.
+    let mut bare: Vec<String> = Vec::new();
     if !m.contains('/') && !m.is_empty() {
+        bare.push(m.to_string());
+    } else if m.contains('/') {
+        let base = std::path::Path::new(m)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let stem = base.strip_suffix(".bin").unwrap_or(base);
+        if !stem.is_empty() {
+            bare.push(stem.to_string());
+        }
+    }
+    if !bare.is_empty() {
         let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
             format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
         });
-        for cand in [format!("{base}/vaani/models/{m}.bin"), format!("{base}/vaani/models/{m}")] {
-            if std::path::Path::new(&cand).exists() {
-                return cand;
+        for b in &bare {
+            for cand in [format!("{base}/vaani/models/{b}.bin"), format!("{base}/vaani/models/{b}")] {
+                if std::path::Path::new(&cand).exists() {
+                    return cand;
+                }
             }
         }
     }
@@ -191,6 +329,7 @@ fn run_whisper_cli(
     language: &str,
     threads: u32,
     translate: bool,
+    prompt: &str,
     samples: &[f32],
 ) -> anyhow::Result<String> {
     use std::io::Write;
@@ -223,6 +362,11 @@ fn run_whisper_cli(
     if translate {
         cmd.arg("--translate");
     }
+    // Vocabulary bias (names/terms): initial prompt steers recognition
+    // without touching the audio. Skipped when empty (stock behavior).
+    if !prompt.is_empty() {
+        cmd.arg("--prompt").arg(prompt);
+    }
     // Bounded inference time: 120 s audio + margin.
     let mut child = cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped()).spawn()?;
     let status = child.wait()?;
@@ -241,6 +385,34 @@ fn run_whisper_cli(
 /// Deterministic stub used when no model/binary is configured: never invents
 /// words in production path — returns empty so nothing is inserted. Only used
 /// for plumbing tests; clearly labelled backend="cpu-stub".
+/// Drop spoken filler words (whole tokens, case-insensitive): uh/um/er
+/// variants and mm-hesitations carry no information and the fine-tuned
+/// transcripts read cleaner without them. Conservative by design: only
+/// standalone filler tokens vanish; substrings ("umber", "mummy") and
+/// sentence position are untouched. Trailing/leading punctuation on the
+/// token is tolerated ("uh," still counts).
+fn strip_fillers(text: &str) -> String {
+    const FILLERS: &[&str] = &[
+        "uh", "uhh", "uhhh", "um", "umm", "ummm", "uhm", "er", "erm", "ah", "mmm",
+    ];
+    let kept: Vec<&str> = text
+        .split_whitespace()
+        .filter(|tok| {
+            let core = tok
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase();
+            !(core.len() >= 2 && FILLERS.contains(&core.as_str()))
+        })
+        .collect();
+    // Rejoin and tidy spaces left before punctuation.
+    let mut out = kept.join(" ");
+    for p in [",", ".", "!", "?", ";", ":", ")", "]"] {
+        out = out.replace(&format!(" {p}"), p);
+    }
+    out = out.replace("( ", "(").replace("[ ", "[");
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn stub_transcript(_samples: &[f32]) -> String {
     // Empty: silence policy — do not fabricate transcription.
     // Integration tests with synthetic fixtures assert this stays empty
@@ -287,4 +459,26 @@ fn write_wav_mono16(path: &std::path::Path, samples: &[f32]) -> std::io::Result<
         f.write_all(&v.to_le_bytes())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fillers_removed_whole_tokens_only() {
+        assert_eq!(
+            strip_fillers("Uh, I um think er this is fine"),
+            "I think this is fine"
+        );
+        assert_eq!(
+            strip_fillers("well UMM let me see mmm ok"),
+            "well let me see ok"
+        );
+        // Substrings and short tokens survive.
+        assert_eq!(strip_fillers("umber mummy a I"), "umber mummy a I");
+        assert_eq!(strip_fillers(""), "");
+        // Punctuation spacing tidied.
+        assert_eq!(strip_fillers("hello , uh world ."), "hello, world.");
+    }
 }

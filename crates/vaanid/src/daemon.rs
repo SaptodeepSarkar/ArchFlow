@@ -836,11 +836,12 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
             let cuda = snap.cfg.recognition.device == "cuda";
             worker_sup::transcribe(
                 &snap.audio,
-                &snap.cfg.recognition.model,
+                &snap.cfg.recognition.live_model,
                 &snap.cfg.recognition.language,
                 snap.cfg.recognition.translate_to_en,
                 snap.cfg.audio.worker_threads,
                 cuda,
+                &snap.cfg.cleanup.vocabulary,
             )
         })
         .await;
@@ -1025,6 +1026,7 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
             cfg_snap.recognition.translate_to_en,
             cfg_snap.audio.worker_threads,
             cuda,
+            &cfg_snap.cleanup.vocabulary,
         )?;
         if !live_seed.is_empty() {
             result.text = vaani_core::reconcile::reconcile(&[&live_seed, &result.text]);

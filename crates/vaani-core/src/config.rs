@@ -63,6 +63,12 @@ pub struct Audio {
 pub struct Recognition {
     #[serde(default = "default_model")]
     pub model: String,
+    /// Fast model for the running live preview (1 s ticks). The final
+    /// transcript always uses `model`: preview stays cheap (base loads in
+    /// ~1 s; fine-tuned CT2 reloads ~4 s per call) while completion keeps
+    /// the accurate model. Provisional either way.
+    #[serde(default = "default_model")]
+    pub live_model: String,
     /// en | hi | bn | auto (auto only for >=10s utterances; short uses `language`)
     #[serde(default = "default_lang")]
     pub language: String,
@@ -179,6 +185,7 @@ impl Default for Recognition {
     fn default() -> Self {
         Self {
             model: default_model(),
+            live_model: default_model(),
             language: default_lang(),
             translate_to_en: false,
             device: default_device(),
@@ -338,11 +345,18 @@ impl Config {
                 Ok(n.to_string())
             }
             "recognition.model" => match v {
-                "base" | "base.en" | "small" | "tiny" => {
+                "tiny" | "base" | "base.en" | "small" | "cozy" => {
                     self.recognition.model = v.into();
                     Ok(v.into())
                 }
-                _ => Err("must be tiny|base|base.en|small".into()),
+                _ => Err("must be tiny|base|base.en|small|cozy".into()),
+            },
+            "recognition.live_model" => match v {
+                "tiny" | "base" | "base.en" | "small" | "cozy" => {
+                    self.recognition.live_model = v.into();
+                    Ok(v.into())
+                }
+                _ => Err("must be tiny|base|base.en|small|cozy".into()),
             },
             "recognition.language" => match v {
                 "en" | "hi" | "bn" => {

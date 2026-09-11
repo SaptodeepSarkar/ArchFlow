@@ -21,6 +21,15 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.7.0** (2026-09-11): fine-tuned speech. `recognition.model = "cozy"`
+  runs the Cozy whisper-small LoRA (Indian English + your voice) via a
+  faster-whisper sidecar (CT2 int8, beam 1, CUDA; user-local copy, weights
+  never in repo); `recognition.live_model` keeps preview ticks on fast
+  whisper.cpp. Model resolution prefers real artifacts (a stale `cozy.bin`
+  path rescues to the `cozy/` directory instead of silent cpu-stub), and the
+  sidecar carries Cozy's validated Hindi prompt by default. Vocabulary feeds
+  the recognizer prompt (names), filler words (uh/um/er/mmm) are stripped in
+  the worker. One commit: `v0.7.0 cozy-stt`, tag `v0.7.0`.
 - **v0.6.5** (2026-09-11): place-tracking preview. At most five recent words:
   dim trailing context plus the newest word highlighted, so no ellipsis hides
   your place. One commit: `v0.6.5 place`, tag `v0.6.5`.

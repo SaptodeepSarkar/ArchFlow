@@ -4,6 +4,7 @@ use vaani_core::config::Config;
 fn whitelist_accepts_known_keys() {
     let mut c = Config::default();
     assert_eq!(c.set_key("recognition.model", "small").unwrap(), "small");
+    assert_eq!(c.set_key("recognition.model", "cozy").unwrap(), "cozy");
     assert_eq!(c.set_key("recognition.language", "hi").unwrap(), "hi");
     assert_eq!(c.set_key("audio.worker_threads", "8").unwrap(), "8");
     assert_eq!(

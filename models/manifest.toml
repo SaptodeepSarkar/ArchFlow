@@ -39,3 +39,15 @@ bytes = 487626665
 est_mem_mb = 900
 license = "MIT"
 sha256 = "PUT_SHA256_HERE_AFTER_PIN_VERIFICATION"
+
+[[model]]
+name = "cozy"
+ggml_file = ""
+bytes = 244612629
+est_mem_mb = 1200
+license = "local fine-tune (Cozy stt-finetune, whisper-small + LoRA)"
+# Local-only: CTranslate2 int8 dir at ~/.local/share/vaani/models/cozy/
+# (config.json + model.bin + vocabulary.json), copied from
+# ~/Projects/Cozy/models/cozy_stt-v1.1/ct2. Never downloaded, never bundled.
+# Runs via faster-whisper (Cozy venv python) with beam_size=1, int8_float16.
+source = "local"

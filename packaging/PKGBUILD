@@ -1,6 +1,6 @@
 # Maintainer: Vaani contributors
 pkgname=vaani
-pkgver=0.6.5
+pkgver=0.7.0
 pkgrel=1
 install=vaani.install
 pkgdesc="Local-first voice dictation for Hyprland/Wayland (Rust + whisper.cpp + Quickshell)"

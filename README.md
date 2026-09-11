@@ -128,9 +128,29 @@ Details: `docs/architecture.md` · `docs/configuration.md` ·
 
 Copy `config.example.toml` → `~/.config/vaani/config.toml`, or use
 `vaani config-get` / `vaani config-set <key> <value>` (validated).
-Key options: `recognition.model` (tiny/base/base.en/small),
+Key options: `recognition.model` (tiny/base/base.en/small/cozy),
+`recognition.live_model` (fast preview model, keep whisper.cpp),
 `recognition.language` (en/hi/bn), `insertion.mode`
 (automatic/review/copy-only), `general.auto_stop_secs`.
+
+## Models: stock whisper vs fine-tuned cozy
+
+Audio flow: 16 kHz blocks → energy VAD + hangover → end-of-speech auto-stop
+→ bounded 30 s segments with overlap → per-segment inference → prefix
+reconciliation → filler-word strip (uh/um/er/mmm) → clipboard + popup.
+Lists/bullets restructuring is the opt-in `cleanup.mode = "clean"` LLM step
+(local endpoint); names and domain terms ride `cleanup.vocabulary` into the
+recognizer's initial prompt (`--prompt` / `initial_prompt`), which is how
+Whisper learns your nouns without retraining.
+
+`recognition.model = "cozy"` switches completion to your fine-tuned
+Whisper-small (LoRA on your voice + Indian English, exported CTranslate2
+int8 from Cozy's `stt-finetune`, copied user-local to
+`~/.local/share/vaani/models/cozy/` — weights never enter this repo). It runs
+through faster-whisper on CUDA with Cozy's validated settings (beam 1,
+int8_float16, Hindi-word prompt); the live preview keeps using tiny/base so
+it stays at ~2 s updates. Stock ggml models still download via
+`tools/model-setup.py`.
 
 ## Uninstall
 

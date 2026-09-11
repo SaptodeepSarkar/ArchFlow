@@ -164,20 +164,40 @@ fn write_wav_mono16(path: &std::path::Path, samples: &[f32]) -> std::io::Result<
     Ok(())
 }
 
+/// Resolve a configured model to a filesystem path. Prefers an existing
+/// ggml file (`{m}.bin`), then an existing model directory (`{m}`, e.g. a
+/// fine-tuned CTranslate2 dir for faster-whisper). Falls back to the .bin
+/// string so failures stay visible (worker reports cpu-stub, never invents).
 pub fn model_path_for(model: &str) -> String {
+    let lookup = |dir: &str| {
+        let file = format!("{dir}/{model}.bin");
+        if std::path::Path::new(&file).is_file() {
+            return Some(file);
+        }
+        let direct = format!("{dir}/{model}");
+        if std::path::Path::new(&direct).exists() {
+            return Some(direct);
+        }
+        None
+    };
     if let Ok(dir) = std::env::var("VAANI_MODELS_DIR") {
         if !dir.is_empty() {
+            if let Some(p) = lookup(&dir) {
+                return p;
+            }
             return format!("{dir}/{model}.bin");
         }
     }
     let base = std::env::var("XDG_DATA_HOME")
         .unwrap_or_else(|_| format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into())));
-    format!("{base}/vaani/models/{model}.bin")
+    let dir = format!("{base}/vaani/models");
+    lookup(&dir).unwrap_or_else(|| format!("{dir}/{model}.bin"))
 }
 
 /// Transcribe complete utterance (stop-gated, max 120 s). Long audio uses
 /// bounded segments with overlap + reconciliation (never full-buffer
-/// re-inference per frame).
+/// re-inference per frame). `vocab` (names/terms) becomes the recognizer's
+/// initial prompt on backends that support it.
 pub fn transcribe(
     samples: &[f32],
     model: &str,
@@ -185,6 +205,7 @@ pub fn transcribe(
     translate: bool,
     threads: u32,
     cuda: bool,
+    vocab: &[String],
 ) -> anyhow::Result<Transcript> {
     if samples.is_empty() {
         return Ok(Transcript {
@@ -197,7 +218,7 @@ pub fn transcribe(
     }
     // Short path: single worker call.
     if samples.len() <= vaani_core::segment::SEGMENT_SAMPLES {
-        return run_once(samples, model, language, translate, threads, cuda);
+        return run_once(samples, model, language, translate, threads, cuda, vocab);
     }
     // Long path: bounded segments, reconcile.
     let mut parts: Vec<String> = Vec::new();
@@ -206,7 +227,7 @@ pub fn transcribe(
     let mut backend = "cpu-stub".to_string();
     let mut ms_total = 0u64;
     for (s, e) in segment(samples) {
-        let t = run_once(&samples[s..e], model, language, translate, threads, cuda)?;
+        let t = run_once(&samples[s..e], model, language, translate, threads, cuda, vocab)?;
         if !t.is_silence {
             silence_all = false;
         }
@@ -232,10 +253,16 @@ fn run_once(
     translate: bool,
     threads: u32,
     cuda: bool,
+    vocab: &[String],
 ) -> anyhow::Result<Transcript> {
     let t0 = std::time::Instant::now();
     let mut command = std::process::Command::new(worker_bin());
     if translate { command.arg("--translate"); }
+    if !vocab.is_empty() {
+        // Names/terms bias (whisper initial prompt / fw initial_prompt).
+        // Configured vocabulary only — transcripts never travel via argv.
+        command.arg("--prompt").arg(vocab.join(", "));
+    }
     let mut child = command
         .arg("--model")
         .arg(model_path_for(model))

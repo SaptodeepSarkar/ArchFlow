@@ -11,6 +11,7 @@ mkdir -p "$bin_root" "$config_root/systemd/user" "$config_root/hypr" "$data_root
 for binary in vaanid vaani vaani-worker; do
   install -m755 "target/release/$binary" "$bin_root/$binary"
 done
+install -m755 crates/vaani-worker/fw-transcribe.py "$bin_root/fw-transcribe.py"
 python3 - "$bin_root/vaanid" "$config_root/systemd/user/vaanid.service" <<'PY'
 import pathlib, sys
 binary = sys.argv[1].replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%')
