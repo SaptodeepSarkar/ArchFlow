@@ -28,6 +28,7 @@ Scope {
     property string sessionId: ""
     property string lastWord: ""
     property string nextWord: ""
+    property bool dismissing: false
     Theme { id: theme }
 
     // Daemon wire format: {protocol_version, request_id, session_id, kind}
@@ -126,6 +127,7 @@ Scope {
         if (msg.data && msg.data.text !== undefined)
             root.pendingText = msg.data.text;
         if (root.state === "RECORDING") {
+            root.dismissing = false;
             closeTimer.stop();
             if (previous !== "RECORDING") {
                 root.provisional = "";
@@ -142,15 +144,21 @@ Scope {
     function checkFinished() {
         if (root.showSettings)
             return;
-        if (root.state === "IDLE" || root.state === "CANCELLED" || root.state === "ERROR")
+        if (root.state === "IDLE" || root.state === "CANCELLED") {
+            root.dismissing = true;
             closeTimer.restart();
-        else
+        } else if (root.state === "ERROR") {
+            root.dismissing = false;
+            closeTimer.restart();
+        } else {
+            root.dismissing = false;
             closeTimer.stop();
+        }
     }
 
     Timer {
         id: closeTimer
-        interval: 1600
+        interval: root.state === "ERROR" ? 1600 : 360
         repeat: false
         onTriggered: {
             if (!root.showSettings)
@@ -228,6 +236,12 @@ Scope {
                 radius: 18
                 color: theme.surface
                 border.color: theme.outline
+                opacity: root.dismissing ? 0 : 1
+                transform: Translate {
+                    y: root.dismissing ? card.height + 32 : 0
+                    Behavior on y { NumberAnimation { duration: 320; easing.type: Easing.InCubic } }
+                }
+                Behavior on opacity { NumberAnimation { duration: 240 } }
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: 14

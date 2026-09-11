@@ -85,6 +85,9 @@ word arrives, the provisional word moves left.
 Updates follow recognition chunks (default four seconds plus inference time),
 not predictions of words you have not spoken. Both words can be corrected by
 recognition; display position does not mean the word was inserted.
+After paste dispatch or clipboard fallback, the overlay slides below the screen
+edge and exits. Clipboard fallback keeps the full result available through
+`vaani recover` until its configured expiry.
 
 Overlay and settings follow `$XDG_STATE_HOME/caelestia/scheme.json` (default
 `~/.local/state/caelestia/scheme.json`). Updates use file notifications.

@@ -57,6 +57,16 @@ pub fn insert_automatic(
     if let Err(e) = clipboard::offer_text(text) {
         return InsertOutcome::Failed(format!("clipboard offer failed: {e}"));
     }
+    if !clipboard::still_ours(text) {
+        return InsertOutcome::CopyReady(
+            "clipboard offer was replaced before paste dispatch".into(),
+        );
+    }
+    if let Err(reason) = focus::recheck_target(start_target) {
+        return InsertOutcome::CopyReady(format!(
+            "target changed after clipboard offer ({reason})"
+        ));
+    }
     let chord = paste_chord_for(&current.app_id);
     match dispatch_key(&chord) {
         Ok(()) => InsertOutcome::DispatchAttempted(format!(
@@ -73,6 +83,10 @@ pub fn insert_automatic(
 pub(crate) fn commit_delta(text: &str, target: &FocusTarget) -> Result<(), String> {
     let current = focus::recheck_target(target)?;
     clipboard::offer_text(text).map_err(|e| format!("clipboard offer failed: {e}"))?;
+    if !clipboard::still_ours(text) {
+        return Err("clipboard offer was replaced before paste dispatch".into());
+    }
+    focus::recheck_target(target)?;
     let chord = paste_chord_for(&current.app_id);
     dispatch_key(&chord).map_err(|e| format!("dispatch failed: {e}"))?;
     Ok(())

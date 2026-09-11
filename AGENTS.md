@@ -21,6 +21,10 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.5.2** (2026-09-11): insertion handoff hardening. Verify clipboard
+  readiness, recheck focus immediately before paste dispatch, log non-content
+  outcomes, and slide the overlay down after paste or clipboard fallback. One
+  commit: `v0.5.2 insertion+exit`, tag `v0.5.2`.
 - **v0.5.1** (2026-09-11): live hardware follow-up. Quiet-microphone VAD
   tuning, CUDA whisper.cpp setup, and an overlay containing only the waveform
   and two-word transcript/status text. One commit: `v0.5.1 live+cuda`, tag

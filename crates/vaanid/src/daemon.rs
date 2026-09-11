@@ -874,13 +874,14 @@ async fn copy_fallback(
         .unwrap_or(false);
     let mut g = shared.lock().await;
     if g.session.id != sid { return resp_ok("", &g.session, Some("stale copy result discarded".into()), None); }
-    let _ = g.session.transition(State::Ready);
     let msg = if clip_ok {
         format!("{reason} — text is on the clipboard, paste where you need it")
     } else {
         format!("{reason} — clipboard offer failed, use copy/recover")
     };
-    emit(tx, &ev_state(Some(sid.to_string()), State::Ready, Some(&msg)));
+    let _ = g.session.transition(State::Ready);
+    let _ = g.session.transition(State::Idle);
+    emit(tx, &ev_state(Some(sid.to_string()), State::Idle, Some(&msg)));
     let s = g.session.clone();
     resp_ok("", &s, Some(msg), Some(serde_json::json!({"text": final_text})))
 }
@@ -1056,6 +1057,12 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                 return resp_ok("", &g.session, Some("stale insertion result discarded".into()), None);
             }
             g.last_lat.dispatch_ms = t0d.elapsed().as_millis() as u64;
+            tracing::info!(
+                session_id = %sid,
+                target_app = %target.app_id,
+                outcome = %outcome,
+                "insertion completed"
+            );
             match outcome {
                 inserter::InsertOutcome::DispatchAttempted(m) => {
                     let _ = g.session.transition(State::Idle);
