@@ -137,7 +137,10 @@ fn default_device() -> String {
     "cpu".into()
 }
 fn default_insertion_mode() -> String {
-    "automatic".into()
+    // Copy-only default: transcription ends on the clipboard with a
+    // confirmation popup. Automatic paste stays available per app via
+    // insertion.mode = "automatic" (injection code is kept, not removed).
+    "copy-only".into()
 }
 fn default_clip_secs() -> u64 {
     30
@@ -440,10 +443,11 @@ mod tests {
     #[test]
     fn overrides_win() {
         let mut c = Config::default();
+        assert_eq!(c.insertion_mode_for("anything"), "copy-only");
         c.insertion
             .app_overrides
-            .insert("foot".into(), "copy-only".into());
-        assert_eq!(c.insertion_mode_for("foot"), "copy-only");
-        assert_eq!(c.insertion_mode_for("firefox"), "automatic");
+            .insert("foot".into(), "automatic".into());
+        assert_eq!(c.insertion_mode_for("foot"), "automatic");
+        assert_eq!(c.insertion_mode_for("firefox"), "copy-only");
     }
 }

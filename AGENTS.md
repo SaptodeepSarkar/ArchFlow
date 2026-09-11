@@ -21,6 +21,12 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.6.1** (2026-09-11): copy-first completion. `copy-only` is the default
+  insertion mode (injection code kept for `automatic`); every finish shows a
+  "Copied to clipboard" popup that lingers ~2 s. Live preview no longer
+  blanks on pause/partial-word ticks or worker hiccups — last-known words
+  stay on screen, with tick failures logged. One commit: `v0.6.1 copy+preview`,
+  tag `v0.6.1`.
 - **v0.6.0** (2026-09-11): incremental live transcription and dependable
   completion. One-second chunks with overlap replace cumulative re-inference;
   finalization processes only the unconsumed tail. VAD gate lowered to 0.003

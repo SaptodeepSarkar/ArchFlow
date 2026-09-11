@@ -814,14 +814,26 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
         let committed_n = g.committed.split_whitespace().count();
         let t = match work {
             Ok(Ok(t)) => t,
-            _ => {
-                // Worker hiccup: retry next tick, keep recording.
-                emit_provisional(&tx, &sess, "", hide, committed_n);
+            Ok(Err(e)) => {
+                // Worker hiccup: retry next tick, keep recording. Keep the
+                // last-known provisional words on screen (never blank them:
+                // a flickering preview reads as "no live transcription").
+                tracing::warn!("live tick transcription failed: {e:#}");
+                let known = g.live_transcript.clone();
+                emit_provisional(&tx, &sess, &known, hide, committed_n);
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!("live tick task failed: {e}");
+                let known = g.live_transcript.clone();
+                emit_provisional(&tx, &sess, &known, hide, committed_n);
                 continue;
             }
         };
         if t.is_silence || t.text.is_empty() {
-            emit_provisional(&tx, &sess, "", hide, committed_n);
+            // Pause or partial-word window: hold the last-known words.
+            let known = g.live_transcript.clone();
+            emit_provisional(&tx, &sess, &known, hide, committed_n);
             continue;
         }
         let combined = vaani_core::reconcile::reconcile(&[&previous_transcript, &t.text]);
@@ -891,16 +903,19 @@ async fn copy_fallback(
         .unwrap_or(false);
     let mut g = shared.lock().await;
     if g.session.id != sid { return resp_ok("", &g.session, Some("stale copy result discarded".into()), None); }
-    let msg = if clip_ok {
-        format!("{reason} — text is on the clipboard, paste where you need it")
+    let (msg, copied) = if clip_ok {
+        ("Copied to clipboard".to_string(), true)
     } else {
-        format!("{reason} — clipboard offer failed, use copy/recover")
+        (
+            format!("{reason} — clipboard offer failed, use copy/recover"),
+            false,
+        )
     };
     let _ = g.session.transition(State::Ready);
     let _ = g.session.transition(State::Idle);
     emit(tx, &ev_state(Some(sid.to_string()), State::Idle, Some(&msg)));
     let s = g.session.clone();
-    resp_ok("", &s, Some(msg), Some(serde_json::json!({"text": final_text})))
+    resp_ok("", &s, Some(msg), Some(serde_json::json!({"text": final_text, "copied": copied})))
 }
 
 /// Stop: idempotent, closes capture immediately, transcribes (blocking task),
@@ -1102,14 +1117,14 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                     return resp_ok("", &s, Some("stale review result discarded".into()), None);
                 }
                 let _ = g.session.transition(State::Idle);
-                let msg = if clip_ok {
-                    format!("{why} — text is on the clipboard")
+                let (msg, copied) = if clip_ok {
+                    (format!("{why} — copied to clipboard"), true)
                 } else {
-                    format!("{why} — clipboard offer failed, use copy/recover")
+                    (format!("{why} — clipboard offer failed, use copy/recover"), false)
                 };
                 emit(tx, &ev_state(Some(sid), State::Idle, Some(&msg)));
                 let s = g.session.clone();
-                return resp_ok("", &s, Some(msg), Some(serde_json::json!({"text": final_text})));
+                return resp_ok("", &s, Some(msg), Some(serde_json::json!({"text": final_text, "copied": copied})));
             }
             let _ = g.session.transition(State::Inserting);
             let t0d = std::time::Instant::now();

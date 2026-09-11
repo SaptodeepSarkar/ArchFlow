@@ -29,6 +29,9 @@ Scope {
     property string lastWord: ""
     property string nextWord: ""
     property bool dismissing: false
+    // Set when the finished session copied its transcript to the clipboard:
+    // the "Copied to clipboard" popup lingers long enough to be read.
+    property bool copiedNotice: false
     Theme { id: theme }
 
     // Daemon wire format: {protocol_version, request_id, session_id, kind}
@@ -96,6 +99,7 @@ Scope {
         }
         // Responses carry ok/state/message/data. Finished states linger
         // briefly so the outcome is visible, then the overlay exits.
+        // A clipboard confirmation lingers longer so it can be read.
         if (msg.ok !== undefined) {
             if (msg.state)
                 root.state = msg.state;
@@ -106,6 +110,8 @@ Scope {
                     root.pendingText = msg.data.text;
                 else if (root.settingsApi)
                     root.settingsApi.routeData(msg.data);
+                if (msg.data.copied === true)
+                    root.copiedNotice = true;
             }
             root.checkFinished();
             return;
@@ -126,8 +132,11 @@ Scope {
             root.statusText = msg.message;
         if (msg.data && msg.data.text !== undefined)
             root.pendingText = msg.data.text;
+        if (msg.data && msg.data.copied === true)
+            root.copiedNotice = true;
         if (root.state === "RECORDING") {
             root.dismissing = false;
+            root.copiedNotice = false;
             closeTimer.stop();
             if (previous !== "RECORDING") {
                 root.provisional = "";
@@ -160,7 +169,7 @@ Scope {
 
     Timer {
         id: closeTimer
-        interval: root.state === "ERROR" ? 1600 : 360
+        interval: root.state === "ERROR" ? 1600 : root.copiedNotice ? 2200 : 360
         repeat: false
         onTriggered: {
             if (!root.showSettings)

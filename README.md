@@ -45,9 +45,10 @@ service. Vaani keeps a separate `whisper-cli-cuda` binary and loads it only
 during transcription.
 
 Press `SUPER+H` in any text field and speak. Stop speaking → the overlay
-shows *Transcribing* → text is typed in. Nothing focused (or a terminal)?
-It lands on the clipboard instead, with the reason shown. `SUPER+H` while
-recording/transcribing discards the utterance.
+shows *Transcribing* → *Copied to clipboard* (lingers ~2 s so it can be
+read), and the transcript is on the clipboard for pasting. Nothing is typed
+into apps by default; set `insertion.mode = "automatic"` to paste via wtype
+instead. `SUPER+H` while recording/transcribing discards the utterance.
 
 | Shortcut | Action |
 |---|---|
@@ -86,11 +87,14 @@ Updates follow incremental one-second audio chunks plus inference time,
 not predictions of words you have not spoken. Both words can be corrected by
 recognition; display position does not mean the word was inserted.
 Chunks overlap by one second and are reconciled into a cumulative transcript.
-Finalization transcribes only the unconsumed tail instead of the complete long
-recording again. A successful completion both requests paste and leaves the
-full transcript on the clipboard.
-After paste dispatch or clipboard fallback, the overlay slides below the screen
-edge and exits. Clipboard fallback keeps the full result available through
+The preview holds the last-known words across pauses and worker hiccups
+instead of blanking. Finalization transcribes only the unconsumed tail instead
+of the complete long recording again (long audio is additionally split into
+bounded 30-second segments, never full-buffer re-inference per frame).
+A successful completion copies the full transcript to the clipboard and shows
+a confirmation popup.
+After the confirmation, the overlay slides below the screen
+edge and exits. The result stays available through
 `vaani recover` until its configured expiry.
 
 Overlay and settings follow `$XDG_STATE_HOME/caelestia/scheme.json` (default
@@ -108,9 +112,10 @@ validation limits.
 `IDLE → STARTING → RECORDING → TRANSCRIBING → READY → INSERTING → IDLE`.
 Capture is a bounded `pw-record` stream (20 ms blocks, 120 s cap, nothing
 written to disk). A short-lived `vaani-worker` transcribes via pinned
-whisper.cpp, then exits (Economy profile). Insertion = clipboard offer +
-compositor paste dispatch with a focus recheck; terminals are copy-only by
-policy (pasting shell-like text could execute it). Silence inserts nothing.
+whisper.cpp, then exits (Economy profile). Insertion = clipboard offer, plus
+an opt-in paste dispatch (`insertion.mode = "automatic"`: wtype virtual
+keyboard, or Hyprland shortcut fallback) with a focus recheck; terminals
+paste from the primary selection via Shift+Insert. Silence inserts nothing.
 The Quickshell overlay is event-driven and exits when idle.
 
 Details: `docs/architecture.md` · `docs/configuration.md` ·
