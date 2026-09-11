@@ -12,6 +12,7 @@ with a strict key whitelist — see `Config::set_key`.
 | audio.worker_threads | 1–16 (4) | Responsiveness vs CPU |
 | recognition.model | tiny/base/base.en/small/cozy | Final transcript model; cozy = local fine-tuned CT2 (faster-whisper) |
 | recognition.live_model | tiny/base/base.en/small/cozy | Preview-tick model; keep a whisper.cpp one (CT2 reloads ~4 s/call) |
+| recognition.server_idle_secs | 0–600 (90) | Resident faster-whisper TTL; 0 = one-shot per call |
 | recognition.language | en/hi/bn | Explicit — auto-detect fails on short utterances |
 | recognition.translate_to_en | bool | Opt-in translation; default preserves spoken language |
 | recognition.device | cpu/cuda | CUDA only with user GPU build; failure falls back to CPU visibly |

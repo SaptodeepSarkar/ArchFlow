@@ -21,6 +21,11 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.8.0** (2026-09-11): streaming fine-tuned STT. Directory models run
+  through a persistent faster-whisper sidecar (loads once, ~0.3 s per chunk,
+  ~90 MiB resident, reaped after `server_idle_secs`), so cozy shows results
+  on the go; filler-strip shared in core; hardware streaming test (ignored).
+  One commit: `v0.8.0 fw-stream`, tag `v0.8.0`.
 - **v0.7.2** (2026-09-11): pure final. The live-preview seed is only merged
   into the final transcript when preview and final models agree; with split
   models (base preview, cozy final) the final model transcribes the whole

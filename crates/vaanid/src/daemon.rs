@@ -116,6 +116,19 @@ pub async fn run() -> anyhow::Result<()> {
         let t = tx.clone();
         tokio::spawn(async move { lock_watch(s, t).await });
     }
+    // Resident STT server reaper: frees VRAM after configured idle seconds.
+    {
+        let s = shared.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                let idle = s.lock().await.cfg.recognition.server_idle_secs;
+                if idle > 0 {
+                    worker_sup::reap_idle_servers(idle);
+                }
+            }
+        });
+    }
     // Pending-text expiry sweeper (5 min default, in-memory only).
     {
         let s = shared.clone();
@@ -846,6 +859,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
                 snap.cfg.audio.worker_threads,
                 cuda,
                 &snap.cfg.cleanup.vocabulary,
+                snap.cfg.recognition.server_idle_secs,
             )
         })
         .await;
@@ -1038,6 +1052,7 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
             cfg_snap.audio.worker_threads,
             cuda,
             &cfg_snap.cleanup.vocabulary,
+            cfg_snap.recognition.server_idle_secs,
         )?;
         if seed_usable {
             result.text = vaani_core::reconcile::reconcile(&[&live_seed, &result.text]);

@@ -6,6 +6,7 @@ pub mod protocol;
 pub mod reconcile;
 pub mod segment;
 pub mod state;
+pub mod transcript;
 pub mod vad;
 
 pub const PROTOCOL_VERSION: u32 = 1;

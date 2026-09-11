@@ -122,7 +122,7 @@ fn main() {
         }
     };
 
-    emit_ok(&strip_fillers(&text), &language, false, backend, t0.elapsed().as_millis() as u64);
+    emit_ok(&vaani_core::transcript::strip_fillers(&text), &language, false, backend, t0.elapsed().as_millis() as u64);
 }
 
 fn want_cuda_flag() -> bool {
@@ -385,34 +385,6 @@ fn run_whisper_cli(
 /// Deterministic stub used when no model/binary is configured: never invents
 /// words in production path — returns empty so nothing is inserted. Only used
 /// for plumbing tests; clearly labelled backend="cpu-stub".
-/// Drop spoken filler words (whole tokens, case-insensitive): uh/um/er
-/// variants and mm-hesitations carry no information and the fine-tuned
-/// transcripts read cleaner without them. Conservative by design: only
-/// standalone filler tokens vanish; substrings ("umber", "mummy") and
-/// sentence position are untouched. Trailing/leading punctuation on the
-/// token is tolerated ("uh," still counts).
-fn strip_fillers(text: &str) -> String {
-    const FILLERS: &[&str] = &[
-        "uh", "uhh", "uhhh", "um", "umm", "ummm", "uhm", "er", "erm", "ah", "mmm",
-    ];
-    let kept: Vec<&str> = text
-        .split_whitespace()
-        .filter(|tok| {
-            let core = tok
-                .trim_matches(|c: char| !c.is_alphanumeric())
-                .to_lowercase();
-            !(core.len() >= 2 && FILLERS.contains(&core.as_str()))
-        })
-        .collect();
-    // Rejoin and tidy spaces left before punctuation.
-    let mut out = kept.join(" ");
-    for p in [",", ".", "!", "?", ";", ":", ")", "]"] {
-        out = out.replace(&format!(" {p}"), p);
-    }
-    out = out.replace("( ", "(").replace("[ ", "[");
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 fn stub_transcript(_samples: &[f32]) -> String {
     // Empty: silence policy — do not fabricate transcription.
     // Integration tests with synthetic fixtures assert this stays empty
@@ -463,22 +435,6 @@ fn write_wav_mono16(path: &std::path::Path, samples: &[f32]) -> std::io::Result<
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn fillers_removed_whole_tokens_only() {
-        assert_eq!(
-            strip_fillers("Uh, I um think er this is fine"),
-            "I think this is fine"
-        );
-        assert_eq!(
-            strip_fillers("well UMM let me see mmm ok"),
-            "well let me see ok"
-        );
-        // Substrings and short tokens survive.
-        assert_eq!(strip_fillers("umber mummy a I"), "umber mummy a I");
-        assert_eq!(strip_fillers(""), "");
-        // Punctuation spacing tidied.
-        assert_eq!(strip_fillers("hello , uh world ."), "hello, world.");
-    }
+    // Filler-strip tests live with the shared implementation:
+    // vaani-core/src/transcript.rs.
 }

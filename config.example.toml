@@ -32,6 +32,9 @@ model = "base"
 # fast model for the live preview ticks (keep a whisper.cpp one here: the
 # fine-tuned CT2 reloads ~4 s per call, too slow for 1 s preview cadence)
 live_model = "base"
+# resident faster-whisper server idle TTL, seconds (0 disables: one-shot).
+# While resident, streaming chunks skip the model reload (~0.3 s vs ~4.5 s).
+server_idle_secs = 90
 # en | hi | bn — explicit; short utterances must not rely on auto-detect
 language = "en"
 translate_to_en = false

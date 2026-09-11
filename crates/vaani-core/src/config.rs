@@ -69,6 +69,12 @@ pub struct Recognition {
     /// the accurate model. Provisional either way.
     #[serde(default = "default_model")]
     pub live_model: String,
+    /// Resident faster-whisper server idle TTL, seconds (10..=600). The
+    /// fine-tuned model stays loaded this long after the last chunk so
+    /// streaming ticks skip the ~4 s reload; expiry frees the VRAM.
+    /// 0 disables the server (one-shot per call).
+    #[serde(default = "default_server_idle")]
+    pub server_idle_secs: u64,
     /// en | hi | bn | auto (auto only for >=10s utterances; short uses `language`)
     #[serde(default = "default_lang")]
     pub language: String,
@@ -136,6 +142,9 @@ fn default_max_secs() -> u32 {
 fn default_model() -> String {
     "base".into()
 }
+fn default_server_idle() -> u64 {
+    90
+}
 fn default_lang() -> String {
     "en".into()
 }
@@ -186,6 +195,7 @@ impl Default for Recognition {
         Self {
             model: default_model(),
             live_model: default_model(),
+            server_idle_secs: default_server_idle(),
             language: default_lang(),
             translate_to_en: false,
             device: default_device(),
@@ -264,6 +274,7 @@ impl Config {
         // Clamp worker threads 1..=16, max_secs 5..=120.
         self.audio.worker_threads = self.audio.worker_threads.clamp(1, 16);
         self.audio.max_secs = self.audio.max_secs.clamp(5, crate::MAX_AUDIO_SECS);
+        self.recognition.server_idle_secs = self.recognition.server_idle_secs.min(600);
         // Bound vocabulary: max 200 terms, each max 80 chars.
         self.cleanup.vocabulary.truncate(200);
         for t in &mut self.cleanup.vocabulary {
@@ -357,6 +368,14 @@ impl Config {
                     Ok(v.into())
                 }
                 _ => Err("must be tiny|base|base.en|small|cozy".into()),
+            },
+            "recognition.server_idle_secs" => {
+                let n: u64 = v.parse().map_err(|_| "must be 0..600")?;
+                if n > 600 {
+                    return Err("must be 0..600".into());
+                }
+                self.recognition.server_idle_secs = n;
+                Ok(n.to_string())
             },
             "recognition.language" => match v {
                 "en" | "hi" | "bn" => {

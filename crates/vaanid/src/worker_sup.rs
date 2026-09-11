@@ -1,9 +1,16 @@
 //! Worker supervision: spawn `vaani-worker` per dictation (Economy default),
 //! pipe bounded PCM via inherited stdin, read one JSON line from stdout.
 //! A worker crash leaves the controller operational (Err, state -> ERROR).
+//!
+//! Streaming exception: directory models (fine-tuned CTranslate2) run
+//! through a persistent `fw-server.py` sidecar that loads once and answers
+//! JSON jobs in ~0.3 s. Per-call reloads (~4.5 s) would make live preview
+//! ticks useless. The server is reaped after configured idle seconds, so
+//! VRAM is only held while dictating. Must be driven from blocking threads
+//! (spawn_blocking): all child IO here is synchronous.
 
-use std::io::Write;
-use std::process::Stdio;
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 use vaani_core::reconcile::reconcile;
 use vaani_core::segment::segment;
 
@@ -110,6 +117,253 @@ fn parse_vad_ends(text: &str) -> Option<f32> {
     last_end_cs
 }
 
+// ---- Persistent faster-whisper server (streaming STT) ----
+
+struct FwServer {
+    child: Child,
+    writer: ChildStdin,
+    reader: Option<BufReader<ChildStdout>>,
+    model_dir: String,
+    last_use: std::time::Instant,
+}
+
+static FW_SERVER: std::sync::OnceLock<std::sync::Mutex<Option<FwServer>>> =
+    std::sync::OnceLock::new();
+
+fn fw_slot() -> &'static std::sync::Mutex<Option<FwServer>> {
+    FW_SERVER.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+static FW_JOB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn fw_python_path() -> String {
+    if let Ok(p) = std::env::var("VAANI_FW_PYTHON") {
+        if !p.is_empty() && std::path::Path::new(&p).exists() {
+            return p;
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let venv = format!("{home}/Projects/Cozy/stt-finetune/.venv/bin/python");
+        if std::path::Path::new(&venv).exists() {
+            return venv;
+        }
+    }
+    "python3".into()
+}
+
+fn fw_server_script() -> String {
+    if let Ok(p) = std::env::var("VAANI_FW_SCRIPT_SERVER") {
+        if !p.is_empty() && std::path::Path::new(&p).exists() {
+            return p;
+        }
+    }
+    // Sibling of the daemon binary (user-local install lays both side by side).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let sib = dir.join("fw-server.py");
+            if sib.exists() {
+                return sib.to_string_lossy().into_owned();
+            }
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let p = format!("{home}/.local/bin/fw-server.py");
+        if std::path::Path::new(&p).exists() {
+            return p;
+        }
+    }
+    "fw-server.py".into()
+}
+
+fn fw_lib_env(cmd: &mut std::process::Command) {
+    let mut dirs: Vec<String> = Vec::new();
+    if let Ok(cur) = std::env::var("LD_LIBRARY_PATH") {
+        dirs.extend(cur.split(':').map(|s| s.to_string()));
+    }
+    for cand in [
+        "/usr/local/lib/ollama/cuda_v12",
+        "/opt/cuda/lib64",
+        "/usr/local/cuda/lib64",
+    ] {
+        if std::path::Path::new(cand).exists() && !dirs.iter().any(|d| d == cand) {
+            dirs.push(cand.into());
+        }
+    }
+    if !dirs.is_empty() {
+        cmd.env("LD_LIBRARY_PATH", dirs.join(":"));
+    }
+}
+
+/// Kill the resident server (if any). Called periodically by the daemon and
+/// on failures; VRAM is freed on process exit.
+pub fn reap_idle_servers(max_idle_secs: u64) {
+    let mut slot = fw_slot().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(srv) = slot.as_mut() {
+        if srv.last_use.elapsed().as_secs() >= max_idle_secs {
+            let _ = srv.child.kill();
+            let _ = srv.child.wait();
+            *slot = None;
+        }
+    }
+}
+
+fn fw_kill_locked(slot: &mut Option<FwServer>) {
+    if let Some(mut srv) = slot.take() {
+        let _ = srv.child.kill();
+        let _ = srv.child.wait();
+    }
+}
+
+fn fw_ensure_locked(
+    slot: &mut Option<FwServer>,
+    model_dir: &str,
+    cuda: bool,
+) -> anyhow::Result<()> {
+    let alive = match slot.as_mut() {
+        Some(srv) if srv.model_dir == model_dir => srv
+            .child
+            .try_wait()
+            .map(|s| s.is_none())
+            .unwrap_or(false),
+        _ => false,
+    };
+    if alive {
+        return Ok(());
+    }
+    fw_kill_locked(slot);
+    let script = fw_server_script();
+    let mut cmd = std::process::Command::new(fw_python_path());
+    cmd.arg(&script)
+        .arg(model_dir)
+        .arg("--device")
+        .arg(if cuda { "cuda" } else { "cpu" })
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    fw_lib_env(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| anyhow::anyhow!("fw-server spawn failed: {e}"))?;
+    let writer = child.stdin.take().ok_or_else(|| anyhow::anyhow!("fw-server stdin"))?;
+    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("fw-server stdout"))?;
+    let mut reader = BufReader::new(stdout);
+    // Wait for the ready line (model load ~4 s; generous ceiling).
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let res = reader.read_line(&mut line).map(|_| (reader, line));
+        let _ = tx.send(res);
+    });
+    let (reader_back, line) = rx
+        .recv_timeout(std::time::Duration::from_secs(120))
+        .map_err(|_| anyhow::anyhow!("fw-server ready timeout"))?
+        .map_err(|e| anyhow::anyhow!("fw-server ready failed: {e}"))?;
+    if !line.contains("\"ready\"") {
+        let _ = child.kill();
+        let _ = child.wait();
+        anyhow::bail!("fw-server bad ready line: {}", line.trim());
+    }
+    *slot = Some(FwServer {
+        child,
+        writer,
+        reader: Some(reader_back),
+        model_dir: model_dir.into(),
+        last_use: std::time::Instant::now(),
+    });
+    Ok(())
+}
+
+fn fw_read_line_locked(
+    slot: &mut Option<FwServer>,
+    secs: u64,
+) -> anyhow::Result<String> {
+    let mut reader = slot
+        .as_mut()
+        .and_then(|srv| srv.reader.take())
+        .ok_or_else(|| anyhow::anyhow!("fw-server has no reader"))?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let res = reader.read_line(&mut line).map(|_| (reader, line));
+        let _ = tx.send(res);
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(secs)) {
+        Ok(Ok((reader_back, line))) => {
+            if let Some(srv) = slot.as_mut() {
+                srv.reader = Some(reader_back);
+                srv.last_use = std::time::Instant::now();
+            }
+            Ok(line)
+        }
+        // Error or timeout: the reader is stuck inside the helper thread;
+        // the server is unusable — kill it so the next call respawns.
+        _ => {
+            fw_kill_locked(slot);
+            anyhow::bail!("fw-server read failed")
+        }
+    }
+}
+
+/// Transcribe via the resident server (blocking; call from spawn_blocking).
+/// Falls back to the one-shot path on any server failure.
+fn fw_server_transcribe(
+    samples: &[f32],
+    model_dir: &str,
+    language: &str,
+    translate: bool,
+    vocab: &[String],
+    cuda: bool,
+) -> anyhow::Result<(String, u64)> {
+    let t0 = std::time::Instant::now();
+    // Near-silence short-circuits without waking the GPU.
+    if !samples.is_empty() {
+        let peak = samples.iter().fold(0.0f32, |a, &x| a.max(x.abs()));
+        if peak < 0.002 {
+            return Ok((String::new(), t0.elapsed().as_millis() as u64));
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("vaani-fwjob-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let wav = dir.join("in.wav");
+    write_wav_mono16(&wav, samples)?;
+    let id = FW_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut prompt = String::new();
+    if !vocab.is_empty() {
+        prompt = vocab.join(", ");
+    }
+    let job = serde_json::json!({
+        "id": id,
+        "wav": wav.to_string_lossy(),
+        "lang": language,
+        "prompt": prompt,
+        "task": if translate { "translate" } else { "transcribe" },
+    });
+    let mut slot = fw_slot().lock().unwrap_or_else(|e| e.into_inner());
+    fw_ensure_locked(&mut slot, model_dir, cuda)?;
+    let srv = slot.as_mut().ok_or_else(|| anyhow::anyhow!("fw-server missing"))?;
+    srv.writer
+        .write_all(format!("{}\n", job).as_bytes())
+        .map_err(|e| anyhow::anyhow!("fw-server write failed: {e}"))?;
+    srv.writer.flush().map_err(|e| anyhow::anyhow!("fw-server flush failed: {e}"))?;
+    let mut answer = String::new();
+    for _ in 0..32 {
+        let line = fw_read_line_locked(&mut slot, 120)?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let v: serde_json::Value =
+            serde_json::from_str(line.trim()).map_err(|e| anyhow::anyhow!("fw-server protocol error: {e}"))?;
+        if v.get("id").and_then(|x| x.as_u64()) != Some(id) {
+            continue; // stale line from a previous job; keep reading
+        }
+        if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
+            anyhow::bail!("fw-server job failed: {err}");
+        }
+        answer = v.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+        break;
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok((answer, t0.elapsed().as_millis() as u64))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,6 +375,55 @@ mod tests {
         assert_eq!(parse_vad_ends(out), Some(1059.0));
         assert_eq!(parse_vad_ends("Detected 0 speech segments:\n"), None);
         assert_eq!(parse_vad_ends("garbage"), None);
+    }
+
+    /// Hardware streaming test: requires CUDA GPU, the cozy CT2 model in
+    /// ~/.local/share/vaani/models/cozy, the Cozy venv python, and an
+    /// installed fw-server.py. Run explicitly after `./install.sh`:
+    /// `cargo test -p vaanid -- --ignored fw_server_streams`.
+    /// Proves the resident model answers the second call without a reload.
+    #[test]
+    #[ignore]
+    fn fw_server_streams_without_reload() {
+        fn jfk_samples() -> Vec<f32> {
+            let path = format!(
+                "{}/../../native/worker/upstream/samples/jfk.wav",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let bytes = std::fs::read(&path).expect("jfk.wav fixture");
+            // Minimal RIFF parse: locate the data chunk.
+            let mut pos = 12;
+            let mut pcm: &[u8] = &[];
+            while pos + 8 <= bytes.len() {
+                let tag = &bytes[pos..pos + 4];
+                let len = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().unwrap()) as usize;
+                if tag == b"data" {
+                    pcm = &bytes[pos + 8..(pos + 8 + len).min(bytes.len())];
+                    break;
+                }
+                pos += 8 + len;
+            }
+            assert!(!pcm.is_empty(), "no data chunk in jfk.wav");
+            pcm.chunks_exact(2)
+                .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
+                .collect()
+        }
+        let samples = jfk_samples();
+        assert!(samples.len() > 16_000);
+        let t0 = std::time::Instant::now();
+        let a = transcribe(&samples, "cozy", "en", false, 4, true, &[], 90).unwrap();
+        let first_ms = t0.elapsed().as_millis();
+        assert_eq!(a.backend, "fw-ct2");
+        assert!(!a.text.is_empty(), "cozy heard nothing on jfk.wav");
+        let t1 = std::time::Instant::now();
+        let b = transcribe(&samples, "cozy", "en", false, 4, true, &[], 90).unwrap();
+        let second_ms = t1.elapsed().as_millis();
+        assert_eq!(b.backend, "fw-ct2");
+        assert!(
+            second_ms < 2500,
+            "resident model should answer fast: second={second_ms}ms first={first_ms}ms"
+        );
+        reap_idle_servers(0);
     }
 }
 
@@ -206,6 +509,7 @@ pub fn transcribe(
     threads: u32,
     cuda: bool,
     vocab: &[String],
+    server_idle_secs: u64,
 ) -> anyhow::Result<Transcript> {
     if samples.is_empty() {
         return Ok(Transcript {
@@ -215,6 +519,30 @@ pub fn transcribe(
             backend: "cpu-stub".into(),
             inference_ms: 0,
         });
+    }
+    // Directory models (fine-tuned CT2) go through the resident server in
+    // one call — faster-whisper windows long audio internally, and the
+    // model is already loaded, so this is both faster and more accurate
+    // than per-segment reloads. One-shot binary is the fallback.
+    // server_idle_secs == 0 disables the resident server entirely.
+    let resolved = model_path_for(model);
+    if server_idle_secs > 0 && std::path::Path::new(&resolved).is_dir() {
+        match fw_server_transcribe(samples, &resolved, language, translate, vocab, cuda) {
+            Ok((text, ms)) => {
+                let t = vaani_core::transcript::strip_fillers(&text);
+                let empty = t.is_empty();
+                return Ok(Transcript {
+                    text: t,
+                    language: language.into(),
+                    is_silence: empty,
+                    backend: "fw-ct2".into(),
+                    inference_ms: ms,
+                });
+            }
+            Err(e) => {
+                eprintln!("vaani: fw-server failed ({e:#}), one-shot fallback");
+            }
+        }
     }
     // Short path: single worker call.
     if samples.len() <= vaani_core::segment::SEGMENT_SAMPLES {
