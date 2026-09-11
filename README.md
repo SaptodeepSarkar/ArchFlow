@@ -83,11 +83,11 @@ not a promise of compatibility with every Linux desktop.
 ## UI and dynamic colors
 
 The compact overlay contains only the microphone visualizer and text. It shows
-the latest recognized word and a lighter provisional successor. When another
-word arrives, the provisional word moves left.
-Updates follow incremental one-second audio chunks plus inference time,
-not predictions of words you have not spoken. Both words can be corrected by
-recognition; display position does not mean the word was inserted.
+the most recent words of the running transcript (up to what fits in the box),
+updating every recognition chunk plus inference time — roughly every two
+seconds — not predictions of words you have not spoken. Any shown word can
+still be corrected by recognition; display position does not mean the word
+was inserted.
 Chunks overlap by one second and are reconciled into a cumulative transcript.
 The preview holds the last-known words across pauses and worker hiccups
 instead of blanking. Finalization transcribes only the unconsumed tail instead

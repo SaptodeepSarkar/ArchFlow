@@ -721,6 +721,9 @@ fn emit_provisional(
     committed_words: usize,
 ) {
     let (last, next) = if hidden { ("", "") } else { vaani_core::reconcile::preview_words(tail) };
+    // Running multi-word preview: last 24 words fill the overlay box so
+    // spoken words are never dropped from the display between ticks.
+    let words = if hidden { String::new() } else { vaani_core::reconcile::recent_words(tail, 24) };
     emit(tx, &Event {
         protocol_version: vaani_core::PROTOCOL_VERSION,
         event: "provisional".into(),
@@ -730,6 +733,7 @@ fn emit_provisional(
         message: None,
         data: Some(serde_json::json!({
             "tail": format!("{last} {next}").trim(),
+            "words": words,
             "hidden": hidden,
             "committed_words": committed_words,
             "last_word": last,

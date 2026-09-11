@@ -24,10 +24,9 @@ Scope {
     property string pendingText: ""
     property var settingsApi: null
     property string provisional: ""
+    property string liveWords: ""
     property bool firstLine: true
     property string sessionId: ""
-    property string lastWord: ""
-    property string nextWord: ""
     property bool dismissing: false
     // Set when the finished session copied its transcript to the clipboard:
     // the "Copied to clipboard" popup lingers long enough to be read.
@@ -80,8 +79,8 @@ Scope {
             var tail = (msg.data && msg.data.tail) || "";
             var hidden = msg.data && msg.data.hidden;
             root.provisional = hidden ? "" : String(tail);
-            root.lastWord = hidden ? "" : ((msg.data && msg.data.last_word) || "");
-            root.nextWord = hidden ? "" : ((msg.data && msg.data.next_word) || "");
+            var words = (msg.data && msg.data.words) || tail;
+            root.liveWords = hidden ? "" : String(words);
             if (hidden)
                 root.statusText = "preview hidden";
             return;
@@ -140,11 +139,11 @@ Scope {
             closeTimer.stop();
             if (previous !== "RECORDING") {
                 root.provisional = "";
-                root.lastWord = ""; root.nextWord = "";
+                root.liveWords = "";
                 root.ampHistory = [];
             }
         }
-        if (root.state !== "RECORDING") { root.provisional = ""; root.lastWord = ""; root.nextWord = ""; }
+        if (root.state !== "RECORDING") { root.provisional = ""; root.liveWords = ""; }
         root.checkFinished();
     }
 
@@ -243,7 +242,7 @@ Scope {
                 id: card
                 anchors.centerIn: parent
                 width: 320
-                height: 88
+                height: 120
                 radius: 18
                 color: theme.surface
                 border.color: theme.outline
@@ -276,41 +275,25 @@ Scope {
                             }
                         }
                     }
-                    RowLayout {
-                        visible: root.lastWord !== "" || root.nextWord !== ""
-                        Layout.alignment: Qt.AlignHCenter
-                        spacing: 12
-                        Text {
-                            id: lastWordText
-                            text: root.lastWord
-                            textFormat: Text.PlainText
-                            color: theme.text
-                            font.pixelSize: 18
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideLeft
-                            horizontalAlignment: Text.AlignRight
-                            Layout.maximumWidth: 140
-                            transform: Translate { id: lastSlide; x: 0 }
-                            // Slides left into place only when the word itself
-                            // changes, i.e. after the new word has arrived.
-                            onTextChanged: lastSlideAnim.restart()
-                        }
-                        Text {
-                            id: nextWordText
-                            text: root.nextWord
-                            textFormat: Text.PlainText
-                            color: theme.accent
-                            opacity: 0.72
-                            font.pixelSize: 18
-                            elide: Text.ElideRight
-                            horizontalAlignment: Text.AlignLeft
-                            Layout.maximumWidth: 140
-                            // New words fade in on arrival.
-                            onTextChanged: nextFadeAnim.restart()
-                        }
+                    Text {
+                        id: liveWordsText
+                        visible: root.liveWords !== ""
+                        text: root.liveWords
+                        textFormat: Text.PlainText
+                        color: theme.text
+                        font.pixelSize: 15
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 3
+                        elide: Text.ElideRight
+                        horizontalAlignment: Text.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 57
+                        // New arrivals fade in quickly so updates read as a
+                        // running transcript instead of a flicker.
+                        onTextChanged: liveFadeAnim.restart()
                     }
                     Text {
-                        visible: root.lastWord === "" && root.nextWord === ""
+                        visible: root.liveWords === ""
                         text: root.statusText || "Speak naturally…"
                         textFormat: Text.PlainText
                         color: root.state === "ERROR" ? theme.error : theme.text
@@ -320,23 +303,14 @@ Scope {
                         Layout.fillWidth: true
                     }
                 }
-                // Word-transition animations (non-visual, never laid out).
+                // Word-transition animation (non-visual, never laid out).
                 PropertyAnimation {
-                    id: lastSlideAnim
-                    target: lastSlide
-                    property: "x"
-                    from: 16
-                    to: 0
-                    duration: 240
-                    easing.type: Easing.OutCubic
-                }
-                PropertyAnimation {
-                    id: nextFadeAnim
-                    target: nextWordText
+                    id: liveFadeAnim
+                    target: liveWordsText
                     property: "opacity"
                     from: 0
-                    to: 0.72
-                    duration: 220
+                    to: 1
+                    duration: 140
                 }
             }
         }

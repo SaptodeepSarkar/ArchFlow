@@ -134,6 +134,15 @@ pub fn preview_words(text: &str) -> (&str, &str) {
     (words.next().unwrap_or(""), next)
 }
 
+/// Running preview: the last `n` words of the cumulative transcript, so the
+/// overlay can fill its box with recent speech instead of a fixed word count.
+/// Bounded for IPC; the recognizer may still revise any of it.
+pub fn recent_words(text: &str, n: usize) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let start = words.len().saturating_sub(n.max(1));
+    words[start..].join(" ")
+}
+
 #[cfg(test)]
 mod preview_tests {
     #[test]
@@ -145,5 +154,20 @@ mod preview_tests {
         assert_eq!(preview_words("hello world again"), ("world", "again"));
         assert_eq!(preview_words("  नमस्ते   বাংলা।  "), ("नमस्ते", "বাংলা।"));
         assert_eq!(preview_words("hello revised"), ("hello", "revised"));
+    }
+
+    #[test]
+    fn recent_words_returns_bounded_tail() {
+        use super::recent_words;
+        assert_eq!(recent_words("", 24), "");
+        assert_eq!(recent_words("hello", 24), "hello");
+        assert_eq!(
+            recent_words("one two three four five", 3),
+            "three four five"
+        );
+        assert_eq!(
+            recent_words("one two three four five", 24),
+            "one two three four five"
+        );
     }
 }

@@ -21,6 +21,10 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.6.4** (2026-09-11): running preview. The overlay shows the last ~24
+  recognized words (three wrapped lines) with a quick fade on arrival instead
+  of a fixed two-word slot, so speech is never dropped from the display
+  between ticks. One commit: `v0.6.4 preview`, tag `v0.6.4`.
 - **v0.6.3** (2026-09-11): no-wedge completion. Every clipboard/dispatch
   helper runs under a 5 s deadline, and wl-copy offers reap instead of
   draining pipes (its forked server holds them open, which wedged sessions
