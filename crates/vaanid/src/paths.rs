@@ -48,3 +48,17 @@ pub fn ensure_dirs() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+/// Explicit paths also work when another shell owns the default QML config.
+pub fn ui_path() -> PathBuf {
+    let config = std::env::var("XDG_CONFIG_HOME")
+        .unwrap_or_else(|_| format!("{}/.config", home()));
+    let local = PathBuf::from(config).join("quickshell/vaani/shell.qml");
+    if local.is_file() { return local; }
+    let data = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+    for base in data.split(':').filter(|s| !s.is_empty()) {
+        let candidate = PathBuf::from(base).join("quickshell/vaani/shell.qml");
+        if candidate.is_file() { return candidate; }
+    }
+    local
+}

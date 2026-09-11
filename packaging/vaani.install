@@ -1,0 +1,14 @@
+
+post_install() {
+  echo "==> vaani installed. Next steps (no dotfiles touched, no hooks run):"
+  echo "    1. systemctl --user enable --now vaanid.service  (or with UWSM: see docs/configuration.md)"
+  echo "    2. cp /usr/share/vaani/hyprland/vaani.conf ~/.config/hypr/vaani.conf"
+  echo "       and add 'source = ~/.config/hypr/vaani.conf' to hyprland.conf"
+  echo "    3. vaani settings  -> configure recognition and test microphone"
+  echo "Download models with tools/model-setup.py from the source checkout, never at build/install time."
+}
+
+post_remove() {
+  echo "==> vaani removed. User config (~/.config/vaani) and models"
+  echo "    (~/.local/share/vaani/models) were left in place by design."
+}

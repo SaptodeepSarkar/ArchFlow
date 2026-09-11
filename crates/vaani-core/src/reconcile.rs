@@ -125,3 +125,25 @@ mod tests {
         assert_eq!(delta_vs("hello wor", "hello world peace"), None);
     }
 }
+
+/// Compact display only: latest recognized word and provisional successor.
+/// Neither is a guarantee of recognition stability or an insertion boundary.
+pub fn preview_words(text: &str) -> (&str, &str) {
+    let mut words = text.split_whitespace().rev();
+    let next = words.next().unwrap_or("");
+    (words.next().unwrap_or(""), next)
+}
+
+#[cfg(test)]
+mod preview_tests {
+    #[test]
+    fn bounded_preview_preserves_scripts_and_advances() {
+        use super::preview_words;
+        assert_eq!(preview_words(""), ("", ""));
+        assert_eq!(preview_words("hello"), ("", "hello"));
+        assert_eq!(preview_words("hello world"), ("hello", "world"));
+        assert_eq!(preview_words("hello world again"), ("world", "again"));
+        assert_eq!(preview_words("  नमस्ते   বাংলা।  "), ("नमस्ते", "বাংলা।"));
+        assert_eq!(preview_words("hello revised"), ("hello", "revised"));
+    }
+}

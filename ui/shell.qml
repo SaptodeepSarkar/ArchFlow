@@ -15,7 +15,7 @@ import QtQuick.Layouts
 Scope {
     id: root
 
-    property string sockPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/vaani/control.sock"
+    property string sockPath: Quickshell.env("VAANI_SOCKET") || (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/vaani/control.sock"
     property string state: "IDLE"
     property string statusText: ""
     property real amplitude: 0
@@ -25,10 +25,15 @@ Scope {
     property var settingsApi: null
     property string provisional: ""
     property bool firstLine: true
+    property string sessionId: ""
+    property string lastWord: ""
+    property string nextWord: ""
+    Theme { id: theme }
 
     // Daemon wire format: {protocol_version, request_id, session_id, kind}
     // where kind = {op, args?}. Anything else is rejected as malformed.
     function sendOp(op, args) {
+        if (!sock.connected) { root.statusText = "Daemon unavailable — start vaanid.service"; return; }
         var msg = {
             protocol_version: 1,
             request_id: "qml-" + Math.floor(Math.random() * 1e9),
@@ -61,14 +66,18 @@ Scope {
                 return;
             }
         }
-        if (msg.event === "state" || (msg.state && !msg.event && !msg.ok && msg.event !== undefined)) {
+        if (msg.event && msg.session_id && root.sessionId && msg.session_id !== root.sessionId && msg.event !== "state")
+            return;
+        if (msg.event === "state" || (msg.state && !msg.event && msg.ok === undefined)) {
             applyState(msg);
             return;
         }
         if (msg.event === "provisional") {
             var tail = (msg.data && msg.data.tail) || "";
             var hidden = msg.data && msg.data.hidden;
-            root.provisional = hidden ? "" : String(tail).slice(-160);
+            root.provisional = hidden ? "" : String(tail);
+            root.lastWord = hidden ? "" : ((msg.data && msg.data.last_word) || "");
+            root.nextWord = hidden ? "" : ((msg.data && msg.data.next_word) || "");
             if (hidden)
                 root.statusText = "preview hidden";
             return;
@@ -108,6 +117,8 @@ Scope {
     }
 
     function applyState(msg) {
+        var previous = root.state;
+        if (msg.session_id) root.sessionId = msg.session_id;
         if (msg.state)
             root.state = msg.state;
         if (msg.message)
@@ -116,11 +127,13 @@ Scope {
             root.pendingText = msg.data.text;
         if (root.state === "RECORDING") {
             closeTimer.stop();
-            if (msg.event === "state") {
+            if (previous !== "RECORDING") {
                 root.provisional = "";
+                root.lastWord = ""; root.nextWord = "";
                 root.ampHistory = [];
             }
         }
+        if (root.state !== "RECORDING") { root.provisional = ""; root.lastWord = ""; root.nextWord = ""; }
         root.checkFinished();
     }
 
@@ -168,7 +181,10 @@ Scope {
             onRead: data => root.handleLine(data)
         }
         onConnectionStateChanged: {
-            if (!sock.connected) {
+            if (sock.connected) {
+                root.firstLine = true;
+                if (root.settingsApi) root.settingsApi.requestConfig();
+            } else {
                 if (root.showSettings)
                     reconnectTimer.start();
                 else
@@ -187,17 +203,15 @@ Scope {
 
     // ---- Recording overlay: bottom-center, no keyboard focus ----
     LazyLoader {
-        active: root.state !== "IDLE" && !root.showSettings
+        active: (root.state !== "IDLE" || closeTimer.running) && !root.showSettings
         PanelWindow {
             id: overlay
-            implicitWidth: 320
+            implicitWidth: 380
             implicitHeight: card.height + 48
             color: "transparent"
             // Anchor bottom-center, 24px above usable edge, no exclusive zone.
             anchors {
                 bottom: true
-                left: true
-                right: true
             }
             margins {
                 bottom: 24
@@ -206,58 +220,63 @@ Scope {
             WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
-            // Minimal card: wave strip + live transcription only.
-            // No buttons (SUPER+H toggles), no state chrome. Outcome text
-            // lingers ~1.6 s after finish, then the process exits.
             Rectangle {
                 id: card
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                width: 320
-                height: words.text !== "" ? 92 : 52
-                radius: 18
-                color: "#17181D"
-                border.color: "#2A2C36"
-                border.width: 1
-
+                anchors.centerIn: parent
+                width: 380
+                height: root.state === "READY" ? 168 : 132
+                radius: 24
+                color: theme.surface
+                border.color: theme.outline
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 14
-                    anchors.rightMargin: 14
-                    anchors.topMargin: 9
-                    anchors.bottomMargin: 9
-                    spacing: 6
-
-                    // Wave: full-width strip, bars bottom-up.
-                    Item {
+                    anchors.margins: 18
+                    spacing: 10
+                    RowLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 26
-                        Repeater {
-                            model: 16
-                            Rectangle {
-                                x: index * 18.5
-                                y: parent.height - height
-                                width: 10
-                                height: root.barH(index)
-                                radius: 2
-                                color: root.state === "ERROR" ? "#FF8C9B" : "#B9A3FF"
+                        Rectangle { width: 7; height: 7; radius: 4; color: root.state === "ERROR" ? theme.error : theme.accent }
+                        Text { text: "VAANI"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 2; color: theme.muted }
+                        Item { Layout.fillWidth: true }
+                        Text { text: root.state === "RECORDING" ? "Listening" : root.state.toLowerCase(); color: theme.muted; font.pixelSize: 11 }
+                        Row {
+                            spacing: 3
+                            Repeater {
+                                model: 12
+                                Rectangle {
+                                    required property int index
+                                    width: 3; height: root.state === "RECORDING" ? root.barH(index) : 3
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    radius: 2; color: theme.accent
+                                }
                             }
                         }
                     }
-
-                    // Word-by-word live transcription (provisional tail while
-                    // recording; outcome / error text after finish).
-                    Text {
-                        id: words
-                        visible: text !== ""
+                    RowLayout {
+                        visible: root.lastWord !== "" || root.nextWord !== ""
                         Layout.fillWidth: true
-                        text: root.provisional !== "" ? root.provisional : root.statusText
-                        color: root.state === "ERROR" ? "#FF8C9B" : (root.provisional !== "" ? "#F5F5F7" : "#B7BAC5")
-                        font.pixelSize: 12
-                        font.italic: root.provisional !== ""
-                        wrapMode: Text.WordWrap
-                        maximumLineCount: 2
-                        elide: Text.ElideRight
+                        spacing: 12
+                        Text { text: root.lastWord; textFormat: Text.PlainText; color: theme.text; font.pixelSize: 26; font.weight: Font.DemiBold; elide: Text.ElideLeft; Layout.maximumWidth: 166 }
+                        Text { text: root.nextWord; textFormat: Text.PlainText; color: theme.accent; opacity: 0.72; font.pixelSize: 26; elide: Text.ElideRight; Layout.fillWidth: true }
+                    }
+                    Text {
+                        visible: root.lastWord === "" && root.nextWord === ""
+                        text: root.statusText || "Speak naturally…"
+                        textFormat: Text.PlainText
+                        color: root.state === "ERROR" ? theme.error : theme.text
+                        font.pixelSize: 14; wrapMode: Text.WordWrap
+                        maximumLineCount: 2; elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+                    RowLayout {
+                        visible: root.state === "READY"
+                        Button { text: "Copy text"; onClicked: root.sendOp("copy_pending") }
+                        Button { text: "Dismiss"; onClicked: root.sendOp("cancel") }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text { text: root.nextWord ? "Provisional · may change" : "Local voice dictation"; color: theme.muted; font.pixelSize: 10 }
+                        Item { Layout.fillWidth: true }
+                        Text { text: "SUPER + H"; color: theme.muted; font.pixelSize: 10 }
                     }
                 }
             }
@@ -273,12 +292,15 @@ Scope {
             implicitHeight: 560
             title: "Vaani Settings"
             visible: true
-            color: "#1E1F26"
+            color: theme.background
             onVisibleChanged: {
                 if (!visible)
-                    root.showSettings = false;
+                    { root.showSettings = false; root.checkFinished(); }
             }
-            SettingsView {}
+            SettingsView {
+                bridge: root
+                colors: theme
+            }
         }
     }
 }

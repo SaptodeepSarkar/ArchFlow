@@ -5,12 +5,15 @@ focused field. Press `SUPER+H` mid-way to discard. No account, no telemetry,
 no cloud, no history, no always-listening mic. English, Hindi (`hi`) and
 Bengali (`bn`) model selection built in.
 
+Caelestia is optional. Vaani runs as its own Quickshell application on Arch Linux
+with Hyprland; it does not require anyone’s personal dotfiles.
+
 Independent app; "Wispr Flow–style" describes the interaction only.
 
 ## Install (any Arch + Hyprland machine)
 
 Prerequisites (all official repos): `pipewire wireplumber wl-clipboard
-hyprland quickshell qt6-base qt6-declarative curl cmake git rustup`
+hyprland quickshell qt6-base qt6-declarative curl cmake git rustup python`
 
 ```sh
 git clone https://github.com/SaptodeepSarkar/ArchFlow vaani && cd vaani
@@ -33,7 +36,7 @@ systemctl --user enable --now vaanid.service
 #    to your keybinds file, then reload the compositor config.
 #    Classic hyprland.conf: add `source = ~/.config/hypr/vaani.conf`.
 vaani doctor     # capability probe — all lines should be true except cuda
-vaani settings   # model, mic test, insertion test
+vaani settings   # recognition settings, mic test and diagnostics
 ```
 
 Press `SUPER+H` in any text field and speak. Stop speaking → the overlay
@@ -47,6 +50,44 @@ recording/transcribing discards the utterance.
 | `SUPER+ALT+SPACE` | Toggle (transcribe on second press) |
 | `SUPER+ALT+ESC` | Discard active operation |
 | `SUPER+ALT+S` | Settings · `SUPER+ALT+C` copy pending text |
+
+## System-wide Arch package
+
+Build a package containing the current checkout as a regular user:
+
+```sh
+./tools/package-local.sh
+```
+
+The script prints its temporary build directory. Install the resulting
+`vaani-*.pkg.tar.zst` using your package manager. Binaries go to `/usr/bin`,
+the user unit to `/usr/lib/systemd/user`, and UI assets to
+`/usr/share/quickshell/vaani`. No Caelestia dependency is included. Enable
+`vaanid.service` separately for each user and configure their shortcuts.
+Remove an older user-local Vaani install first if you want to avoid PATH,
+user-unit and UI overrides shadowing the system package.
+
+The GitHub archive recipe is `packaging/PKGBUILD`; release maintainers must
+pin its source checksum before distributing it. Changes in this checkout
+are not automatically published to GitHub. This is an Arch Linux package,
+not a promise of compatibility with every Linux desktop.
+
+## UI and dynamic colors
+
+The compact overlay shows the latest recognized word and a lighter provisional
+successor. When another word arrives, the provisional word moves left.
+Updates follow recognition chunks (default four seconds plus inference time),
+not predictions of words you have not spoken. Both words can be corrected by
+recognition; display position does not mean the word was inserted.
+
+Overlay and settings follow `$XDG_STATE_HOME/caelestia/scheme.json` (default
+`~/.local/state/caelestia/scheme.json`). Updates use file notifications.
+Missing or invalid schemes use Vaani's built-in palette. No Caelestia imports,
+processes or installation are required. `VAANI_THEME_FILE` can select another
+file with the same `colours` schema; set it in the daemon environment.
+
+See [the bug audit](docs/bug-audit-2026-09-11.md) for fixes, remaining bugs and
+validation limits.
 
 ## How it works (60 seconds)
 

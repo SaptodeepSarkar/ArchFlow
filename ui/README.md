@@ -12,3 +12,8 @@ overlay on STARTING, settings on `vaani settings` (VAANI_OPEN_SETTINGS=1).
 Verified against installed Quickshell 0.3.1: PanelWindow +
 WlrLayershell.exclusionMode/layer/keyboardFocus=None (no focus steal),
 Socket/SplitParser IPC. Colours: charcoal #17181D, lavender #B9A3FF.
+
+The shared `Theme.qml` reads Caelestia colors optionally; copy all three QML
+files when installing manually. No Caelestia QML modules are imported.
+Settings receives an explicit controller bridge. The compact overlay uses
+`last_word` and `next_word` preview fields; update daemon and UI together.

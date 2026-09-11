@@ -14,47 +14,29 @@ ColumnLayout {
     property string doctorText: ""
     property string micText: ""
 
-    Component.onCompleted: {
-        var p = parent;
-        while (p && !p.sendOp)
-            p = p.parent;
-        if (p) {
-            p.settingsApi = settingsRoot;
-            settingsRoot.requestConfig();
-        }
-    }
+    required property var bridge
+    required property var colors
+    Component.onCompleted: { bridge.settingsApi = settingsRoot; requestConfig(); }
+    Component.onDestruction: { if (bridge.settingsApi === settingsRoot) bridge.settingsApi = null; }
+    function requestConfig() { bridge.sendOp("config_get"); }
 
-    function requestConfig() {
-        // Ask the parent scope to send; parent exposes root.sendOp().
-        var p = parent;
-        while (p && !p.sendOp)
-            p = p.parent;
-        if (p)
-            p.sendOp("config_get");
-    }
-
-    TabBar {
-        id: tabs
+    Rectangle {
         Layout.fillWidth: true
-        TabButton {
-            text: "General"
+        Layout.preferredHeight: 104
+        color: colors.surface
+        Column {
+            anchors.left: parent.left; anchors.leftMargin: 24
+            anchors.verticalCenter: parent.verticalCenter; spacing: 6
+            Label { text: "Vaani"; font.pixelSize: 30; font.weight: Font.DemiBold; color: colors.text }
+            Label { text: "Your voice. Your device."; color: colors.muted }
         }
-        TabButton {
-            text: "Audio"
-        }
-        TabButton {
-            text: "Recognition"
-        }
-        TabButton {
-            text: "Shortcuts"
-        }
-        TabButton {
-            text: "Privacy & Diagnostics"
-        }
+        Label { anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; text: colors.dynamic ? "●  Dynamic theme" : "●  Vaani theme"; color: colors.accent }
     }
-
+    Label { Layout.fillWidth: true; Layout.leftMargin: 24; text: bridge.statusText; color: colors.muted; wrapMode: Text.WordWrap }
     function routeData(data) {
-        if (data.general && data.recognition) {
+        if (data.key !== undefined) {
+            requestConfig();
+        } else if (data.general && data.recognition) {
             settingsRoot.cfg = data;
         } else if (data.checks) {
             settingsRoot.doctorText = JSON.stringify(data, null, 2);
@@ -66,18 +48,39 @@ ColumnLayout {
     }
 
     function setKey(key, value) {
-        var p = parent;
-        while (p && !p.sendOp)
-            p = p.parent;
-        if (p)
-            p.sendOp("config_set", {
-                "key": key,
-                "value": value
-            });
+        bridge.sendOp("config_set", {key: key, value: value});
     }
 
+    RowLayout {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        spacing: 0
+        Rectangle {
+            Layout.preferredWidth: 170
+            Layout.fillHeight: true
+            color: colors.surface
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 6
+                Repeater {
+                    model: ["General", "Audio", "Recognition", "Shortcuts", "Privacy & diagnostics"]
+                    delegate: Button {
+                        required property int index
+                        required property string modelData
+                        Layout.fillWidth: true
+                        text: modelData
+                        highlighted: pages.currentIndex === index
+                        onClicked: pages.currentIndex = index
+                    }
+                }
+                Item { Layout.fillHeight: true }
+                Label { text: "Private by default\nRuns on your device"; color: colors.muted; font.pixelSize: 11 }
+            }
+        }
     StackLayout {
-        currentIndex: tabs.currentIndex
+        id: pages
+        currentIndex: 0
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.margins: 16
@@ -90,15 +93,15 @@ ColumnLayout {
                 font.bold: true
             }
             ComboBox {
-                model: ["economy", "balanced", "ready"]
+                model: ["economy"]
                 currentIndex: Math.max(0, ["economy", "balanced", "ready"].indexOf(settingsRoot.cfg.general ? settingsRoot.cfg.general.residency_profile : "economy"))
                 onActivated: settingsRoot.setKey("general.residency_profile", currentText)
             }
             Label {
-                text: "Unload after each dictation: saves memory; the next recording needs to load the model."
+                text: "The model unloads after each dictation. Balanced and Ready residency are not implemented yet."
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
-                color: "#B7BAC5"
+                color: colors.muted
             }
             CheckBox {
                 text: "Review before insertion"
@@ -133,18 +136,14 @@ ColumnLayout {
             Button {
                 text: "Test microphone (3 s)"
                 onClicked: {
-                    var p = parent;
-                    while (p && !p.sendOp)
-                        p = p.parent;
-                    if (p)
-                        p.sendOp("mic_test", {
+                    bridge.sendOp("mic_test", {
                             "secs": 3
                         });
                 }
             }
             Label {
                 text: settingsRoot.micText
-                color: "#B7BAC5"
+                color: colors.muted
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
@@ -154,7 +153,7 @@ ColumnLayout {
         ColumnLayout {
             spacing: 10
             Label {
-                text: "Model (downloaded on first-run setup, never bundled)"
+                text: "Recognition model"
                 font.bold: true
             }
             ComboBox {
@@ -202,13 +201,13 @@ ColumnLayout {
                     text: "Super+Alt+Space — toggle · Super+H — live dictation (types stabilized words as you speak) · Super+Alt+V — hold-to-talk · Super+Alt+Esc — cancel · Super+Alt+S — settings · Super+Alt+C — copy pending"
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
-                    color: "#F5F5F7"
+                    color: colors.text
                 }
                 Label {
-                    text: "Add 'source = ~/.config/hypr/vaani.conf' to hyprland.conf (app-owned include; never edits your config). Conflicts with your existing binds are reported by 'vaani doctor'."
+                    text: "Classic Hyprland: source the installed vaani.conf. Lua setups: use vaani.lua. Add only one set of shortcuts and check for conflicts in your compositor config."
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
-                    color: "#B7BAC5"
+                    color: colors.muted
                 }
             }
         }
@@ -217,7 +216,8 @@ ColumnLayout {
         ColumnLayout {
             spacing: 10
             CheckBox {
-                text: "Save transcript history (off by default)"
+                text: "Transcript history (not implemented)"
+                enabled: false
                 checked: settingsRoot.cfg.privacy ? settingsRoot.cfg.privacy.save_history : false
                 onToggled: settingsRoot.setKey("privacy.save_history", checked ? "true" : "false")
             }
@@ -244,11 +244,7 @@ ColumnLayout {
             Button {
                 text: "Run diagnostics"
                 onClicked: {
-                    var p = parent;
-                    while (p && !p.sendOp)
-                        p = p.parent;
-                    if (p)
-                        p.sendOp("doctor");
+                    bridge.sendOp("doctor");
                 }
             }
             ScrollView {
@@ -263,4 +259,6 @@ ColumnLayout {
             }
         }
     }
+}
+
 }

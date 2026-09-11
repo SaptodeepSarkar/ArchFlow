@@ -234,7 +234,9 @@ fn run_once(
     cuda: bool,
 ) -> anyhow::Result<Transcript> {
     let t0 = std::time::Instant::now();
-    let mut child = std::process::Command::new(worker_bin())
+    let mut command = std::process::Command::new(worker_bin());
+    if translate { command.arg("--translate"); }
+    let mut child = command
         .arg("--model")
         .arg(model_path_for(model))
         .arg("--language")
@@ -275,7 +277,9 @@ fn run_once(
     let mut text = v.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
     // Bound transcript size.
     if text.len() > vaani_core::MAX_TRANSCRIPT_CHARS {
-        text.truncate(vaani_core::MAX_TRANSCRIPT_CHARS);
+        let mut boundary = vaani_core::MAX_TRANSCRIPT_CHARS;
+        while !text.is_char_boundary(boundary) { boundary -= 1; }
+        text.truncate(boundary);
     }
     // Raw mode: only outer whitespace normalisation.
     let trimmed = text.trim().to_string();

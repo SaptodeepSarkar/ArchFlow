@@ -44,7 +44,9 @@ pub fn snapshot_text() -> Option<String> {
         return None;
     }
     let mut s = String::from_utf8(out.stdout).ok()?;
-    s.truncate(64 * 1024);
+    let mut boundary = s.len().min(64 * 1024);
+    while !s.is_char_boundary(boundary) { boundary -= 1; }
+    s.truncate(boundary);
     Some(s)
 }
 

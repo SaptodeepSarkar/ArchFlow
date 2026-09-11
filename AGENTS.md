@@ -21,6 +21,11 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v0.5.0** (2026-09-11): UI and distribution redesign. Compact two-word
+  live preview, optional Caelestia dynamic colors with an independent fallback
+  theme, redesigned settings navigation, system-wide Arch packaging, portable
+  XDG-aware local install, and fixes from the published bug audit. One commit:
+  `v0.5.0 ui+distribution`, tag `v0.5.0`.
 - **v0.3.1** (2026-09-11): capture/insertion hardening. `pw-record --target`
   before positional output (was silently ignored → wrong mic), clipboard
   offer on every non-dispatched outcome, 800 ms activation repeat guard,

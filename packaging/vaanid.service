@@ -1,16 +1,17 @@
 [Unit]
 Description=Vaani voice dictation controller (per-user)
-Documentation=https://github.com/anomalyco/opencode
+Documentation=https://github.com/SaptodeepSarkar/ArchFlow
 After=pipewire.service wireplumber.service
 Wants=pipewire.service
 PartOf=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/vaanid --foreground
+ExecStart=/usr/bin/vaanid --foreground
 Restart=on-failure
 # Bounded restarts: 5 tries in 60 s, then stop hammering.
-StartLimitBurst=5
 # Clean process-group teardown (no orphaned pw-record / workers).
 KillMode=mixed
 KillSignal=SIGTERM
@@ -24,9 +25,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 RestrictSUIDSGID=true
 UMask=0077
-# NOTE: paths below assume install prefix ~/.local/bin. Adjust ExecStart if
-# you install elsewhere. StateDirectory not used: XDG paths are resolved
-# by the binary itself.
+# The user-local installer rewrites ExecStart. XDG state/config paths are
+# resolved by the binary itself.
 
 [Install]
 WantedBy=graphical-session.target

@@ -10,7 +10,7 @@ use crate::focus::FocusTarget;
 use crate::{cleanup, clipboard, focus, inserter, paths, worker_sup};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, Mutex};
 use vaani_core::config::Config;
@@ -61,6 +61,9 @@ struct Latencies {
 pub async fn run() -> anyhow::Result<()> {
     paths::ensure_dirs()?;
     let sock = paths::control_sock();
+    if UnixStream::connect(&sock).await.is_ok() {
+        anyhow::bail!("vaanid is already running");
+    }
     // Remove stale socket; bind; chmod 0600.
     let _ = std::fs::remove_file(&sock);
     let listener = UnixListener::bind(&sock)?;
@@ -101,6 +104,7 @@ pub async fn run() -> anyhow::Result<()> {
     // Pending-text expiry sweeper (5 min default, in-memory only).
     {
         let s = shared.clone();
+        let expiry_tx = tx.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(15)).await;
@@ -108,7 +112,7 @@ pub async fn run() -> anyhow::Result<()> {
                 if let Some(p) = &g.pending {
                     if p.at.elapsed().as_secs() > g.cfg.insertion.pending_expiry_secs {
                         g.pending = None;
-                        emit(&t_dummy(), &Event {
+                        emit(&expiry_tx, &Event {
                             protocol_version: vaani_core::PROTOCOL_VERSION,
                             event: "pending_expired".into(),
                             session_id: None,
@@ -131,11 +135,6 @@ pub async fn run() -> anyhow::Result<()> {
     }
 }
 
-fn t_dummy() -> broadcast::Sender<Event> {
-    let (t, _) = broadcast::channel(1);
-    t
-}
-
 fn emit(tx: &broadcast::Sender<Event>, ev: &Event) {
     let _ = tx.send(ev.clone());
 }
@@ -155,7 +154,9 @@ fn ev_state(session: Option<String>, state: State, msg: Option<&str>) -> Event {
 async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>) {
     let (r, w) = stream.into_split();
     let w = Arc::new(Mutex::new(w));
-    let mut lines = BufReader::new(r).lines();
+    let mut reader = BufReader::new(r);
+    let mut rx = tx.subscribe();
+    // Subscribe before taking the snapshot so transitions cannot be lost.
     // Snapshot first for subscribers.
     let snap = {
         let g = shared.lock().await;
@@ -175,13 +176,13 @@ async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadca
     // Event forwarder: state/amplitude/provisional events reach subscribers
     // over this same connection (no polling). Stale amplitude updates are
     // coalesced under load — only the latest is forwarded.
-    let mut rx = tx.subscribe();
     let w2 = w.clone();
     let fwd = tokio::spawn(async move {
         loop {
             let mut ev = match rx.recv().await {
                 Ok(ev) => ev,
-                Err(_) => break, // sender gone
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
             };
             if ev.event == "amplitude" {
                 // Drain queued amplitudes, keep the newest.
@@ -209,7 +210,16 @@ async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadca
         }
     });
 
-    while let Ok(Some(line)) = lines.next_line().await {
+    loop {
+        // Limit allocation while reading, including clients that never send a newline.
+        let mut bytes = Vec::new();
+        let mut limited = (&mut reader).take((vaani_core::MAX_CONTROL_BYTES + 1) as u64);
+        match limited.read_until(b'\n', &mut bytes).await {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        if bytes.len() > vaani_core::MAX_CONTROL_BYTES { break; }
+        let line = match String::from_utf8(bytes) { Ok(line) => line, Err(_) => break };
         if line.trim().is_empty() {
             continue;
         }
@@ -364,11 +374,12 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
             std::thread::spawn(|| {
                 // Reap the child so closed UI processes never linger as zombies.
                 let mut child = std::process::Command::new("quickshell")
-                    .arg("-c")
-                    .arg("vaani")
+                    .arg("-p")
+                    .arg(paths::ui_path())
+                    .env("VAANI_SOCKET", paths::control_sock())
                     .env("VAANI_OPEN_SETTINGS", "1")
                     .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::inherit())
                     .spawn();
                 if let Ok(ref mut c) = child {
                     let _ = c.wait();
@@ -477,11 +488,12 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
         // The reaper thread keeps closed UI processes from becoming zombies.
         std::thread::spawn(|| {
             let mut child = std::process::Command::new("quickshell")
-                .arg("-c")
-                .arg("vaani")
+                .arg("-p")
+                .arg(paths::ui_path())
+                .env("VAANI_SOCKET", paths::control_sock())
                 .env_remove("VAANI_OPEN_SETTINGS")
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stderr(std::process::Stdio::inherit())
                 .spawn();
             if let Ok(ref mut c) = child {
                 let _ = c.wait();
@@ -666,6 +678,7 @@ fn emit_provisional(
     hidden: bool,
     committed_words: usize,
 ) {
+    let (last, next) = if hidden { ("", "") } else { vaani_core::reconcile::preview_words(tail) };
     emit(tx, &Event {
         protocol_version: vaani_core::PROTOCOL_VERSION,
         event: "provisional".into(),
@@ -674,9 +687,11 @@ fn emit_provisional(
         amplitude: None,
         message: None,
         data: Some(serde_json::json!({
-            "tail": if hidden { "" } else { tail },
+            "tail": format!("{last} {next}").trim(),
             "hidden": hidden,
             "committed_words": committed_words,
+            "last_word": last,
+            "next_word": next,
         })),
     });
 }
@@ -795,7 +810,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
             emit_provisional(&tx, &sess, "", hide, committed_n);
             continue;
         }
-        let (stable, tail) = vaani_core::reconcile::stable_prefix(&t.text, live_tail_words());
+        let (stable, _tail) = vaani_core::reconcile::stable_prefix(&t.text, live_tail_words());
         // Policy gate: review/terminal/no-auto sessions preview only.
         let mode = g.cfg.insertion_mode_for(&snap.target.app_id);
         let preview_only = mode == "review"
@@ -805,11 +820,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
             || focus::is_terminal(&snap.target.app_id);
         if preview_only {
             // Show everything beyond committed as provisional; commit nothing.
-            let shown = match vaani_core::reconcile::delta_vs(&g.committed, &t.text.trim()) {
-                Some(d) => d,
-                None => tail.clone(),
-            };
-            emit_provisional(&tx, &sess, &shown, hide, committed_n);
+            emit_provisional(&tx, &sess, &t.text, hide, committed_n);
             continue;
         }
         match vaani_core::reconcile::delta_vs(&g.committed, &stable) {
@@ -826,7 +837,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
                     Ok(Ok(())) => {
                         g.committed = stable;
                         let n = g.committed.split_whitespace().count();
-                        emit_provisional(&tx, &sess, &tail, hide, n);
+                        emit_provisional(&tx, &sess, &t.text, hide, n);
                     }
                     _ => {
                         // Focus moved or dispatch failed: freeze commits,
@@ -834,13 +845,13 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
                         g.target_lost = true;
                         let n = g.committed.split_whitespace().count();
                         emit(&tx, &ev_state(Some(sess.clone()), State::Recording, Some("Text ready — target changed; finishing keeps text for copy")));
-                        emit_provisional(&tx, &sess, &tail, hide, n);
+                        emit_provisional(&tx, &sess, &t.text, hide, n);
                     }
                 }
             }
             None => {
                 // No new stable words (or recognizer revised): preview tail only.
-                emit_provisional(&tx, &sess, &tail, hide, committed_n);
+                emit_provisional(&tx, &sess, &t.text, hide, committed_n);
             }
         }
     }
@@ -862,13 +873,14 @@ async fn copy_fallback(
         .map(|r| r.is_ok())
         .unwrap_or(false);
     let mut g = shared.lock().await;
+    if g.session.id != sid { return resp_ok("", &g.session, Some("stale copy result discarded".into()), None); }
     let _ = g.session.transition(State::Ready);
     let msg = if clip_ok {
         format!("{reason} — text is on the clipboard, paste where you need it")
     } else {
         format!("{reason} — clipboard offer failed, use copy/recover")
     };
-    emit(tx, &ev_state(Some(sid.to_string()), State::Ready, Some("Text ready — on clipboard")));
+    emit(tx, &ev_state(Some(sid.to_string()), State::Ready, Some(&msg)));
     let s = g.session.clone();
     resp_ok("", &s, Some(msg), Some(serde_json::json!({"text": final_text})))
 }
@@ -975,8 +987,6 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                 }
                 final_text = cleaned;
             }
-            let _ = g.session.transition(State::Ready);
-            emit(tx, &ev_state(Some(sid.clone()), State::Ready, Some("Text ready")));
             g.pending = Some(Pending { text: final_text.clone(), at: std::time::Instant::now() });
             // Live finalize: part of the text is already typed into the
             // target — insert only the remainder. Pending keeps the FULL
@@ -984,8 +994,15 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
             let was_live = g.live;
             let mut insert_text = final_text.clone();
             if was_live {
-                let remainder =
-                    vaani_core::reconcile::delta_vs(&g.committed, &final_text).unwrap_or_default();
+                let delta = vaani_core::reconcile::delta_vs(&g.committed, &final_text);
+                if !g.committed.is_empty() && g.committed.trim() != final_text.trim() && delta.is_none() {
+                    g.live = false;
+                    g.committed.clear();
+                    drop(g);
+                    return copy_fallback(shared.clone(), tx, &sid, &final_text,
+                        "Recognition revised earlier words — review the full transcript".into()).await;
+                }
+                let remainder = delta.unwrap_or_default();
                 insert_text = remainder;
                 if g.cfg.cleanup.mode == "clean" && !insert_text.trim().is_empty() {
                     let _ = g.session.transition(State::Cleaning);
@@ -1007,12 +1024,15 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                 g.committed.clear();
                 g.target_lost = false;
                 if insert_text.trim().is_empty() {
+                    let _ = g.session.transition(State::Ready);
                     let _ = g.session.transition(State::Idle);
                     emit(tx, &ev_state(Some(sid), State::Idle, Some("Finished — text already typed")));
                     let s = g.session.clone();
                     return resp_ok("", &s, Some("finished".into()), Some(serde_json::json!({"text": final_text})));
                 }
             }
+            let _ = g.session.transition(State::Ready);
+            emit(tx, &ev_state(Some(sid.clone()), State::Ready, Some("Text ready")));
             // Insertion policy.
             let mode = g.cfg.insertion_mode_for(&target.app_id);
             let settings_open = g.no_auto.as_deref() == Some(sid.as_str());
@@ -1032,6 +1052,9 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
             drop(g);
             let outcome = tokio::task::spawn_blocking(move || inserter::insert_automatic(&text_c, &tgt_c, &mode_c)).await.unwrap();
             g = shared.lock().await;
+            if g.session.id != sid || g.session.state != State::Inserting {
+                return resp_ok("", &g.session, Some("stale insertion result discarded".into()), None);
+            }
             g.last_lat.dispatch_ms = t0d.elapsed().as_millis() as u64;
             match outcome {
                 inserter::InsertOutcome::DispatchAttempted(m) => {
@@ -1178,4 +1201,23 @@ async fn doctor() -> serde_json::Value {
 #[allow(dead_code)]
 pub fn allowed_for_tests(from: State, to: State) -> bool {
     vaani_core::state::allowed(from, to)
+}
+
+#[cfg(test)]
+mod preview_event_tests {
+    use super::*;
+
+    #[test]
+    fn preview_is_compact_and_privacy_hides_both_words() {
+        let (tx, mut rx) = broadcast::channel(4);
+        emit_provisional(&tx, "session", "one two three", false, 0);
+        let shown = rx.try_recv().unwrap().data.unwrap();
+        assert_eq!(shown["last_word"], "two");
+        assert_eq!(shown["next_word"], "three");
+        emit_provisional(&tx, "session", "one two three", true, 0);
+        let hidden = rx.try_recv().unwrap().data.unwrap();
+        assert_eq!(hidden["last_word"], "");
+        assert_eq!(hidden["next_word"], "");
+        assert_eq!(hidden["tail"], "");
+    }
 }
