@@ -224,6 +224,16 @@ pub fn find_wtype() -> Option<std::path::PathBuf> {
     })
 }
 
+/// Grab the physical keyboard during streaming.
+/// Returns a handle that is dropped to release.
+/// Currently a no-op placeholder; the compositor keybind
+/// (SUPER+H recording session) already manages input focus.
+pub struct KeyboardGrab;
+
+pub fn grab_keyboard() -> Option<KeyboardGrab> {
+    Some(KeyboardGrab)
+}
+
 /// Split "SHIFT+CTRL+V" into Lua send_shortcut (mods, key), whitelisted to
 /// alphanumerics + space so only our fixed chords can interpolate.
 fn chord_parts(chord: &str) -> anyhow::Result<(String, String)> {
