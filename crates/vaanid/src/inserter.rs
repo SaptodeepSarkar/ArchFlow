@@ -27,6 +27,8 @@ impl std::fmt::Display for InsertOutcome {
 
 /// Attempt automatic insertion for `target`. Policy inputs: configured mode,
 /// terminal copy-only rule, multiline-terminal refusal.
+/// When mode is "automatic", types via the virtual keyboard (wtype)
+/// so text goes directly into the focused window.
 pub fn insert_automatic(
     text: &str,
     start_target: &FocusTarget,
@@ -52,6 +54,15 @@ pub fn insert_automatic(
         return InsertOutcome::CopyReady(
             "multiline shell-like text: copy-only to avoid accidental execution".into(),
         );
+    }
+    // Automatic mode: type directly via the virtual keyboard (wtype).
+    // This sends text straight into the focused window without
+    // needing a paste chord.
+    if configured_mode == "automatic" {
+        return match inject_stream(text) {
+            Ok(()) => InsertOutcome::DispatchAttempted(format!("typed via keyboard into {}", current.app_id)),
+            Err(e) => InsertOutcome::CopyReady(format!("typing failed ({e}); text on clipboard")),
+        };
     }
     // Offer on clipboard, then dispatch the app's paste chord.
     // Terminals paste from the primary selection (Shift+Insert, single
