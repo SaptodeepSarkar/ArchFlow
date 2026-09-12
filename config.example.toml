@@ -34,7 +34,7 @@ model = "base"
 live_model = "base"
 # resident faster-whisper server idle TTL, seconds (0 disables: one-shot).
 # While resident, streaming chunks skip the model reload (~0.3 s vs ~4.5 s).
-server_idle_secs = 90
+server_idle_secs = 30
 # en | hi | bn — explicit; short utterances must not rely on auto-detect
 language = "en"
 translate_to_en = false
