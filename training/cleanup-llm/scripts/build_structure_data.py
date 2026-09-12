@@ -168,13 +168,18 @@ PAIRS = [
     ("grocery list tomatoes one kilogram eggs two kilograms and fruits 200 grams", "Grocery list:\n- Tomatoes (1 kg)\n- Eggs (2 kg)\n- Fruits (200 g)"),
     ("please make a grocery list for the whole week with milk eggs and bread", "Grocery list for the whole week:\n- Milk\n- Eggs\n- Bread"),
     ("i want the bulletin points for the debate topics", "I want the bulletin points for the debate topics."),
-    ("make a table with name and age john is 25 and priya is 30", "Name | Age\n---|---|---\nJohn | 25\nPriya | 30"),
-    ("create a table item price apples 50 rupees milk 60 rupees", "Item | Price\n---|---|---\nApples | 50 rupees\nMilk | 60 rupees"),
-    ("make a table day task monday meeting tuesday review", "Day | Task\n---|---|---\nMonday | Meeting\nTuesday | Review"),
-    ("make a table name age city john 25 delhi priya 30 mumbai", "Name | Age | City\n---|---|---|---\nJohn | 25 | Delhi\nPriya | 30 | Mumbai"),
-    ("make a table of students and marks rahul got ninety and sara got ninety five", "Student | Marks\n---|---|---\nRahul | 90\nSara | 95"),
+    ("make a table with name and age john is 25 and priya is 30", "Name | Age\n---|---\nJohn | 25\nPriya | 30"),
+    ("create a table item price apples 50 rupees milk 60 rupees", "Item | Price\n---|---\nApples | 50 rupees\nMilk | 60 rupees"),
+    ("make a table day task monday meeting tuesday review", "Day | Task\n---|---\nMonday | Meeting\nTuesday | Review"),
+    ("make a table name age city john 25 delhi priya 30 mumbai", "Name | Age | City\n---|---|---\nJohn | 25 | Delhi\nPriya | 30 | Mumbai"),
+    ("make a table of students and marks rahul got ninety and sara got ninety five", "Student | Marks\n---|---\nRahul | 90\nSara | 95"),
     ("make a table", "Make a table."),
     ("i need a table for the data", "I need a table for the data."),
+    ("lets try some emojis laughing emoji heartbeat emoji and cake emoji for the demo", "Let's try some emojis for the demo:\n- Laughing 😂\n- Heartbeat 💓\n- Cake 🎂"),
+    ("testing emojis laughing emoji heartbeat emoji cake emoji and pi vapper emoji", "Testing emojis:\n- Laughing 😂\n- Heartbeat 💓\n- Cake 🎂\n- Pi vapper emoji"),
+    ("i want a grocery list tomatoes one kilogram eggs two kilograms and fruits 200 grams", "I want a grocery list:\n- Tomatoes (1 kg)\n- Eggs (2 kg)\n- Fruits (200 g)"),
+    ("make a table name age john 25 priya 30 for the team roster today", "Name | Age\n---|---\nJohn | 25\nPriya | 30\nFor the team roster today."),
+    ("create a table item price apples 50 milk 60 and send it to vishal", "Item | Price\n---|---\nApples | 50\nMilk | 60\nSend it to Vishal."),
 ]
 
 
