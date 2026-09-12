@@ -20,7 +20,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
-OUT = os.path.join(os.path.dirname(__file__), "..", "output")
+OUT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "output"))
 DEFAULT_MODEL = os.path.join(OUT, "base-model")
 DEFAULT_ADAPTER = os.path.join(OUT, "dpo-sft")
 DEFAULT_THRESHOLD = 10

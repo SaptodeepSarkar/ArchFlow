@@ -536,7 +536,7 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
                     Some(std::path::PathBuf::from(&cfg.cleanup.model_path))
                 };
                 let text_llm = text.clone();
-                let adapter = format!("{}/dpo-sft", cfg.cleanup.model_path);
+                let adapter = format!("{}/../dpo-sft", cfg.cleanup.model_path);
                 tokio::task::spawn_blocking(move || -> String {
                     let python = match python_path {
                         Some(p) if p.exists() => p,

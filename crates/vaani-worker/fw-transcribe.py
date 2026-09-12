@@ -59,8 +59,6 @@ def main() -> None:
             compute_type="int8_float16",
         )
     except Exception:
-        if device == "cpu":
-            raise
         model = WhisperModel(model_dir, device="cpu", compute_type="int8")
 
     kwargs = {
@@ -77,8 +75,6 @@ def main() -> None:
             compute_type="int8_float16",
         )
     except Exception:
-        if device == "cpu":
-            raise
         model = WhisperModel(model_dir, device="cpu", compute_type="int8")
     segments, _info = model.transcribe(wav_path, **kwargs)
     kept = [
