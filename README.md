@@ -138,8 +138,8 @@ Key options: `recognition.model` (tiny/base/base.en/small/cozy),
 Audio flow: 16 kHz blocks → energy VAD + hangover → end-of-speech auto-stop
 → bounded 30 s segments with overlap → per-segment inference → prefix
 reconciliation → filler-word strip (uh/um/er/mmm) → clipboard + popup.
-Lists/bullets restructuring is the opt-in `cleanup.mode = "clean"` LLM step
-(local endpoint); names and domain terms ride `cleanup.vocabulary` into the
+Lists/bullets restructuring is the opt-in `cleanup.mode = "stream"` local-LLM step
+(frozen Qwen3-0.6B plus the source-grounded `llm-v1` LoRA adapter); names and domain terms ride `cleanup.vocabulary` into the
 recognizer's initial prompt (`--prompt` / `initial_prompt`), which is how
 Whisper learns your nouns without retraining.
 

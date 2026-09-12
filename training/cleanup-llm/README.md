@@ -2,8 +2,11 @@
 
 Teaches **Qwen3-0.6B** to turn raw dictation transcripts into sendable text:
 grammar, punctuation (commas/full stops), lists/points formatting, spelling,
-and light emotion cues — while never inventing facts. Serves Vaani's
-`cleanup.mode = "clean"` endpoint via Ollama after GGUF export.
+and light emotion cues — while never inventing facts. LLM v1 additionally
+learns source-grounded structure: bullets, dotted bullets, numbered sequences,
+explicit titles, name capitalization, explicit emoji, and no-invention
+controls. It serves Vaani's `cleanup.mode = "stream"` direct-torch path via
+`scripts/vaani_inject.py`.
 
 Hardware target: NVIDIA RTX 3050 6GB. Full fine-tuning does not fit;
 **LoRA adapters** (like Cozy's STT recipe) carry the adaptation.
@@ -44,10 +47,22 @@ source env.sh
 .venv/bin/python scripts/train_dpo.py
 ```
 
-## Vaani wiring (after export)
+## Vaani wiring (stream mode)
 
+```toml
+[cleanup]
+mode = "stream"
+model_path = "/home/saptodeep/Projects/ArchFlow/training/cleanup-llm/output/base-model"
+adapter_path = "/home/saptodeep/Projects/ArchFlow/training/cleanup-llm/output/llm-v1"
+python_path = "/home/saptodeep/.local/bin/vaani_inject.py"
+word_threshold = 10
 ```
-cleanup.mode = "clean"
-cleanup.endpoint = "http://localhost:11434"
-VAANI_CLEAN_MODEL=vaani-cleanup:0.6b  # in the vaanid environment
-```
+
+The base model stays frozen. Only the selected LoRA adapter changes behavior.
+
+## LLM v1 acceptance snapshot
+
+- Training mix: 43,518 grammar rows, speech replay, 99 structure rows repeated per epoch.
+- Schedule: 600 steps from `dpo-sft` at 1e-4, plus a 200-step pronoun/emoji correction at 5e-5.
+- Holdout: grammar 17/60, speech 1/1, structure 8/12, structure lists 7/7, no invented lists 1/1.
+- Targeted checks passed for grocery lists, dotted lists, explicit emoji, names/pronouns, and bare formatting commands.

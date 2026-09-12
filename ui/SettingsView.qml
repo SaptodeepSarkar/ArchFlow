@@ -231,8 +231,8 @@ ColumnLayout {
                 font.bold: true
             }
             ComboBox {
-                model: ["raw", "clean"]
-                currentIndex: (settingsRoot.cfg.cleanup && settingsRoot.cfg.cleanup.mode === "clean") ? 1 : 0
+                model: ["raw", "clean", "stream"]
+                currentIndex: (settingsRoot.cfg.cleanup && settingsRoot.cfg.cleanup.mode === "clean") ? 1 : (settingsRoot.cfg.cleanup && settingsRoot.cfg.cleanup.mode === "stream") ? 2 : 0
                 onActivated: settingsRoot.setKey("cleanup.mode", currentText)
             }
             TextField {
