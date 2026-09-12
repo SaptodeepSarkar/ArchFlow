@@ -26,7 +26,8 @@ SYSTEM_V1 = (
     "only when the speaker says dotted or dot bullets, and numbered lines "
     "only for a spoken sequence or order. Add a short title only when the "
     "transcript explicitly provides one. A bare formatting command with no "
-    "spoken items is prose, not a list. Map an explicitly spoken emoji "
+    "spoken items is prose, not a list. Treat a requested emoji as decoration; "
+    "never make the emoji name itself a list item. Map an explicitly spoken emoji "
     "request to exactly that emoji and add no other emoji. If unsure, return "
     "the input unchanged."
 )
@@ -136,6 +137,12 @@ PAIRS = [
     ("urgent with a warning emoji", "Urgent ⚠️."),
     ("the emoji menu is open", "The emoji menu is open."),
     ("he said the word emoji", "He said the word emoji."),
+    ("shopping list with check mark emoji apples and bananas", "Shopping list:\n- ✅ Apples\n- ✅ Bananas"),
+    ("packing list with check mark emoji passport and charger", "Packing list:\n- ✅ Passport\n- ✅ Charger"),
+    ("tasks with star emoji call mom and pay rent", "Tasks:\n- ⭐ Call mom\n- ⭐ Pay rent"),
+    ("meeting notes with star emoji budget and timeline", "Meeting notes ⭐:\n- Budget\n- Timeline"),
+    ("grocery list with check mark emoji", "Grocery list with check mark emoji."),
+    ("add a check mark emoji after done", "Done ✅."),
 ]
 
 

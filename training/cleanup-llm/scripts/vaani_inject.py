@@ -36,7 +36,8 @@ SYSTEM = (
     "only when the speaker says dotted or dot bullets, and numbered lines "
     "only for a spoken sequence or order. Add a short title only when the "
     "transcript explicitly provides one. A bare formatting command with no "
-    "spoken items is prose, not a list. Map an explicitly spoken emoji "
+    "spoken items is prose, not a list. Treat a requested emoji as decoration; "
+    "never make the emoji name itself a list item. Map an explicitly spoken emoji "
     "request to exactly that emoji and add no other emoji. If unsure, return "
     "the input unchanged."
 )
