@@ -135,57 +135,22 @@ fn paste_chord_for(app_id: &str) -> String {
     }
 }
 
-/// KeyboardGuard: grabs the keyboard on creation, always
-/// releases on drop (panic-safe). Call `release()` to
-/// release early if needed.
-pub struct KeyboardGuard {
-    handle: Option<std::process::Child>,
-    wtype: std::path::PathBuf,
-}
-
-impl KeyboardGuard {
-    pub fn new(wtype: &std::path::PathBuf) -> anyhow::Result<Self> {
-        let handle = std::process::Command::new(wtype)
-            .arg("grabkeyboard")
-            .spawn()?;
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        Ok(Self {
-            handle: Some(handle),
-            wtype: wtype.clone(),
-        })
-    }
-    pub fn release(&mut self) {
-        if let Some(mut h) = self.handle.take() {
-            let _ = h.kill();
-            let _ = h.wait();
-        }
-        let _ = std::process::Command::new(&self.wtype)
-            .arg("ungrabkeyboard")
-            .output();
-    }
-}
-
-impl Drop for KeyboardGuard {
-    fn drop(&mut self) {
-        self.release();
-    }
-}
-
 /// Lock the real keyboard via wtype grab, type `text` through
-/// the virtual keyboard, then ungrab. The keyboard is held
-/// from the moment the guard is created — not just during
-/// typing — so physical input is blocked during the entire
-/// injection pipeline (cleanup + typing).
+/// the virtual keyboard, then ungrab.
+///
+/// Note: `wtype` is a virtual keyboard only — it has no grab/ungrab
+/// subcommands. Physical keyboard events during the brief typing
+/// window are handled by the compositor keybind (SUPER+H recording
+/// session holds the compositor grab). This function types via
+/// the virtual keyboard and returns any error as a fallback.
 pub fn inject_stream(text: &str) -> anyhow::Result<()> {
     if text.is_empty() {
         return Ok(());
     }
     let wtype = find_wtype().ok_or_else(|| anyhow::anyhow!("wtype not found"))?;
-    let mut guard = KeyboardGuard::new(&wtype)?;
     let res = std::process::Command::new(&wtype)
         .arg(text)
         .output();
-    guard.release();
     match res {
         Ok(out) if out.status.success() => Ok(()),
         Ok(out) => anyhow::bail!(
@@ -246,15 +211,6 @@ pub fn find_wtype() -> Option<std::path::PathBuf> {
             .map(|dir| dir.join("wtype"))
             .find(|path| path.is_file())
     })
-}
-
-/// Create a keyboard guard that grabs the physical keyboard and holds
-/// it until the returned guard is dropped. Call this BEFORE starting
-/// cleanup so the keyboard stays frozen during the entire pipeline.
-/// Returns `None` if `wtype` is unavailable (caller falls through).
-pub fn grab_keyboard() -> Option<KeyboardGuard> {
-    let wtype = find_wtype()?;
-    KeyboardGuard::new(&wtype).ok()
 }
 
 /// Split "SHIFT+CTRL+V" into Lua send_shortcut (mods, key), whitelisted to
