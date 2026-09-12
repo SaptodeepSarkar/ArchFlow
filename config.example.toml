@@ -64,6 +64,9 @@ vocabulary = []
 # stream only: path to local LLM model dir (e.g. output/base-model from training/cleanup-llm).
 # If empty, daemon auto-detects next to the binary.
 model_path = ""
+# stream only: path to the local LLM LoRA adapter dir (e.g. output/llm-v1).
+# Empty keeps the legacy dpo-sft adapter next to model_path.
+adapter_path = ""
 # stream only: skip LLM when transcript word count is below this (0 = always clean).
 word_threshold = 10
 # stream only: path to vaani_inject.py. If empty, daemon looks beside the binary.

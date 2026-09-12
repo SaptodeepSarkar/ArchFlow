@@ -18,7 +18,8 @@ with a strict key whitelist — see `Config::set_key`.
 | recognition.device | cpu/cuda | CUDA only with user GPU build; failure falls back to CPU visibly |
 | insertion.mode | automatic/review/copy-only | automatic replaces clipboard temporarily — needs setup consent |
 | insertion.app_overrides | map | Terminals default copy-only (multiline can execute!) |
-| cleanup.mode | raw/clean | raw dependable; clean needs explicit local endpoint |
+| cleanup.mode | raw/clean/stream | raw dependable; clean needs explicit local endpoint; stream uses local direct-torch cleanup |
+| cleanup.model_path/cleanup.adapter_path | paths | Base Qwen3-0.6B dir plus explicit LoRA adapter dir for stream mode |
 | cleanup.endpoint/timeout | URL / 2–30 s | No default server; timeout falls back to raw |
 | cleanup.vocabulary | comma list (append; empty clears) | Names/terms fed to the recognizer prompt; always-on local polish (fillers, false starts, duplicate phrases) needs no endpoint |
 | privacy.save_history | bool (off) | Retention + delete controls when enabled |

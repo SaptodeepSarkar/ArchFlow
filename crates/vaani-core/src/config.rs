@@ -113,6 +113,10 @@ pub struct Cleanup {
     /// Path to the local LLM model dir (used when mode = "stream").
     #[serde(default)]
     pub model_path: String,
+    /// Path to the local LLM LoRA adapter dir. Empty keeps the legacy
+    /// dpo-sft adapter next to model_path.
+    #[serde(default)]
+    pub adapter_path: String,
     /// Word count threshold: skip LLM cleanup when transcript is shorter.
     #[serde(default = "default_word_threshold")]
     pub word_threshold: usize,
@@ -231,6 +235,7 @@ impl Default for Cleanup {
             timeout_secs: default_cleanup_timeout(),
             vocabulary: Vec::new(),
             model_path: String::new(),
+            adapter_path: String::new(),
             word_threshold: default_word_threshold(),
             python_path: String::new(),
         }
@@ -431,6 +436,13 @@ impl Config {
                     return Err("too long".into());
                 }
                 self.cleanup.model_path = v.into();
+                Ok(v.into())
+            }
+            "cleanup.adapter_path" => {
+                if v.len() > 512 {
+                    return Err("too long".into());
+                }
+                self.cleanup.adapter_path = v.into();
                 Ok(v.into())
             }
             "cleanup.word_threshold" => {
