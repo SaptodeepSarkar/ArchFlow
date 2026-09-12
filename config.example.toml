@@ -56,7 +56,7 @@ kitty = "copy-only"
 Alacritty = "copy-only"
 
 [cleanup]
-# raw (default, dependable) | clean (needs endpoint below) | stream (local LLM cleanup via model_path)
+# raw (default, dependable) | clean (needs endpoint below) | stream (local LLM cleanup via model_path, runs automatically on finish)
 mode = "raw"
 endpoint = ""
 timeout_secs = 8

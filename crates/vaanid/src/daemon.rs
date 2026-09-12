@@ -310,6 +310,71 @@ fn resp_ok(rid: &str, sess: &Session, msg: Option<String>, data: Option<serde_js
     }
 }
 
+/// Stream-mode cleanup: pipe `text` through the local cleanup LLM
+/// (vaani_inject.py + frozen base + LoRA adapter) when mode == "stream"
+/// and the transcript meets the word threshold. Raw text is returned on
+/// any failure (missing script, spawn error, empty output). Blocking —
+/// always call from spawn_blocking.
+fn run_stream_cleanup(text: &str, cfg: &Config) -> String {
+    let threshold = cfg.cleanup.word_threshold;
+    if cfg.cleanup.mode != "stream" || text.split_whitespace().count() < threshold {
+        return text.to_string();
+    }
+    let python_path = if cfg.cleanup.python_path.is_empty() {
+        std::env::current_exe().ok()
+            .and_then(|p| p.parent().map(|d| d.join("vaani_inject.py")))
+    } else {
+        Some(std::path::PathBuf::from(&cfg.cleanup.python_path))
+    };
+    let model_dir = if cfg.cleanup.model_path.is_empty() {
+        std::env::current_exe().ok()
+            .and_then(|p| p.parent().map(|d| d.join("..").join("output").join("base-model")))
+    } else {
+        Some(std::path::PathBuf::from(&cfg.cleanup.model_path))
+    };
+    let adapter = if !cfg.cleanup.adapter_path.is_empty() {
+        cfg.cleanup.adapter_path.clone()
+    } else if !cfg.cleanup.model_path.is_empty() {
+        format!("{}/../dpo-sft", cfg.cleanup.model_path)
+    } else {
+        String::new()
+    };
+    let text_llm = text.to_string();
+    let python = match python_path {
+        Some(p) if p.exists() => p,
+        _ => return text_llm,
+    };
+    let mut child = match std::process::Command::new("python3")
+        .arg(&python)
+        .arg("--adapter").arg(&adapter)
+        .arg("--threshold").arg(threshold.to_string())
+        .arg("--model-dir").arg(model_dir.unwrap_or_default())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return text_llm,
+    };
+    {
+        let mut stdin = match child.stdin.take() {
+            Some(s) => s,
+            None => return text_llm,
+        };
+        if std::io::Write::write_all(&mut stdin, text_llm.as_bytes()).is_err() {
+            return text_llm;
+        }
+    }
+    match child.wait_with_output() {
+        Ok(out) => {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() { s } else { text_llm }
+        }
+        Err(_) => text_llm,
+    }
+}
+
 /// Key-repeat guard: activations within 800 ms of the previous accepted one
 /// are ignored (a held shortcut must not start+stop instantly).
 /// Returns true when this activation is accepted.
@@ -522,64 +587,11 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
             };
             let word_count = text.split_whitespace().count();
             let threshold = cfg.cleanup.word_threshold;
-            let cleaned = if cfg.cleanup.mode == "stream" && word_count >= threshold {
-                let python_path = if cfg.cleanup.python_path.is_empty() {
-                    std::env::current_exe().ok()
-                        .and_then(|p| p.parent().map(|d| d.join("vaani_inject.py")))
-                } else {
-                    Some(std::path::PathBuf::from(&cfg.cleanup.python_path))
-                };
-                let model_dir = if cfg.cleanup.model_path.is_empty() {
-                    std::env::current_exe().ok()
-                        .and_then(|p| p.parent().map(|d| d.join("..").join("output").join("base-model")))
-                } else {
-                    Some(std::path::PathBuf::from(&cfg.cleanup.model_path))
-                };
-                let text_llm = text.clone();
-                let adapter = if !cfg.cleanup.adapter_path.is_empty() {
-                    cfg.cleanup.adapter_path.clone()
-                } else if !cfg.cleanup.model_path.is_empty() {
-                    format!("{}/../dpo-sft", cfg.cleanup.model_path)
-                } else {
-                    String::new()
-                };
-                tokio::task::spawn_blocking(move || -> String {
-                    let python = match python_path {
-                        Some(p) if p.exists() => p,
-                        _ => return text_llm.clone(),
-                    };
-                    let mut cmd = std::process::Command::new("python3");
-                    cmd.arg(&python)
-                       .arg("--adapter").arg(adapter)
-                       .arg("--threshold").arg(threshold.to_string())
-                       .arg("--model-dir").arg(model_dir.unwrap_or_default());
-                    let mut child = match cmd.stdin(std::process::Stdio::piped())
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped())
-                        .spawn() {
-                        Ok(c) => c,
-                        Err(_) => return text_llm.clone(),
-                    };
-                    {
-                        let mut stdin = match child.stdin.take() {
-                            Some(s) => s,
-                            None => return text_llm.clone(),
-                        };
-                        if std::io::Write::write_all(&mut stdin, text_llm.as_bytes()).is_err() {
-                            return text_llm.clone();
-                        }
-                    }
-                    match child.wait_with_output() {
-                        Ok(out) => {
-                            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                            if !s.is_empty() { s } else { text_llm.clone() }
-                        }
-                        Err(_) => text_llm.clone(),
-                    }
-                }).await.unwrap_or(text.clone())
-            } else {
-                text.clone()
-            };
+            let fallback = text.clone();
+            let cleaned = tokio::task::spawn_blocking(move || run_stream_cleanup(&text, &cfg))
+                .await
+                .unwrap_or(fallback);
+            // Non-stream modes (and short transcripts) fall through raw.
             // Stream via virtual keyboard (keyboard locked only during typing).
             let cleaned_for_inject = cleaned.clone();
             let res = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
@@ -1171,19 +1183,29 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                 let s = g.session.clone();
                 return resp_ok("", &s, Some("silence: no text".into()), None);
             }
-            // Optional conservative cleanup (explicit endpoint only).
-            // Live sessions skip full-text cleanup here: committed words are
-            // already typed raw, so only the remainder is cleaned at finalize.
+            // Optional cleanup on finish (non-live only): endpoint-based
+            // "clean" mode, or local-LLM "stream" mode for transcripts at or
+            // above the word threshold. Raw fallback on any failure.
             let mut final_text = t.text.clone();
-            if g.cfg.cleanup.mode == "clean" && !g.live {
+            let stream_wanted = g.cfg.cleanup.mode == "stream"
+                && final_text.split_whitespace().count() >= g.cfg.cleanup.word_threshold;
+            if (g.cfg.cleanup.mode == "clean" || stream_wanted) && !g.live {
                 let _ = g.session.transition(State::Cleaning);
                 emit(tx, &ev_state(Some(sid.clone()), State::Cleaning, Some("Cleaning up…")));
+                let cfg_snap = g.cfg.clone();
                 let vocab = g.cfg.cleanup.vocabulary.clone();
                 let ep = g.cfg.cleanup.endpoint.clone();
                 let to = g.cfg.cleanup.timeout_secs;
+                let use_stream = stream_wanted;
                 drop(g);
                 let raw = final_text.clone();
-                let cleaned = tokio::task::spawn_blocking(move || cleanup::clean(&raw, &ep, to, &vocab)).await.unwrap_or(final_text);
+                let cleaned = tokio::task::spawn_blocking(move || {
+                    if use_stream {
+                        run_stream_cleanup(&raw, &cfg_snap)
+                    } else {
+                        cleanup::clean(&raw, &ep, to, &vocab)
+                    }
+                }).await.unwrap_or(final_text);
                 g = shared.lock().await;
                 if g.session.id != sid || !matches!(g.session.state, State::Cleaning) {
                     let s = g.session.clone();
@@ -1208,15 +1230,22 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                 }
                 let remainder = delta.unwrap_or_default();
                 insert_text = remainder;
-                if g.cfg.cleanup.mode == "clean" && !insert_text.trim().is_empty() {
+                if (g.cfg.cleanup.mode == "clean" || g.cfg.cleanup.mode == "stream") && !insert_text.trim().is_empty() {
                     let _ = g.session.transition(State::Cleaning);
                     emit(tx, &ev_state(Some(sid.clone()), State::Cleaning, Some("Cleaning up…")));
+                    let cfg_snap = g.cfg.clone();
                     let vocab = g.cfg.cleanup.vocabulary.clone();
                     let ep = g.cfg.cleanup.endpoint.clone();
                     let to = g.cfg.cleanup.timeout_secs;
                     let raw = insert_text.clone();
                     drop(g);
-                    let cleaned = tokio::task::spawn_blocking(move || cleanup::clean(&raw, &ep, to, &vocab)).await.unwrap_or(insert_text);
+                    let cleaned = tokio::task::spawn_blocking(move || {
+                        if cfg_snap.cleanup.mode == "stream" {
+                            run_stream_cleanup(&raw, &cfg_snap)
+                        } else {
+                            cleanup::clean(&raw, &ep, to, &vocab)
+                        }
+                    }).await.unwrap_or(insert_text);
                     g = shared.lock().await;
                     if g.session.id != sid || !matches!(g.session.state, State::Cleaning) {
                         let s = g.session.clone();
