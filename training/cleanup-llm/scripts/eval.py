@@ -2,11 +2,13 @@
 """Stage 5 (eval): holdout checks for a LoRA tag. Usage: eval.py --tag sft.
 
 Reports: exact-match rate on grammar holdout (sample), exact-match on the
-speech holdout, and list-format presence. Exits nonzero when nothing loads.
+speech holdout, structure-format checks, and source-grounding checks.
+Exits nonzero when nothing loads.
 """
 import argparse
 import json
 import os
+import re
 
 import torch
 from peft import PeftModel
@@ -44,13 +46,21 @@ def generate(model, tok, instruction, text, max_new=256):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="sft")
+    ap.add_argument("--adapter", default="", help="Explicit adapter directory; overrides the tag convention")
     ap.add_argument("--n", type=int, default=60)
+    ap.add_argument("--structure-n", type=int, default=100)
     a = ap.parse_args()
 
-    if a.tag == "dpo":
+    if a.adapter:
+        adapter = a.adapter if os.path.isdir(a.adapter) else os.path.join(OUT, a.adapter)
+    elif a.tag == "dpo":
         adapter = os.path.join(OUT, "dpo-sft")
+    elif a.tag == "llm-v1":
+        adapter = os.path.join(OUT, "llm-v1")
     else:
         adapter = os.path.join(OUT, f"lora-{a.tag}")
+    if not os.path.isdir(adapter):
+        raise SystemExit(f"adapter not found: {adapter}")
     tok = AutoTokenizer.from_pretrained(os.path.join(OUT, "base-model"), trust_remote_code=True)
     base = AutoModelForCausalLM.from_pretrained(
         os.path.join(OUT, "base-model"), torch_dtype=torch.bfloat16, trust_remote_code=True
@@ -59,6 +69,10 @@ def main() -> None:
 
     grammar = load_pairs(os.path.join(DATA, "eval_grammar.jsonl"), a.n)
     speech = load_pairs(os.path.join(DATA, "eval_speech.jsonl"), 50)
+    structure = []
+    structure_path = os.path.join(DATA, "eval_structure.jsonl")
+    if os.path.exists(structure_path):
+        structure = load_pairs(structure_path, a.structure_n)
     g_hit = sum(
         generate(model, tok, r["instruction"], r["input"]) == r["output"] for r in grammar
     )
@@ -68,10 +82,37 @@ def main() -> None:
         s_hit += got == r["output"]
         if "- " in r["output"]:
             s_list += ("- " in got)
+    v_hit, v_list, v_grounded = 0, 0, 0
+    v_cases, v_list_cases = 0, 0
+    list_marker = re.compile(r"(?:^|\n)(?:- |• |\d+\. )")
+    no_source_items = {
+        "make a grocery list",
+        "make a list like a grocery list",
+        "turn this into pointers",
+        "add milk to the list",
+        "i need things for the trip",
+        "agenda for tomorrow",
+        "buy stuff",
+        "there are a few reasons",
+        "tell me a grocery list",
+        "hello this is me and i am testing the system and it should fix grammar when items are actually spoken",
+    }
+    for r in structure:
+        got = generate(model, tok, r["instruction"], r["input"])
+        v_cases += 1
+        v_hit += got == r["output"]
+        if "- " in r["output"] or "• " in r["output"] or re.search(r"\n\d+\. ", r["output"]):
+            v_list_cases += 1
+            v_list += bool(list_marker.search(got))
+        if r["input"] in no_source_items:
+            v_grounded += not bool(list_marker.search(got))
     print(f"[{a.tag}] grammar exact: {g_hit}/{len(grammar)}")
     print(f"[{a.tag}] speech exact: {s_hit}/{len(speech)}")
     print(f"[{a.tag}] list-format kept: {s_list} list cases checked")
-    print(json.dumps({"tag": a.tag, "grammar": [g_hit, len(grammar)], "speech": [s_hit, len(speech)]}))
+    print(f"[{a.tag}] structure exact: {v_hit}/{v_cases}")
+    print(f"[{a.tag}] structure lists kept: {v_list}/{v_list_cases}")
+    print(f"[{a.tag}] no invented lists: {v_grounded}/{len(no_source_items)}")
+    print(json.dumps({"tag": a.tag, "grammar": [g_hit, len(grammar)], "speech": [s_hit, len(speech)], "structure": [v_hit, v_cases], "structure_lists": [v_list, v_list_cases], "grounded": [v_grounded, len(no_source_items)]}))
 
 
 main()
