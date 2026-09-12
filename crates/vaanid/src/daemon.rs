@@ -1026,6 +1026,11 @@ async fn copy_fallback(
 // then cleanup/insertion per policy. Late results for cancelled sessions die.
 async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) -> Response {
     tracing::info!("stop_flow entry");
+    // Grab the physical keyboard BEFORE anything happens: the user
+    // pressed Super+J and the keyboard must stay frozen through the
+    // entire pipeline (capture close → transcription → cleanup →
+    // virtual-keyboard injection) so no physical keystrokes leak.
+    let _kb_guard = inserter::find_wtype().and_then(|p| inserter::grab_keyboard());
     // Capture close is synchronous and immediate, independent of transcription.
     let (samples, sid, cfg_snap, target) = {
         let mut g = shared.lock().await;
