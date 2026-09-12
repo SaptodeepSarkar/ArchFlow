@@ -184,6 +184,8 @@ PAIRS = [
     ("emojis laughing emoji, heart emoji, cake emoji for the demo", "Emojis for the demo:\n- Laughing 😂\n- Heart ❤️\n- Cake 🎂"),
     ("list the emojis smiling emoji, thumbs up emoji, and fire emoji", "Emojis:\n- Smiling 😊\n- Thumbs up 👍\n- Fire 🔥"),
     ("this is a test of the new model and its capabilities so first lets try some emojis laughing emoji heartbeat emoji and cake emoji then i want a grocery list tomatoes one kilogram eggs two kilograms and fruits 200 grams", "This is a test of the new model and its capabilities. So, first, let's try some emojis:\n- Laughing 😂\n- Heartbeat 💓\n- Cake 🎂\n\nThen, I want a grocery list:\n- Tomatoes (1 kg)\n- Eggs (2 kg)\n- Fruits (200 g)"),
+    ("this is another test of the app and we will check what the new model can do so first lets try emojis laughing emoji heartbeat emoji cake emoji and zorbo emoji then i want a grocery list tomatoes one kilogram eggs two kilograms and fruits 200 grams then i want bullet points for the meeting topics", "This is another test of the app, and we will check what the new model can do. So, first, let's try emojis:\n- Laughing 😂\n- Heartbeat 💓\n- Cake 🎂\n- Zorbo emoji\n\nThen, I want a grocery list:\n- Tomatoes (1 kg)\n- Eggs (2 kg)\n- Fruits (200 g)\n\nThen, I want bullet points for the meeting topics."),
+    ("testing the assistant again lets do emojis smiling emoji thumbs up emoji and fire emoji then a numbered grocery list milk two litres eggs twelve and bread one loaf", "Testing the assistant again. Let's do emojis:\n- Smiling 😊\n- Thumbs up 👍\n- Fire 🔥\n\nThen, a numbered grocery list:\n1. Milk (2 litres)\n2. Eggs (12)\n3. Bread (1 loaf)"),
 ]
 
 
