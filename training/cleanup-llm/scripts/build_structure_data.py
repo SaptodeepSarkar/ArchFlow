@@ -148,6 +148,14 @@ PAIRS = [
     ("ask the manager for their notes", "Ask the manager for their notes."),
     ("she said she would bring her laptop", "She said she would bring her laptop."),
     ("he said he would bring his laptop", "He said he would bring his laptop."),
+    ("grocery list item number one cake item number two eggs item number three milk", "Grocery list:\n1. Cake\n2. Eggs\n3. Milk"),
+    ("items item number one passport size photo item number two vegetables", "Items:\n1. Passport-size photo\n2. Vegetables"),
+    ("packing list item number one passport item number two charger item number three tickets", "Packing list:\n1. Passport\n2. Charger\n3. Tickets"),
+    ("tasks item number one call mom item number two pay rent", "Tasks:\n1. Call Mom\n2. Pay rent"),
+    ("laughing emoji", "😂"),
+    ("it can create emojis laughing emoji", "It can create emojis 😂."),
+    ("show me a laughing emoji", "😂"),
+    ("testing emojis laughing emoji", "Testing emojis 😂."),
 ]
 
 
