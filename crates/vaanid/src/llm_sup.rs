@@ -75,18 +75,30 @@ fn llm_kill_locked(slot: &mut Option<LlmServer>) {
 
 fn llm_paths(cfg: &Config) -> (String, String) {
     let model_dir = if cfg.cleanup.model_path.is_empty() {
-        std::env::current_exe()
+        let data_dir = std::env::var_os("XDG_DATA_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share")))
+            .map(|p| p.join("vaani").join("cleanup").join("base-model"));
+        data_dir.filter(|p| p.exists())
+            .or_else(|| std::env::current_exe()
             .ok()
             .and_then(|p| {
                 p.parent()
                     .map(|d| d.join("..").join("output").join("base-model").to_string_lossy().into_owned())
-            })
+            }).map(std::path::PathBuf::from).filter(|p| p.exists()))
             .unwrap_or_default()
+            .to_string_lossy().into_owned()
     } else {
         cfg.cleanup.model_path.clone()
     };
     let adapter_dir = if !cfg.cleanup.adapter_path.is_empty() {
         cfg.cleanup.adapter_path.clone()
+    } else if let Ok(data) = std::env::var("XDG_DATA_HOME") {
+        let p = std::path::Path::new(&data).join("vaani/cleanup/llm-v1");
+        if p.exists() { p.to_string_lossy().into_owned() } else { String::new() }
+    } else if let Ok(home) = std::env::var("HOME") {
+        let p = std::path::Path::new(&home).join(".local/share/vaani/cleanup/llm-v1");
+        if p.exists() { p.to_string_lossy().into_owned() } else { String::new() }
     } else if !cfg.cleanup.model_path.is_empty() {
         format!("{}/../dpo-sft", cfg.cleanup.model_path)
     } else {
@@ -270,10 +282,10 @@ pub fn prefill(cfg: &Config) -> anyhow::Result<()> {
 }
 
 /// Stream-mode cleanup entry: resident server first, one-shot fallback,
-/// raw text when disabled, short, or everything fails. Blocking — call from
+/// raw text when disabled or everything fails. Blocking — call from
 /// spawn_blocking.
 pub fn llm_cleanup(text: &str, cfg: &Config) -> String {
-    if cfg.cleanup.mode != "stream" || text.split_whitespace().count() < cfg.cleanup.word_threshold {
+    if cfg.cleanup.mode != "stream" {
         return text.to_string();
     }
     match llm_server_cleanup(text, cfg) {

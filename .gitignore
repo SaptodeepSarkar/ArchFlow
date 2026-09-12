@@ -6,5 +6,6 @@ native/worker/whisper.cpp/
 models/*.bin
 models/*.pt
 *.log
+docs/screenshots/
 .vaani/
 .hf_cache

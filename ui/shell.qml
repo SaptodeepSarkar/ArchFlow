@@ -239,7 +239,7 @@ Scope {
         active: (root.state !== "IDLE" || closeTimer.running) && !root.showSettings
         PanelWindow {
             id: overlay
-            implicitWidth: 320
+            implicitWidth: 360
             implicitHeight: card.height + 48
             color: "transparent"
             // Anchor bottom-center, 24px above usable edge, no exclusive zone.
@@ -256,11 +256,12 @@ Scope {
             Rectangle {
                 id: card
                 anchors.centerIn: parent
-                width: 320
-                height: 94
+                width: 360
+                height: 112
                 radius: 18
                 color: theme.surface
                 border.color: theme.outline
+                border.width: 1
                 opacity: root.dismissing ? 0 : 1
                 transform: Translate {
                     y: root.dismissing ? card.height + 32 : 0
@@ -269,19 +270,44 @@ Scope {
                 Behavior on opacity { NumberAnimation { duration: 240 } }
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 8
+                    anchors.margins: 16
+                    spacing: 7
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 18
+                        spacing: 7
+                        Rectangle {
+                            Layout.preferredWidth: 8
+                            Layout.preferredHeight: 8
+                            radius: 4
+                            color: root.state === "ERROR" ? theme.error : theme.accent
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.state === "INSERTING" ? "Typing cleaned text" : root.state === "CLEANING" ? "Cleaning transcript" : root.state === "TRANSCRIBING" ? "Transcribing" : "Listening"
+                            color: theme.text
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            text: root.state === "RECORDING" ? "SUPER+J copy" : ""
+                            color: theme.muted
+                            font.pixelSize: 10
+                            opacity: 0.8
+                        }
+                    }
                     Item {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 28
+                        Layout.preferredHeight: 25
                         Row {
                             anchors.centerIn: parent
-                            spacing: 6
+                            spacing: 5
                             Repeater {
                                 model: 16
                                 Rectangle {
                                     required property int index
-                                    width: 4
+                                width: 3
                                     height: root.state === "RECORDING" ? root.barH(index) : 3
                                     anchors.verticalCenter: parent.verticalCenter
                                     radius: 2
@@ -293,13 +319,13 @@ Scope {
                     Row {
                         visible: root.liveWords !== ""
                         Layout.alignment: Qt.AlignHCenter
-                        spacing: 8
+                        spacing: 6
                         Text {
                             text: root.ctxWords
                             textFormat: Text.PlainText
                             color: theme.text
                             opacity: 0.55
-                            font.pixelSize: 17
+                            font.pixelSize: 16
                             elide: Text.ElideLeft
                             horizontalAlignment: Text.AlignRight
                             anchors.verticalCenter: parent.verticalCenter
@@ -310,7 +336,7 @@ Scope {
                             text: root.curWord
                             textFormat: Text.PlainText
                             color: theme.accent
-                            font.pixelSize: 19
+                            font.pixelSize: 18
                             font.weight: Font.Bold
                             elide: Text.ElideRight
                             horizontalAlignment: Text.AlignLeft
@@ -325,7 +351,7 @@ Scope {
                         text: root.statusText || "Speak naturally…"
                         textFormat: Text.PlainText
                         color: root.state === "ERROR" ? theme.error : theme.text
-                        font.pixelSize: 13
+                        font.pixelSize: 12
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
                         Layout.fillWidth: true
@@ -341,6 +367,27 @@ Scope {
                     duration: 160
                 }
             }
+        }
+    }
+
+    // Pointer/touch safety curtain during final delivery. It deliberately
+    // keeps keyboardFocus None: wtype must continue targeting the original
+    // focused application. Hyprland has no supported user-level global
+    // physical-keyboard freeze that can coexist with virtual-keyboard output.
+    PanelWindow {
+        visible: root.state === "INSERTING" && !root.showSettings
+        implicitWidth: screen ? screen.width : 1
+        implicitHeight: screen ? screen.height : 1
+        color: "transparent"
+        anchors { top: true; bottom: true; left: true; right: true }
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.exclusionMode: ExclusionMode.Ignore
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            preventStealing: true
+            hoverEnabled: true
         }
     }
 

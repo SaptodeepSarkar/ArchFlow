@@ -1,7 +1,8 @@
 # Vaani — local-first voice dictation for Hyprland/Wayland
 
-Press `SUPER+H`, speak, stop speaking — your words are typed into the
-focused field. Press `SUPER+H` mid-way to discard. No account, no telemetry,
+Press `SUPER+H`, speak, stop speaking — your words are previewed in the box,
+then the complete cleaned result is typed into the focused field. Press
+`SUPER+J` to finish and copy without typing. No account, no telemetry,
 no cloud, no history, no always-listening mic. English, Hindi (`hi`) and
 Bengali (`bn`) model selection built in.
 
@@ -54,8 +55,8 @@ SUPER+H pressed
   ├─ LLM cleanup model loads to VRAM in background (~8 s)
   ├─ Overlay (Quickshell) spawns — shows waveform + transcript
   │
-  ├─ While speaking: word-by-word live preview
-  ├─ VAD auto-stop on silence, or SUPER+J to skip streaming
+  ├─ While speaking: word-by-word live preview (never inserted)
+  ├─ VAD auto-stop on silence, or SUPER+J to finish to clipboard
   │
   ├─ Cleanup via already-loaded LLM (no cold start)
   │
@@ -63,7 +64,7 @@ SUPER+H pressed
   │   → wait 90 s → drop LLM + STT models from VRAM → idle
   │
   └─ If SUPER+J NOT pressed: stream token-by-token via wtype
-      ├─ Freeze keyboard/mouse after cleanup
+      ├─ Deliver only after cleanup; input locking depends on compositor support
       ├─ Type each word via virtual keyboard (30 ms delay between tokens)
       ├─ Offer final text to clipboard
       ├─ Release keyboard, kill overlay
@@ -72,8 +73,8 @@ SUPER+H pressed
 
 | Shortcut | Action |
 |---|---|
-| `SUPER+H` | Start live dictation / discard mid-session |
-| `SUPER+J` | Stop recording and save to clipboard (skip streaming) |
+| `SUPER+H` | Start preview dictation / discard mid-session |
+| `SUPER+J` | Stop, clean, and save to clipboard without typing |
 | `SUPER+ALT+SPACE` | Toggle (transcribe on second press) |
 | `SUPER+ALT+ESC` | Discard active operation |
 | `SUPER+ALT+S` | Settings · `SUPER+ALT+C` copy pending text |
@@ -143,15 +144,15 @@ and ready. The overlay spawns and shows word-by-word live preview.
 **Finish (auto VAD silence or SUPER+J):**
 - Normal (no SUPER+J): cleanup runs on the already-loaded LLM, then
   the cleaned text is streamed token-by-token through the virtual
-  keyboard (`wtype`). Keyboard is frozen during streaming so physical
-  keystrokes don't leak. After streaming, keyboard releases, overlay
-  vanishes, and models stay in VRAM for 90 seconds before being freed.
+  keyboard (`wtype`). No target-app key events are sent before cleanup.
+  After streaming, the overlay vanishes, and models stay in VRAM for 90
+  seconds before being freed.
 - SUPER+J pressed: cleanup runs, cleaned text saves to clipboard,
   overlay vanishes immediately — no streaming. Models freed after 90 s.
 
-Insertion = clipboard offer + opt-in paste dispatch (`insertion.mode =
-"automatic"`: wtype virtual keyboard; Hyprland shortcut fallback) with
-a focus recheck; terminals paste from the primary selection via Shift+Insert.
+Insertion is the final cleaned text streamed through the Wayland virtual
+keyboard after a focus recheck; terminals receive single-line output too.
+Multiline shell-like text remains clipboard-only to avoid accidental execution.
 Silence inserts nothing. The Quickshell overlay is event-driven and exits when idle.
 
 Details: `docs/architecture.md` · `docs/configuration.md` ·
@@ -187,7 +188,7 @@ after Super+J.
 Audio flow: 16 kHz blocks → energy VAD + hangover → end-of-speech auto-stop
 → bounded 30 s segments with overlap → per-segment inference → prefix
 reconciliation → filler-word strip (uh/um/er/mmm) → clipboard + popup.
-Lists/bullets restructuring is the opt-in `cleanup.mode = "stream"` local-LLM step
+Lists/bullets restructuring is performed by the default `cleanup.mode = "stream"` local-LLM step
 (frozen Qwen3-0.6B plus the source-grounded `llm-v1` LoRA adapter); names and domain terms ride `cleanup.vocabulary` into the
 recognizer's initial prompt (`--prompt` / `initial_prompt`), which is how
 Whisper learns your nouns without retraining.
@@ -210,8 +211,8 @@ frozen during streaming. After streaming, the keyboard releases,
 the overlay vanishes, and the model stays in VRAM for
 `recognition.server_idle_secs` (90 s default). If unused after that,
 both the LLM and STT models are dropped from VRAM. Pressing
-`SUPER+J` during recording skips the streaming step entirely and
-saves the cleaned text directly to clipboard.
+`SUPER+J` during recording skips keyboard streaming entirely and saves the
+cleaned text directly to the clipboard.
 
 ## Uninstall
 

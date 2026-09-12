@@ -176,7 +176,7 @@ fn default_pending_secs() -> u64 {
     300
 }
 fn default_cleanup_mode() -> String {
-    "raw".into()
+    "stream".into()
 }
 fn default_cleanup_timeout() -> u64 {
     8
@@ -534,7 +534,7 @@ mod tests {
     fn defaults_are_safe() {
         let c = Config::default();
         assert_eq!(c.general.residency_profile, "economy");
-        assert_eq!(c.cleanup.mode, "raw");
+        assert_eq!(c.cleanup.mode, "stream");
         assert!(!c.privacy.save_history);
     }
 

@@ -39,9 +39,9 @@ struct Shared {
     /// Session ids for which automatic insertion is disabled (settings or
     /// review window was opened during the operation).
     no_auto: Option<String>,
-    /// Live dictation (SUPER+H): commit stabilized words while recording.
+    /// Live dictation (SUPER+H): show a provisional preview while recording.
     live: bool,
-    /// Stable text already typed into the target in this live session.
+    /// Kept for protocol/state compatibility; live preview never types it.
     committed: String,
     /// Cumulative transcript assembled from incremental audio chunks.
     live_transcript: String,
@@ -54,7 +54,7 @@ struct Shared {
     /// the bounce window is key-repeat/mashing (the overlay takes ~1 s to
     /// appear), not an intentional discard — it must not kill the session.
     session_started_at: Option<std::time::Instant>,
-    /// Focus lost mid-live-session: stop committing, keep accumulating.
+    /// Focus lost mid-live-session: keep previewing, but never insert early.
     target_lost: bool,
     /// Overlay child process handle, so we can kill it after streaming.
     overlay: Option<std::process::Child>,
@@ -600,10 +600,10 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::inherit())
             .spawn();
-        {
-            let mut g = shared.lock().await;
-            g.overlay = child.ok();
-        }
+        // `g` is already the session lock held by this block. Re-entering
+        // shared.lock() here deadlocks every start request before capture
+        // begins, leaving the overlay stuck in STARTING.
+        g.overlay = child.ok();
     }
 
     // Start capture immediately — recording must not wait
@@ -651,7 +651,7 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
                 let sess = sid.clone();
                 tokio::spawn(async move { auto_stop_watch(sh, t4, sess).await });
             }
-            // Live dictation: commit stabilized words while recording.
+            // Live dictation: publish preview only while recording.
             if live {
                 let sh = shared.clone();
                 let t3 = tx.clone();
@@ -821,7 +821,6 @@ struct LiveSnap {
     audio_end: usize,
     transcript: String,
     cfg: vaani_core::config::Config,
-    target: FocusTarget,
 }
 
 enum LiveTick {
@@ -867,13 +866,9 @@ async fn auto_stop_watch(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event
         }
     }
 }
-/// Live loop (SUPER+H): every chunk, transcribe cumulative audio, commit only
-/// the newly stabilized prefix (last TAIL words held back as provisional).
-/// A worker failure retries next tick; the controller stays up.
-fn live_tail_words() -> usize {
-    1
-}
-
+/// Live loop (SUPER+H): every chunk, transcribe cumulative audio and publish
+/// a provisional preview. Nothing from this loop is inserted into the target:
+/// the complete utterance must go through final STT + cleanup first.
 async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, sess: String) {
     loop {
         let chunk_secs = { shared.lock().await.cfg.general.live_chunk_secs.clamp(1, 10) };
@@ -895,7 +890,6 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
                     audio_end: g.audio.len(),
                     transcript: g.live_transcript.clone(),
                     cfg: g.cfg.clone(),
-                    target: g.target.clone(),
                 })
             }
         };
@@ -953,50 +947,10 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
         let combined = vaani_core::reconcile::reconcile(&[&previous_transcript, &t.text]);
         g.live_transcript = combined.clone();
         g.live_audio_cursor = snap.audio_end;
-        let (stable, _tail) = vaani_core::reconcile::stable_prefix(&combined, live_tail_words());
-        // Policy gate: review/terminal/no-auto sessions preview only.
-        let mode = g.cfg.insertion_mode_for(&snap.target.app_id);
-        let preview_only = mode == "review"
-            || mode == "copy-only"
-            || g.cfg.general.review_before_insertion
-            || g.no_auto.as_deref() == Some(sess.as_str())
-            || focus::is_terminal(&snap.target.app_id);
-        if preview_only {
-            // Show everything beyond committed as provisional; commit nothing.
-            emit_provisional(&tx, &sess, &combined, hide, committed_n);
-            continue;
-        }
-        match vaani_core::reconcile::delta_vs(&g.committed, &stable) {
-            Some(delta) => {
-                let with_space = format!("{delta} ");
-                let tgt = snap.target.clone();
-                drop(g);
-                let res = tokio::task::spawn_blocking(move || inserter::commit_delta(&with_space, &tgt)).await;
-                g = shared.lock().await;
-                if g.session.id != sess || !matches!(g.session.state, State::Recording) {
-                    break;
-                }
-                match res {
-                    Ok(Ok(())) => {
-                        g.committed = stable;
-                        let n = g.committed.split_whitespace().count();
-                        emit_provisional(&tx, &sess, &combined, hide, n);
-                    }
-                    _ => {
-                        // Focus moved or dispatch failed: freeze commits,
-                        // keep recording; full text stays recoverable.
-                        g.target_lost = true;
-                        let n = g.committed.split_whitespace().count();
-                        emit(&tx, &ev_state(Some(sess.clone()), State::Recording, Some("Text ready — target changed; finishing keeps text for copy")));
-                        emit_provisional(&tx, &sess, &combined, hide, n);
-                    }
-                }
-            }
-            None => {
-                // No new stable words (or recognizer revised): preview tail only.
-                emit_provisional(&tx, &sess, &combined, hide, committed_n);
-            }
-        }
+        // This is intentionally unconditional. The preview is UI feedback,
+        // never a partial insertion. In particular, web editors and terminals
+        // receive zero key events until stop -> final STT -> cleanup finishes.
+        emit_provisional(&tx, &sess, &combined, hide, committed_n);
     }
 }
 
@@ -1035,7 +989,8 @@ async fn copy_fallback(
 
 /// Stop: idempotent, closes capture immediately, transcribes (blocking task),
 /// then cleanup/streaming per policy.
-/// `manual` is true when SUPER+J was pressed: skip streaming, save to clipboard.
+/// `manual` is true when SUPER+J was pressed: skip keyboard streaming and
+/// save the cleaned result to clipboard.
 async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, manual: bool) -> Response {
     tracing::info!("stop_flow entry (manual={})", manual);
     // Capture close is synchronous and immediate, independent of transcription.
@@ -1141,9 +1096,8 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, ma
             // "clean" mode, or local-LLM "stream" mode for transcripts at or
             // above the word threshold. Raw fallback on any failure.
 let mut final_text = t.text.clone();
-            let stream_wanted = g.cfg.cleanup.mode == "stream"
-                && final_text.split_whitespace().count() >= g.cfg.cleanup.word_threshold;
-            if (g.cfg.cleanup.mode == "clean" || stream_wanted) && !g.live {
+            let stream_wanted = g.cfg.cleanup.mode == "stream";
+            if g.cfg.cleanup.mode == "clean" || stream_wanted {
                 let _ = g.session.transition(State::Cleaning);
                 emit(tx, &ev_state(Some(sid.clone()), State::Cleaning, Some("Cleaning up…")));
                 let cfg_snap = g.cfg.clone();
@@ -1179,36 +1133,55 @@ let mut final_text = t.text.clone();
                 let s = shared.lock().await.session.clone();
                 return resp_ok("", &s, Some("Saved to clipboard".into()), Some(serde_json::json!({"text": final_text})));
             }
+            // Focus must still be the original target after cleanup. If it
+            // changed, preserve the result rather than typing into a new app.
+            if let Err(reason) = focus::recheck_target(&target) {
+                let final_text_c = final_text.clone();
+                g.pending = Some(Pending { text: final_text_c.clone(), at: std::time::Instant::now() });
+                drop(g);
+                let _ = clipboard::offer_text(&final_text_c);
+                if let Some(mut ov) = shared.lock().await.overlay.take() { let _ = ov.kill(); let _ = ov.wait(); }
+                let mut g = shared.lock().await;
+                let _ = g.session.transition(State::Idle);
+                let s = g.session.clone();
+                return resp_ok("", &s, Some(format!("Saved to clipboard — target changed ({reason})")), Some(serde_json::json!({"text": final_text_c, "copied": true})));
+            }
+            // Mark the short delivery window explicitly. The overlay uses
+            // this state to consume pointer/touch events while preserving
+            // keyboard focus for wtype delivery to the target app.
+            let _ = g.session.transition(State::Ready);
+            let _ = g.session.transition(State::Inserting);
+            emit(tx, &ev_state(Some(sid.clone()), State::Inserting, Some("Typing cleaned text…")));
             g.pending = Some(Pending { text: final_text.clone(), at: std::time::Instant::now() });
             let text_to_stream = final_text.clone();
-            let cfg_snap2 = g.cfg.clone();
             drop(g);
-            use crate::inserter;
             let kb_guard = inserter::find_wtype()
-                .and_then(|p| inserter::grab_keyboard());
+                .and_then(|_| inserter::grab_keyboard());
             let stream_result = tokio::task::spawn_blocking(move || {
-                let words: Vec<&str> = text_to_stream.split_whitespace().collect();
-                for (i, word) in words.iter().enumerate() {
-                    let token = if i + 1 < words.len() {
-                        format!("{} ", word)
-                    } else {
-                        word.to_string()
-                    };
-                    if let Err(_) = inserter::inject_stream(&token) {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(30));
+                // The cleanup sidecar currently returns a completed string,
+                // so preserve its spacing and send small word/whitespace
+                // chunks as the observable stream to the virtual keyboard.
+                for token in text_to_stream.split_inclusive(char::is_whitespace) {
+                    inserter::inject_stream(token)?;
+                    std::thread::sleep(std::time::Duration::from_millis(20));
                 }
-                let _ = clipboard::offer_text(&text_to_stream);
+                clipboard::offer_text(&text_to_stream)?;
+                Ok::<(), anyhow::Error>(())
             }).await;
             drop(kb_guard);
             if let Some(mut ov) = shared.lock().await.overlay.take() {
                 let _ = ov.kill();
                 let _ = ov.wait();
             }
+            let stream_ok = matches!(stream_result, Ok(Ok(())));
             let _ = shared.lock().await.session.transition(State::Idle);
             let s = shared.lock().await.session.clone();
-            resp_ok("", &s, Some("Streamed via keyboard".into()), Some(serde_json::json!({"text": final_text})))
+            let message = if stream_ok {
+                "Streamed via keyboard"
+            } else {
+                "Keyboard delivery failed — text remains on clipboard"
+            };
+            resp_ok("", &s, Some(message.into()), Some(serde_json::json!({"text": final_text, "streamed": stream_ok})))
         }
         _ => {
             // Worker crash / error: controller stays up, audio retained briefly

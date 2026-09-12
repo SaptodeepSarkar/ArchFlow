@@ -198,7 +198,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                 }
                 Label {
-                    text: "Super+Alt+Space — toggle · Super+H — live dictation (types stabilized words as you speak) · Super+Alt+V — hold-to-talk · Super+Alt+Esc — cancel · Super+Alt+S — settings · Super+Alt+C — copy pending"
+                        text: "Super+Alt+Space — toggle · Super+H — preview while speaking, clean then type · Super+J — clean and copy · Super+Alt+V — hold-to-talk · Super+Alt+Esc — cancel · Super+Alt+S — settings · Super+Alt+C — copy pending"
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                     color: colors.text

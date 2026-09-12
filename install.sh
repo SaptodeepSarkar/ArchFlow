@@ -3,6 +3,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 export PATH="$HOME/.cargo/bin:$PATH"
+with_trained_models=0
+if [ "${1:-}" = "--with-trained-models" ]; then
+  with_trained_models=1
+elif [ -n "${1:-}" ]; then
+  printf '%s\n' 'usage: ./install.sh [--with-trained-models]' >&2
+  exit 2
+fi
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}"
 data_root="${XDG_DATA_HOME:-$HOME/.local/share}"
 bin_root="$HOME/.local/bin"
@@ -25,6 +32,9 @@ install -m644 packaging/hyprland/vaani.conf packaging/hyprland/vaani.lua "$confi
 install -m644 packaging/vaani.desktop "$data_root/applications/vaani.desktop"
 install -m644 ui/*.qml "$config_root/quickshell/vaani/"
 install -m644 config.example.toml "$data_root/vaani/"
+if [ "$with_trained_models" -eq 1 ]; then
+  ./tools/install-trained-models.sh
+fi
 if ! command -v wtype >/dev/null 2>&1 && [ ! -x "$bin_root/wtype" ]; then
   printf '%s\n' 'NOTE: wtype not found — automatic paste falls back to Hyprland send_shortcut, which some native Wayland apps ignore.' 'For dependable injection: pacman -S wtype (official repo, no sudo performed here).'
 fi

@@ -11,7 +11,7 @@ Run after `tools/model-setup.py --model base` + service start. Tick honestly.
 - [ ] Toggle, key-repeat ignore, fast press/release, hold-to-talk release paths
 - [ ] SUPER+H live: stabilized words appear in the field; provisional tail
   shown italic in overlay and never typed; finish types the remainder
-- [ ] Live focus change mid-session: commits freeze, recording continues,
+- [ ] Live focus change mid-session: preview continues, recording continues,
   full text recoverable via copy (no duplicates on finish)
 - [ ] Live in terminal / review mode: preview only, copy at finish
 - [ ] Live worker hiccup: session survives, next tick retries

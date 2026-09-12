@@ -224,10 +224,9 @@ pub fn find_wtype() -> Option<std::path::PathBuf> {
     })
 }
 
-/// Grab the physical keyboard during streaming.
-/// Returns a handle that is dropped to release.
-/// Currently a no-op placeholder; the compositor keybind
-/// (SUPER+H recording session) already manages input focus.
+/// Placeholder for compositor-managed input locking.
+/// `wtype` cannot grab physical keyboard or mouse input; it only emits
+/// virtual-keyboard events to the currently focused Wayland surface.
 pub struct KeyboardGrab;
 
 pub fn grab_keyboard() -> Option<KeyboardGrab> {
