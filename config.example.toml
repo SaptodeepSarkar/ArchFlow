@@ -42,10 +42,10 @@ translate_to_en = false
 device = "cpu"
 
 [insertion]
-# copy-only (default: transcript ends on the clipboard + confirmation popup)
-# | automatic (paste into the focused app via wtype; injection code is kept)
+# automatic (default: paste into the focused app via wtype)
+# | copy-only (transcript ends on clipboard + confirmation popup)
 # | review (hold for explicit copy)
-mode = "copy-only"
+mode = "automatic"
 clipboard_serve_secs = 30
 # pending final text expiry, in-memory only, seconds
 pending_expiry_secs = 300

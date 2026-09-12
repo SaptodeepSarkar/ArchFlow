@@ -6,7 +6,7 @@ no cloud, no history, no always-listening mic. English, Hindi (`hi`) and
 Bengali (`bn`) model selection built in.
 
 Caelestia is optional. Vaani runs as its own Quickshell application on Arch Linux
-with Hyprland; it does not require anyone’s personal dotfiles.
+with Hyprland; it does not require anyone's personal dotfiles.
 
 Independent app; "Wispr Flow–style" describes the interaction only.
 
@@ -44,17 +44,36 @@ NVIDIA CUDA is optional. With the CUDA toolkit installed, run
 service. Vaani keeps a separate `whisper-cli-cuda` binary and loads it only
 during transcription.
 
-Press `SUPER+H` in any text field and speak. Stop speaking → the overlay
-shows *Transcribing* → *Copied to clipboard* (lingers ~2 s so it can be
-read), and the transcript is on the clipboard for pasting. Nothing is typed
-into apps by default; set `insertion.mode = "automatic"` to paste via wtype
-instead. `SUPER+H` mid-recording discards the utterance (not in the first
-second — that's key bounce while the overlay appears — and never once
-transcription has started).
+## Architecture — how a dictation session works
+
+```
+SUPER+H pressed
+  │
+  ├─ Recording starts immediately (no wait)
+  ├─ STT model loads to VRAM in background (~8 s)
+  ├─ LLM cleanup model loads to VRAM in background (~8 s)
+  ├─ Overlay (Quickshell) spawns — shows waveform + transcript
+  │
+  ├─ While speaking: word-by-word live preview
+  ├─ VAD auto-stop on silence, or SUPER+J to skip streaming
+  │
+  ├─ Cleanup via already-loaded LLM (no cold start)
+  │
+  ├─ If SUPER+J was pressed: save cleaned text to clipboard, box vanishes
+  │   → wait 90 s → drop LLM + STT models from VRAM → idle
+  │
+  └─ If SUPER+J NOT pressed: stream token-by-token via wtype
+      ├─ Freeze keyboard/mouse after cleanup
+      ├─ Type each word via virtual keyboard (30 ms delay between tokens)
+      ├─ Offer final text to clipboard
+      ├─ Release keyboard, kill overlay
+      └─ Wait 90 s → drop models from VRAM → idle
+```
 
 | Shortcut | Action |
 |---|---|
 | `SUPER+H` | Start live dictation / discard mid-session |
+| `SUPER+J` | Stop recording and save to clipboard (skip streaming) |
 | `SUPER+ALT+SPACE` | Toggle (transcribe on second press) |
 | `SUPER+ALT+ESC` | Discard active operation |
 | `SUPER+ALT+S` | Settings · `SUPER+ALT+C` copy pending text |
@@ -111,14 +130,29 @@ validation limits.
 ## How it works (60 seconds)
 
 `vaanid` (user service) owns a state machine
-`IDLE → STARTING → RECORDING → TRANSCRIBING → READY → INSERTING → IDLE`.
+`IDLE → STARTING → RECORDING → TRANSCRIBING → CLEANING → READY → INSERTING → IDLE`.
 Capture is a bounded `pw-record` stream (20 ms blocks, 120 s cap, nothing
 written to disk). A short-lived `vaani-worker` transcribes via pinned
-whisper.cpp, then exits (Economy profile). Insertion = clipboard offer, plus
-an opt-in paste dispatch (`insertion.mode = "automatic"`: wtype virtual
-keyboard, or Hyprland shortcut fallback) with a focus recheck; terminals
-paste from the primary selection via Shift+Insert. Silence inserts nothing.
-The Quickshell overlay is event-driven and exits when idle.
+whisper.cpp, then exits (Economy profile).
+
+**Startup (SUPER+H):** Recording starts immediately — no wait for models.
+The STT and LLM cleanup models load to VRAM in the background while
+the user is speaking. By the time they finish, both models are resident
+and ready. The overlay spawns and shows word-by-word live preview.
+
+**Finish (auto VAD silence or SUPER+J):**
+- Normal (no SUPER+J): cleanup runs on the already-loaded LLM, then
+  the cleaned text is streamed token-by-token through the virtual
+  keyboard (`wtype`). Keyboard is frozen during streaming so physical
+  keystrokes don't leak. After streaming, keyboard releases, overlay
+  vanishes, and models stay in VRAM for 90 seconds before being freed.
+- SUPER+J pressed: cleanup runs, cleaned text saves to clipboard,
+  overlay vanishes immediately — no streaming. Models freed after 90 s.
+
+Insertion = clipboard offer + opt-in paste dispatch (`insertion.mode =
+"automatic"`: wtype virtual keyboard; Hyprland shortcut fallback) with
+a focus recheck; terminals paste from the primary selection via Shift+Insert.
+Silence inserts nothing. The Quickshell overlay is event-driven and exits when idle.
 
 Details: `docs/architecture.md` · `docs/configuration.md` ·
 `docs/compatibility.md` · `docs/performance.md` ·
@@ -131,7 +165,22 @@ Copy `config.example.toml` → `~/.config/vaani/config.toml`, or use
 Key options: `recognition.model` (tiny/base/base.en/small/cozy),
 `recognition.live_model` (fast preview model, keep whisper.cpp),
 `recognition.language` (en/hi/bn), `insertion.mode`
-(automatic/review/copy-only), `general.auto_stop_secs`.
+(automatic/review/copy-only), `general.auto_stop_secs`,
+`recognition.server_idle_secs` (90 s VRAM free-after-inactivity).
+
+## Model sizes
+
+| Component | Disk | VRAM (loaded) |
+|---|---|---|
+| Qwen3-0.6B base | ~1.5 GB | ~2.6 GB (bfloat16) |
+| `llm-v1` LoRA adapter | ~78 MB | ~80 MB |
+| Total resident | — | ~2.7 GB |
+| STT (faster-whisper) | ~90 MB | ~2.6 GB |
+
+Models stay in VRAM for `server_idle_secs` (default 90 s), then are
+reaped. The cleanup LLM starts loading on SUPER+H in parallel with
+microphone capture so it is ready by finish time — no cold-start wait
+after Super+J.
 
 ## Models: stock whisper vs fine-tuned cozy
 
@@ -152,11 +201,17 @@ int8_float16, Hindi-word prompt); the live preview keeps using tiny/base so
 it stays at ~2 s updates. Stock ggml models still download via
 `tools/model-setup.py`.
 
-Streaming: directory models run through a persistent sidecar that loads once
-(~1 s) and then answers chunks in ~0.3 s, so the fine-tuned model can show
-results on the go. It holds ~90 MiB VRAM while resident and is reaped after
-`recognition.server_idle_secs` (90 s default, 0 = one-shot per call) — idle
-Vaani still holds zero VRAM.
+**Streaming pipeline:** On SUPERR+H the cleanup LLM starts loading in
+parallel with microphone capture (~8 s cold). By the time the user
+finishes speaking, the model is resident. Cleanup runs instantly.
+The cleaned text is streamed token-by-token through the virtual
+keyboard (wtype, 30 ms between tokens) with the physical keyboard
+frozen during streaming. After streaming, the keyboard releases,
+the overlay vanishes, and the model stays in VRAM for
+`recognition.server_idle_secs` (90 s default). If unused after that,
+both the LLM and STT models are dropped from VRAM. Pressing
+`SUPER+J` during recording skips the streaming step entirely and
+saves the cleaned text directly to clipboard.
 
 ## Uninstall
 
