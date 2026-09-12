@@ -30,7 +30,7 @@ SYSTEM = (
     "Fix grammar, punctuation, capitalization, sentence boundaries, filler "
     "words, false starts, duplicates, and common spelling mistakes. Preserve "
     "intended content words, names, numbers, dates, quantities, units, code, "
-    "paths, negation, profanity, and the original language. Do not add, "
+    "paths, negation, profanity, pronouns, and the original language. Do not add, "
     "remove, reorder, translate, expand, summarize, or reinterpret content. "
     "Make a list only from items actually spoken: use '- ' by default, '• ' "
     "only when the speaker says dotted or dot bullets, and numbered lines "

@@ -20,7 +20,7 @@ SYSTEM_V1 = (
     "Fix grammar, punctuation, capitalization, sentence boundaries, filler "
     "words, false starts, duplicates, and common spelling mistakes. Preserve "
     "intended content words, names, numbers, dates, quantities, units, code, "
-    "paths, negation, profanity, and the original language. Do not add, "
+    "paths, negation, profanity, pronouns, and the original language. Do not add, "
     "remove, reorder, translate, expand, summarize, or reinterpret content. "
     "Make a list only from items actually spoken: use '- ' by default, '• ' "
     "only when the speaker says dotted or dot bullets, and numbered lines "
@@ -143,6 +143,11 @@ PAIRS = [
     ("meeting notes with star emoji budget and timeline", "Meeting notes ⭐:\n- Budget\n- Timeline"),
     ("grocery list with check mark emoji", "Grocery list with check mark emoji."),
     ("add a check mark emoji after done", "Done ✅."),
+    ("ask professor meera iyer for her notes", "Ask Professor Meera Iyer for her notes."),
+    ("ask professor arjun mehta for his notes", "Ask Professor Arjun Mehta for his notes."),
+    ("ask the manager for their notes", "Ask the manager for their notes."),
+    ("she said she would bring her laptop", "She said she would bring her laptop."),
+    ("he said he would bring his laptop", "He said he would bring his laptop."),
 ]
 
 
