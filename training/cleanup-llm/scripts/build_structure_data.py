@@ -180,6 +180,10 @@ PAIRS = [
     ("i want a grocery list tomatoes one kilogram eggs two kilograms and fruits 200 grams", "I want a grocery list:\n- Tomatoes (1 kg)\n- Eggs (2 kg)\n- Fruits (200 g)"),
     ("make a table name age john 25 priya 30 for the team roster today", "Name | Age\n---|---\nJohn | 25\nPriya | 30\nFor the team roster today."),
     ("create a table item price apples 50 milk 60 and send it to vishal", "Item | Price\n---|---\nApples | 50\nMilk | 60\nSend it to Vishal."),
+    ("try some emojis laughing emoji, heartbeat emoji, and cake emoji", "Try some emojis:\n- Laughing 😂\n- Heartbeat 💓\n- Cake 🎂"),
+    ("emojis laughing emoji, heart emoji, cake emoji for the demo", "Emojis for the demo:\n- Laughing 😂\n- Heart ❤️\n- Cake 🎂"),
+    ("list the emojis smiling emoji, thumbs up emoji, and fire emoji", "Emojis:\n- Smiling 😊\n- Thumbs up 👍\n- Fire 🔥"),
+    ("this is a test of the new model and its capabilities so first lets try some emojis laughing emoji heartbeat emoji and cake emoji then i want a grocery list tomatoes one kilogram eggs two kilograms and fruits 200 grams", "This is a test of the new model and its capabilities. So, first, let's try some emojis:\n- Laughing 😂\n- Heartbeat 💓\n- Cake 🎂\n\nThen, I want a grocery list:\n- Tomatoes (1 kg)\n- Eggs (2 kg)\n- Fruits (200 g)"),
 ]
 
 
