@@ -156,6 +156,10 @@ PAIRS = [
     ("it can create emojis laughing emoji", "It can create emojis 😂."),
     ("show me a laughing emoji", "😂"),
     ("testing emojis laughing emoji", "Testing emojis 😂."),
+    ("this is a test of the new model i want a grocery list item number one cake item number two eggs", "This is a test of the new model. I want a grocery list:\n1. Cake\n2. Eggs"),
+    ("for testing purposes make a shopping list item number one milk item number two bread item number three butter", "For testing purposes, make a shopping list:\n1. Milk\n2. Bread\n3. Butter"),
+    ("reminders item number one call mom item number two pay rent item number three book tickets", "Reminders:\n1. Call Mom\n2. Pay rent\n3. Book tickets"),
+    ("grocery list item number one cake item number two eggs item number three x item number three passport size photo", "Grocery list:\n1. Cake\n2. Eggs\n3. X\n3. Passport-size photo"),
 ]
 
 
