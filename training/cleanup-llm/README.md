@@ -62,7 +62,7 @@ The base model stays frozen. Only the selected LoRA adapter changes behavior.
 
 ## LLM v1 acceptance snapshot
 
-- Training mix: 43,518 grammar rows, speech replay, 99 structure rows repeated per epoch.
-- Schedule: 600 steps from `dpo-sft` at 1e-4, plus a 200-step pronoun/emoji correction at 5e-5.
-- Holdout: grammar 17/60, speech 1/1, structure 8/12, structure lists 7/7, no invented lists 1/1.
-- Targeted checks passed for grocery lists, dotted lists, explicit emoji, names/pronouns, and bare formatting commands.
+- Training mix: 43,518 grammar rows, speech replay, 114 structure rows repeated per epoch.
+- Schedule: 600 steps from `dpo-sft` at 1e-4, then focused LoRA-only correction passes at 5e-5 (pronouns, emoji-as-decoration, item-number enumerations, lists in long utterances).
+- Holdout: grammar 13/60, speech 1/1, structure 9/13, structure lists 7/7, no invented lists 1/1.
+- Targeted checks passed for grocery lists, dotted lists, explicit emoji, names/pronouns, item-number sequences, and bare formatting commands.
