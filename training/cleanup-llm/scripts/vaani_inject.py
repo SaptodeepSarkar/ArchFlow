@@ -35,7 +35,8 @@ SYSTEM = (
     "Make a list only from items actually spoken: use '- ' by default, '• ' "
     "only when the speaker says dotted or dot bullets, and numbered lines "
     "only for a spoken sequence or order. Add a short title only when the "
-    "transcript explicitly provides one. Map an explicitly spoken emoji "
+    "transcript explicitly provides one. A bare formatting command with no "
+    "spoken items is prose, not a list. Map an explicitly spoken emoji "
     "request to exactly that emoji and add no other emoji. If unsure, return "
     "the input unchanged."
 )

@@ -83,7 +83,7 @@ def main() -> None:
         if "- " in r["output"]:
             s_list += ("- " in got)
     v_hit, v_list, v_grounded = 0, 0, 0
-    v_cases, v_list_cases = 0, 0
+    v_cases, v_list_cases, v_grounded_cases = 0, 0, 0
     list_marker = re.compile(r"(?:^|\n)(?:- |• |\d+\. )")
     no_source_items = {
         "make a grocery list",
@@ -96,6 +96,12 @@ def main() -> None:
         "there are a few reasons",
         "tell me a grocery list",
         "hello this is me and i am testing the system and it should fix grammar when items are actually spoken",
+        "please make a grocery list",
+        "turn these into pointers",
+        "format this as a list",
+        "i want bullet points",
+        "can you make it a numbered list",
+        "organize this into a grocery list",
     }
     for r in structure:
         got = generate(model, tok, r["instruction"], r["input"])
@@ -105,14 +111,15 @@ def main() -> None:
             v_list_cases += 1
             v_list += bool(list_marker.search(got))
         if r["input"] in no_source_items:
+            v_grounded_cases += 1
             v_grounded += not bool(list_marker.search(got))
     print(f"[{a.tag}] grammar exact: {g_hit}/{len(grammar)}")
     print(f"[{a.tag}] speech exact: {s_hit}/{len(speech)}")
     print(f"[{a.tag}] list-format kept: {s_list} list cases checked")
     print(f"[{a.tag}] structure exact: {v_hit}/{v_cases}")
     print(f"[{a.tag}] structure lists kept: {v_list}/{v_list_cases}")
-    print(f"[{a.tag}] no invented lists: {v_grounded}/{len(no_source_items)}")
-    print(json.dumps({"tag": a.tag, "grammar": [g_hit, len(grammar)], "speech": [s_hit, len(speech)], "structure": [v_hit, v_cases], "structure_lists": [v_list, v_list_cases], "grounded": [v_grounded, len(no_source_items)]}))
+    print(f"[{a.tag}] no invented lists: {v_grounded}/{v_grounded_cases}")
+    print(json.dumps({"tag": a.tag, "grammar": [g_hit, len(grammar)], "speech": [s_hit, len(speech)], "structure": [v_hit, v_cases], "structure_lists": [v_list, v_list_cases], "grounded": [v_grounded, v_grounded_cases]}))
 
 
 main()

@@ -18,7 +18,7 @@ Hardware target: NVIDIA RTX 3050 6GB. Full fine-tuning does not fit;
 | 3. Speech data | `scripts/build_speech_data.py` | synthetic transcript→clean pairs: fillers, false starts, duplicates, punctuation, lists/points |
 | 3b. Structure data | `scripts/build_structure_data.py` | LLM v1 formatting pairs: bullets, dotted bullets, numbers, titles, names, explicit emoji, no-invention controls |
 | 4. SFT | `scripts/train_sft.py` | LoRA (r=32 q/v/o + mlp) on grammar + speech mixes; v1 continues `dpo-sft` with `--from-adapter dpo-sft --structure-repeat N --out-name llm-v1` |
-| 5. Eval | `scripts/eval.py` | holdout: exact-edit checks + list-format checks |
+| 5. Eval | `scripts/eval.py` | holdout: exact edits, list-format retention, and no-invention checks |
 | 6. DPO prefs | `scripts/mine_prefs.py` | SFT mistakes → chosen/rejected pairs (the practical RLHF) |
 | 7. DPO | `scripts/train_dpo.py` | preference-tune the SFT adapter |
 | 8. Export | `scripts/export_gguf.sh` + `ollama create` | Q8 GGUF → `vaani-cleanup:0.6b` for the endpoint |

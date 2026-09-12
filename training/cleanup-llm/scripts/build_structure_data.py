@@ -25,7 +25,8 @@ SYSTEM_V1 = (
     "Make a list only from items actually spoken: use '- ' by default, '• ' "
     "only when the speaker says dotted or dot bullets, and numbered lines "
     "only for a spoken sequence or order. Add a short title only when the "
-    "transcript explicitly provides one. Map an explicitly spoken emoji "
+    "transcript explicitly provides one. A bare formatting command with no "
+    "spoken items is prose, not a list. Map an explicitly spoken emoji "
     "request to exactly that emoji and add no other emoji. If unsure, return "
     "the input unchanged."
 )
@@ -117,6 +118,24 @@ PAIRS = [
     ("call mom at five pm on friday december twelfth", "Call Mom at 5 p.m. on Friday, December 12."),
     ("two coffees three teas and one black coffee", "Two coffees, three teas, and one black coffee."),
     ("send the file to vishal before noon", "Send the file to Vishal before noon."),
+    ("please make a grocery list", "Please make a grocery list."),
+    ("turn these into pointers", "Turn these into pointers."),
+    ("format this as a list", "Format this as a list."),
+    ("i want bullet points", "I want bullet points."),
+    ("can you make it a numbered list", "Can you make it a numbered list?"),
+    ("organize this into a grocery list", "Organize this into a grocery list."),
+    ("make a dot list milk and eggs", "• Milk\n• Eggs"),
+    ("dotted list apples and bananas", "• Apples\n• Bananas"),
+    ("grocery list in dotted bullets milk and eggs", "Grocery list:\n• Milk\n• Eggs"),
+    ("dot bullets call mom and pay rent", "• Call mom\n• Pay rent"),
+    ("buy milk eggs and bread with a check mark emoji", "- ✅ Milk\n- ✅ Eggs\n- ✅ Bread"),
+    ("thanks a lot with a folded hands emoji", "Thanks a lot 🙏."),
+    ("good morning with a sun emoji", "Good morning ☀️."),
+    ("happy birthday with a cake emoji", "Happy birthday 🎂."),
+    ("call mom with a phone emoji", "Call Mom 📞."),
+    ("urgent with a warning emoji", "Urgent ⚠️."),
+    ("the emoji menu is open", "The emoji menu is open."),
+    ("he said the word emoji", "He said the word emoji."),
 ]
 
 
