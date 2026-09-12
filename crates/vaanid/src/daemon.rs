@@ -605,6 +605,10 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
     }
 
     // Start capture + model resolution concurrently.
+    // Pre-load the cleanup LLM model now so it is resident
+    // by the time the user finishes speaking. ~8 s cold start.
+    let cfg_prefill = shared.lock().await.cfg.clone();
+    let _ = tokio::task::spawn_blocking(move || llm_sup::prefill(&cfg_prefill));
     let t0 = std::time::Instant::now();
     let device_sel = { shared.lock().await.cfg.audio.device_selector.clone() };
     let cap = CaptureHandle::start(&device_sel);

@@ -253,6 +253,22 @@ fn llm_oneshot(text: &str, cfg: &Config) -> String {
     }
 }
 
+/// Pre-load the cleanup LLM model when Super+H is pressed.
+/// This starts the resident server in the background (~8 s cold)
+/// so it is ready when the user finishes speaking and calls
+/// `llm_cleanup`. The server is reaped after `server_idle_secs`.
+/// Must be called from `spawn_blocking` to avoid blocking the async runtime.
+pub fn prefill(cfg: &Config) -> anyhow::Result<()> {
+    let (model_dir, adapter_dir) = llm_paths(cfg);
+    if model_dir.is_empty() || !std::path::Path::new(&model_dir).exists() {
+        anyhow::bail!("no cleanup model dir");
+    }
+    let threshold = cfg.cleanup.word_threshold;
+    let mut slot = LLM_SERVER.get_or_init(|| std::sync::Mutex::new(None)).lock().unwrap_or_else(|e| e.into_inner());
+    llm_ensure_locked(&mut slot, &model_dir, &adapter_dir, threshold)?;
+    Ok(())
+}
+
 /// Stream-mode cleanup entry: resident server first, one-shot fallback,
 /// raw text when disabled, short, or everything fails. Blocking — call from
 /// spawn_blocking.
