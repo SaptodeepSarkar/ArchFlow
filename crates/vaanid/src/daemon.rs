@@ -1239,91 +1239,12 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                 }
             }
             let _ = g.session.transition(State::Ready);
-            emit(tx, &ev_state(Some(sid.clone()), State::Ready, Some("Text ready")));
-            // Insertion policy.
-            let mode = g.cfg.insertion_mode_for(&target.app_id);
-            let settings_open = g.no_auto.as_deref() == Some(sid.as_str());
-            if settings_open {
-                g.no_auto = None; // one-shot: applies to this operation only
-            }
-            if mode == "review" || g.cfg.general.review_before_insertion || settings_open {
-                // Review gate: never auto-paste, but never park the session in
-                // READY either — the overlay only auto-exits from finished
-                // states. Clipboard + pending keep the text recoverable
-                // (SUPER+ALT+C / copy), then the session closes itself.
-                let why = if settings_open { "Text ready — settings open, review required" } else { "Text ready — review required" };
-                let text_c = final_text.clone();
-                drop(g);
-                let clip_ok = tokio::task::spawn_blocking(move || clipboard::offer_text(&text_c))
-                    .await
-                    .map(|r| r.is_ok())
-                    .unwrap_or(false);
-                g = shared.lock().await;
-                if g.session.id != sid {
-                    let s = g.session.clone();
-                    return resp_ok("", &s, Some("stale review result discarded".into()), None);
-                }
-                let _ = g.session.transition(State::Idle);
-                let (msg, copied) = if clip_ok {
-                    (format!("{why} — copied to clipboard"), true)
-                } else {
-                    (format!("{why} — clipboard offer failed, use copy/recover"), false)
-                };
-                let data = serde_json::json!({"text": final_text, "copied": copied});
-                emit(tx, &ev_state_data(Some(sid), State::Idle, Some(&msg), Some(data.clone())));
-                let s = g.session.clone();
-                return resp_ok("", &s, Some(msg), Some(data));
-            }
-            let _ = g.session.transition(State::Inserting);
-            let t0d = std::time::Instant::now();
-            let mode_c = mode.clone();
-            let text_c = insert_text.clone();
-            let full_text_c = final_text.clone();
-            let tgt_c = target.clone();
-            drop(g);
-            let (outcome, clipboard_saved) = tokio::task::spawn_blocking(move || {
-                let outcome = inserter::insert_automatic(&text_c, &tgt_c, &mode_c);
-                let saved = if matches!(outcome, inserter::InsertOutcome::DispatchAttempted(_)) {
-                    clipboard::offer_text(&full_text_c).is_ok()
-                } else {
-                    false
-                };
-                (outcome, saved)
-            }).await.unwrap();
-            g = shared.lock().await;
-            if g.session.id != sid || g.session.state != State::Inserting {
-                return resp_ok("", &g.session, Some("stale insertion result discarded".into()), None);
-            }
-            g.last_lat.dispatch_ms = t0d.elapsed().as_millis() as u64;
-            tracing::info!(
-                session_id = %sid,
-                target_app = %target.app_id,
-                outcome = %outcome,
-                clipboard_saved,
-                "insertion completed"
-            );
-            match outcome {
-                inserter::InsertOutcome::DispatchAttempted(m) => {
-                    let _ = g.session.transition(State::Idle);
-                    emit(tx, &ev_state(Some(sid), State::Idle, Some("Paste requested")));
-                    let s = g.session.clone();
-                    resp_ok("", &s, Some(m), Some(serde_json::json!({"text": final_text})))
-                }
-                inserter::InsertOutcome::CopyReady(m) => {
-                    // Drop the session guard: copy_fallback awaits and
-                    // re-locks (holding it across .await self-deadlocks).
-                    drop(g);
-                    copy_fallback(shared.clone(), &tx, &sid, &final_text, m).await
-                }
-                inserter::InsertOutcome::Failed(m) => {
-                    drop(g);
-                    copy_fallback(shared.clone(), &tx, &sid, &final_text, m).await
-                }
-                inserter::InsertOutcome::Unsupported(m) => {
-                    drop(g);
-                    copy_fallback(shared.clone(), &tx, &sid, &final_text, m).await
-                }
-            }
+            emit(tx, &ev_state(Some(sid.clone()), State::Ready, Some("Text ready — Super+J to confirm")));
+            // Super+J: keep text on clipboard, no auto-typing.
+            // The virtual keyboard types on manual confirmation.
+            let _ = g.session.transition(State::Idle);
+            let s = g.session.clone();
+            return resp_ok("", &s, Some("Text ready on clipboard".to_string()), Some(serde_json::json!({"text": final_text})));
         }
         _ => {
             // Worker crash / error: controller stays up, audio retained briefly
