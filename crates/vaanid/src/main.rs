@@ -4,6 +4,7 @@ mod cleanup;
 mod daemon;
 mod focus;
 mod inserter;
+mod llm_sup;
 mod paths;
 mod worker_sup;
 

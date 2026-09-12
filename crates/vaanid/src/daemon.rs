@@ -7,7 +7,7 @@
 
 use crate::capture::CaptureHandle;
 use crate::focus::FocusTarget;
-use crate::{cleanup, clipboard, focus, inserter, paths, worker_sup};
+use crate::{cleanup, clipboard, focus, inserter, llm_sup, paths, worker_sup};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -125,6 +125,7 @@ pub async fn run() -> anyhow::Result<()> {
                 let idle = s.lock().await.cfg.recognition.server_idle_secs;
                 if idle > 0 {
                     worker_sup::reap_idle_servers(idle);
+                    llm_sup::reap_idle_llm(idle);
                 }
             }
         });
@@ -310,69 +311,11 @@ fn resp_ok(rid: &str, sess: &Session, msg: Option<String>, data: Option<serde_js
     }
 }
 
-/// Stream-mode cleanup: pipe `text` through the local cleanup LLM
-/// (vaani_inject.py + frozen base + LoRA adapter) when mode == "stream"
-/// and the transcript meets the word threshold. Raw text is returned on
-/// any failure (missing script, spawn error, empty output). Blocking —
-/// always call from spawn_blocking.
+/// Stream-mode cleanup entry: resident LLM sidecar first, one-shot
+/// fallback, raw text on any failure. See llm_sup::llm_cleanup.
+/// Blocking — always call from spawn_blocking.
 fn run_stream_cleanup(text: &str, cfg: &Config) -> String {
-    let threshold = cfg.cleanup.word_threshold;
-    if cfg.cleanup.mode != "stream" || text.split_whitespace().count() < threshold {
-        return text.to_string();
-    }
-    let python_path = if cfg.cleanup.python_path.is_empty() {
-        std::env::current_exe().ok()
-            .and_then(|p| p.parent().map(|d| d.join("vaani_inject.py")))
-    } else {
-        Some(std::path::PathBuf::from(&cfg.cleanup.python_path))
-    };
-    let model_dir = if cfg.cleanup.model_path.is_empty() {
-        std::env::current_exe().ok()
-            .and_then(|p| p.parent().map(|d| d.join("..").join("output").join("base-model")))
-    } else {
-        Some(std::path::PathBuf::from(&cfg.cleanup.model_path))
-    };
-    let adapter = if !cfg.cleanup.adapter_path.is_empty() {
-        cfg.cleanup.adapter_path.clone()
-    } else if !cfg.cleanup.model_path.is_empty() {
-        format!("{}/../dpo-sft", cfg.cleanup.model_path)
-    } else {
-        String::new()
-    };
-    let text_llm = text.to_string();
-    let python = match python_path {
-        Some(p) if p.exists() => p,
-        _ => return text_llm,
-    };
-    let mut child = match std::process::Command::new("python3")
-        .arg(&python)
-        .arg("--adapter").arg(&adapter)
-        .arg("--threshold").arg(threshold.to_string())
-        .arg("--model-dir").arg(model_dir.unwrap_or_default())
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(_) => return text_llm,
-    };
-    {
-        let mut stdin = match child.stdin.take() {
-            Some(s) => s,
-            None => return text_llm,
-        };
-        if std::io::Write::write_all(&mut stdin, text_llm.as_bytes()).is_err() {
-            return text_llm;
-        }
-    }
-    match child.wait_with_output() {
-        Ok(out) => {
-            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !s.is_empty() { s } else { text_llm }
-        }
-        Err(_) => text_llm,
-    }
+    llm_sup::llm_cleanup(text, cfg)
 }
 
 /// Key-repeat guard: activations within 800 ms of the previous accepted one
@@ -1252,6 +1195,28 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>) ->
                         return resp_ok("", &s, Some("stale cleanup discarded".into()), None);
                     }
                     insert_text = cleaned;
+                }
+                // Stream mode: pending keeps the cleaned FULL text (lists,
+                // formatting, emoji) so copy/inject recovery carries the
+                // cleaned version even though live words were typed raw.
+                if g.cfg.cleanup.mode == "stream"
+                    && final_text.split_whitespace().count() >= g.cfg.cleanup.word_threshold
+                {
+                    let _ = g.session.transition(State::Cleaning);
+                    emit(tx, &ev_state(Some(sid.clone()), State::Cleaning, Some("Cleaning up…")));
+                    let cfg_snap = g.cfg.clone();
+                    let raw = final_text.clone();
+                    drop(g);
+                    let cleaned_full = tokio::task::spawn_blocking(move || {
+                        run_stream_cleanup(&raw, &cfg_snap)
+                    }).await.unwrap_or(final_text);
+                    g = shared.lock().await;
+                    if g.session.id != sid || !matches!(g.session.state, State::Cleaning) {
+                        let s = g.session.clone();
+                        return resp_ok("", &s, Some("stale cleanup discarded".into()), None);
+                    }
+                    final_text = cleaned_full;
+                    g.pending = Some(Pending { text: final_text.clone(), at: std::time::Instant::now() });
                 }
                 g.live = false;
                 g.committed.clear();

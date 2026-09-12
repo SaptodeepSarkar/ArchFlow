@@ -24,7 +24,9 @@ SYSTEM_V1 = (
     "remove, reorder, translate, expand, summarize, or reinterpret content. "
     "Make a list only from items actually spoken: use '- ' by default, '• ' "
     "only when the speaker says dotted or dot bullets, and numbered lines "
-    "only for a spoken sequence or order. Add a short title only when the "
+    "only for a spoken sequence or order. Build a Markdown table only when "
+    "the transcript gives explicit columns and rows; never invent cells. "
+    "Add a short title only when the "
     "transcript explicitly provides one. A bare formatting command with no "
     "spoken items is prose, not a list. Treat a requested emoji as decoration; "
     "never make the emoji name itself a list item. Map an explicitly spoken emoji "
@@ -160,6 +162,19 @@ PAIRS = [
     ("for testing purposes make a shopping list item number one milk item number two bread item number three butter", "For testing purposes, make a shopping list:\n1. Milk\n2. Bread\n3. Butter"),
     ("reminders item number one call mom item number two pay rent item number three book tickets", "Reminders:\n1. Call Mom\n2. Pay rent\n3. Book tickets"),
     ("grocery list item number one cake item number two eggs item number three x item number three passport size photo", "Grocery list:\n1. Cake\n2. Eggs\n3. X\n3. Passport-size photo"),
+    ("lets try some emojis laughing emoji heart emoji and cake emoji", "Emojis:\n- Laughing 😂\n- Heart ❤️\n- Cake 🎂"),
+    ("emoji list laughing emoji beating heart emoji party popper emoji", "Emojis:\n- Laughing 😂\n- Beating heart 💓\n- Party popper 🎉"),
+    ("show me a pi vapper emoji", "Show me a pi vapper emoji."),
+    ("grocery list tomatoes one kilogram eggs two kilograms and fruits 200 grams", "Grocery list:\n- Tomatoes (1 kg)\n- Eggs (2 kg)\n- Fruits (200 g)"),
+    ("please make a grocery list for the whole week with milk eggs and bread", "Grocery list for the whole week:\n- Milk\n- Eggs\n- Bread"),
+    ("i want the bulletin points for the debate topics", "I want the bulletin points for the debate topics."),
+    ("make a table with name and age john is 25 and priya is 30", "Name | Age\n---|---|---\nJohn | 25\nPriya | 30"),
+    ("create a table item price apples 50 rupees milk 60 rupees", "Item | Price\n---|---|---\nApples | 50 rupees\nMilk | 60 rupees"),
+    ("make a table day task monday meeting tuesday review", "Day | Task\n---|---|---\nMonday | Meeting\nTuesday | Review"),
+    ("make a table name age city john 25 delhi priya 30 mumbai", "Name | Age | City\n---|---|---|---\nJohn | 25 | Delhi\nPriya | 30 | Mumbai"),
+    ("make a table of students and marks rahul got ninety and sara got ninety five", "Student | Marks\n---|---|---\nRahul | 90\nSara | 95"),
+    ("make a table", "Make a table."),
+    ("i need a table for the data", "I need a table for the data."),
 ]
 
 
