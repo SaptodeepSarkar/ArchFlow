@@ -129,6 +129,11 @@ def main():
     ap.add_argument("--batch-size", type=int, default=2)
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--learning-rate", type=float, default=2e-5)
+    ap.add_argument(
+        "--freeze-encoder",
+        action="store_true",
+        help="freeze the pretrained acoustic encoder and adapt only the decoder",
+    )
     args = ap.parse_args()
 
     rows = [json.loads(line) for line in args.manifest.read_text().splitlines() if line.strip()]
@@ -144,6 +149,13 @@ def main():
     # scaler to reject already-half-precision gradients.
     model = MoonshineStreamingForConditionalGeneration.from_pretrained(args.model)
     model.config.use_cache = False
+    if args.freeze_encoder:
+        # Keep the pretrained acoustic representation intact. This is useful
+        # for small, narrow feedback sets where full-model SFT can erase the
+        # base model's broader pronunciation coverage.
+        for parameter in model.model.encoder.parameters():
+            parameter.requires_grad = False
+        print("freeze_encoder=true", flush=True)
     training = Seq2SeqTrainingArguments(
         output_dir=str(args.out), max_steps=args.steps,
         per_device_train_batch_size=args.batch_size,
