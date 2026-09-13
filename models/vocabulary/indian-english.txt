@@ -1,0 +1,24 @@
+# Indian English names and common place terms for cleanup.vocabulary.
+India
+Indian English
+Bengaluru
+Hyderabad
+Kolkata
+Mumbai
+New Delhi
+Thiruvananthapuram
+Visakhapatnam
+Ahmedabad
+Chandigarh
+Sundarbans
+Himalayas
+Ganga
+Godavari
+Brahmaputra
+rupees
+lakhs
+crores
+class twelve
+prepone
+revert back
+do the needful

@@ -9,11 +9,11 @@ Run after `tools/model-setup.py --model base` + service start. Tick honestly.
 
 ## Behaviours
 - [ ] Toggle, key-repeat ignore, fast press/release, hold-to-talk release paths
-- [ ] SUPER+H live: stabilized words appear in the field; provisional tail
-  shown italic in overlay and never typed; finish types the remainder
+- [ ] SUPER+H live: provisional words appear only in the overlay; no target
+  application receives text until final transcription and delivery policy run
 - [ ] Live focus change mid-session: preview continues, recording continues,
   full text recoverable via copy (no duplicates on finish)
-- [ ] Live in terminal / review mode: preview only, copy at finish
+- [ ] Live in terminal / review / copy-only mode: preview only, copy at finish
 - [ ] Live worker hiccup: session survives, next tick retries
 - [ ] Cancel during STARTING / RECORDING / TRANSCRIBING / CLEANING / INSERT-prep
 - [ ] Silence → no text; low-volume; background noise

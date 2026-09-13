@@ -13,6 +13,7 @@ import re
 import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from v4_contract import parse_and_validate
 
 BASE = os.path.join(os.path.dirname(__file__), "..")
 DATA = os.path.join(BASE, "data")
@@ -49,6 +50,7 @@ def main() -> None:
     ap.add_argument("--adapter", default="", help="Explicit adapter directory; overrides the tag convention")
     ap.add_argument("--n", type=int, default=60)
     ap.add_argument("--structure-n", type=int, default=100)
+    ap.add_argument("--show-intent", action="store_true")
     a = ap.parse_args()
 
     if a.adapter:
@@ -73,6 +75,14 @@ def main() -> None:
     structure_path = os.path.join(DATA, "eval_structure.jsonl")
     if os.path.exists(structure_path):
         structure = load_pairs(structure_path, a.structure_n)
+    intent = []
+    intent_path = os.path.join(DATA, "eval_intent.jsonl")
+    if os.path.exists(intent_path):
+        intent = load_pairs(intent_path, 100)
+    contract = []
+    contract_path = os.path.join(DATA, "eval_contract_v4.jsonl")
+    if os.path.exists(contract_path):
+        contract = load_pairs(contract_path, 100)
     g_hit = sum(
         generate(model, tok, r["instruction"], r["input"]) == r["output"] for r in grammar
     )
@@ -113,13 +123,32 @@ def main() -> None:
         if r["input"] in no_source_items:
             v_grounded_cases += 1
             v_grounded += not bool(list_marker.search(got))
+    i_hit = 0
+    i_list = 0
+    for r in intent:
+        got = generate(model, tok, r["instruction"], r["input"])
+        i_hit += got == r["output"]
+        if a.show_intent:
+            print(f"INTENT input={r['input']!r} expected={r['output']!r} got={got!r}")
+        if list_marker.search(r["output"]):
+            i_list += bool(list_marker.search(got))
+    c_valid = 0
+    c_exact = 0
+    for r in contract:
+        got = generate(model, tok, r["instruction"], r["input"], max_new=384)
+        check = parse_and_validate(got, r["input"])
+        c_valid += check.valid
+        c_exact += got == r["output"]
     print(f"[{a.tag}] grammar exact: {g_hit}/{len(grammar)}")
     print(f"[{a.tag}] speech exact: {s_hit}/{len(speech)}")
     print(f"[{a.tag}] list-format kept: {s_list} list cases checked")
     print(f"[{a.tag}] structure exact: {v_hit}/{v_cases}")
     print(f"[{a.tag}] structure lists kept: {v_list}/{v_list_cases}")
     print(f"[{a.tag}] no invented lists: {v_grounded}/{v_grounded_cases}")
-    print(json.dumps({"tag": a.tag, "grammar": [g_hit, len(grammar)], "speech": [s_hit, len(speech)], "structure": [v_hit, v_cases], "structure_lists": [v_list, v_list_cases], "grounded": [v_grounded, v_grounded_cases]}))
+    print(f"[{a.tag}] intent exact: {i_hit}/{len(intent)}")
+    print(f"[{a.tag}] intent list-format kept: {i_list}/{sum(bool(list_marker.search(r['output'])) for r in intent)}")
+    print(f"[{a.tag}] contract valid: {c_valid}/{len(contract)} exact: {c_exact}/{len(contract)}")
+    print(json.dumps({"tag": a.tag, "grammar": [g_hit, len(grammar)], "speech": [s_hit, len(speech)], "structure": [v_hit, v_cases], "structure_lists": [v_list, v_list_cases], "grounded": [v_grounded, v_grounded_cases], "intent": [i_hit, len(intent)], "intent_lists": i_list, "contract_valid": [c_valid, len(contract)], "contract_exact": [c_exact, len(contract)]}))
 
 
 main()

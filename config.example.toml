@@ -4,8 +4,7 @@ schema_version = 1
 
 [general]
 # economy = exit worker + UI when idle (lowest inactive RAM, default)
-# balanced = keep worker 60 s after activity (roadmap: currently same as economy + model prefetch)
-# ready = keep model resident while enabled (roadmap)
+# balanced/ready = retain supported sidecars for server_idle_secs after use
 residency_profile = "economy"
 review_before_insertion = false
 unicode_output = true
@@ -34,7 +33,7 @@ model = "base"
 live_model = "base"
 # resident faster-whisper server idle TTL, seconds (0 disables: one-shot).
 # While resident, streaming chunks skip the model reload (~0.3 s vs ~4.5 s).
-server_idle_secs = 30
+server_idle_secs = 60
 # en | hi | bn — explicit; short utterances must not rely on auto-detect
 language = "en"
 translate_to_en = false
@@ -42,10 +41,10 @@ translate_to_en = false
 device = "cpu"
 
 [insertion]
-# automatic (default: paste into the focused app via wtype)
-# | copy-only (transcript ends on clipboard + confirmation popup)
+# copy-only (default: transcript ends on clipboard + confirmation popup)
+# | automatic (type into the focused app only after focus/policy checks)
 # | review (hold for explicit copy)
-mode = "automatic"
+mode = "copy-only"
 clipboard_serve_secs = 30
 # pending final text expiry, in-memory only, seconds
 pending_expiry_secs = 300
@@ -56,8 +55,8 @@ kitty = "copy-only"
 Alacritty = "copy-only"
 
 [cleanup]
-# stream (default: local LLM cleanup via model_path) | raw (disable cleanup) | clean (needs endpoint below)
-mode = "stream"
+# raw (default: preserve recognizer output) | clean (needs endpoint below) | stream (local LLM)
+mode = "raw"
 endpoint = ""
 timeout_secs = 8
 vocabulary = []

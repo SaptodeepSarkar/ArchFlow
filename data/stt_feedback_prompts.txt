@@ -1,0 +1,15 @@
+This is a test of Indian English speech recognition.
+Please preserve the technical terms HTML, CSS, MCP, and CTC.
+The difficult words are narcotics, acrobat, Celsius, and glioblastoma.
+The medical terms include pharmacokinetics and otorhinolaryngology.
+The CUDA model uses PyTorch and CTranslate2 on an NVIDIA GPU.
+The value is negative five degrees Celsius.
+Please keep the acronym MCP exactly as MCP.
+The browser should not be opened because this is only a transcription test.
+I was looking for a word and I meant to say pharmacokinetics.
+The list contains milk, eggs, bread, and a phone charger.
+Could you tell me whether the meeting is tomorrow?
+That result is surprising and I am very happy about it.
+In Indian English, we may say please do the needful and prepone the meeting.
+The command is cargo test dash dash workspace, but do not run it.
+The path is slash home slash user slash config dot toml.

@@ -3,7 +3,7 @@
 //! Timeout/invalid output falls back to raw. The transcript is untrusted data:
 //! delimited and the model is directed to edit only (no instruction following).
 
-use std::time::Duration;
+use std::io::Write;
 
 pub fn clean(text: &str, endpoint: &str, timeout_secs: u64, vocabulary: &[String]) -> String {
     if endpoint.is_empty() || text.is_empty() {
@@ -30,27 +30,31 @@ fn try_clean(text: &str, endpoint: &str, timeout_secs: u64, vocab: &[String]) ->
     let prompt = format!(
         "You are a conservative transcription editor. Fix ONLY punctuation, capitalization, and obvious filler words (um, uh). Preserve meaning, negation, numbers, names, units, code, paths, and the original language. Do not add facts, do not rephrase claims, do not translate. If unsure, return the input unchanged.\n{vocab_hint}\n<transcript>\n{text}\n</transcript>\nReturn ONLY the edited transcript, no commentary."
     );
-    // Minimal blocking HTTP via std? Use curl-less raw TCP is overkill;
-    // shell out to `curl` with bounded args (transcript via stdin file).
+    // The request body travels only through curl's stdin. Do not materialize
+    // dictated text in /tmp: a failed request must not leave a transcript on
+    // disk.
     // Endpoint expected: http://host:port (Ollama-compatible /api/generate).
     let body = serde_json::json!({
         "model": std::env::var("VAANI_CLEAN_MODEL").unwrap_or("qwen2.5:3b".into()),
         "prompt": prompt,
         "stream": false,
     });
-    let dir = std::env::temp_dir().join(format!("vaani-clean-{}", std::process::id()));
-    std::fs::create_dir_all(&dir)?;
-    let f = dir.join("req.json");
-    std::fs::write(&f, serde_json::to_vec(&body)?)?;
-    let out = std::process::Command::new("curl")
+    let request = serde_json::to_vec(&body)?;
+    let mut child = std::process::Command::new("curl")
         .arg("-sS")
         .arg("--max-time")
         .arg(timeout_secs.clamp(2, 30).to_string())
         .arg(format!("{endpoint}/api/generate"))
-        .arg("-d")
-        .arg(format!("@{}", f.display()))
-        .output()?;
-    let _ = std::fs::remove_dir_all(&dir);
+        .arg("--data-binary")
+        .arg("@-")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(&request)?;
+    }
+    let out = child.wait_with_output()?;
     if !out.status.success() {
         anyhow::bail!("cleanup endpoint unreachable");
     }
@@ -82,8 +86,6 @@ fn semantic_ok(raw: &str, cleaned: &str) -> bool {
     if digits(raw) != digits(cleaned) {
         return false;
     }
-    // Timeout guard placeholder; real deadline enforced by curl --max-time.
-    let _ = Duration::from_secs(0);
     true
 }
 

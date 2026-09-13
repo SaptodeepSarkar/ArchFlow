@@ -155,7 +155,9 @@ fn default_model() -> String {
     "base".into()
 }
 fn default_server_idle() -> u64 {
-    90
+    // Economy is the default profile and must not leave an inference helper
+    // resident after an operation. Balanced/Ready opt in to a non-zero TTL.
+    0
 }
 fn default_lang() -> String {
     "en".into()
@@ -176,7 +178,7 @@ fn default_pending_secs() -> u64 {
     300
 }
 fn default_cleanup_mode() -> String {
-    "stream".into()
+    "raw".into()
 }
 fn default_cleanup_timeout() -> u64 {
     8
@@ -306,7 +308,7 @@ impl Config {
         }
         match self.insertion.mode.as_str() {
             "automatic" | "review" | "copy-only" => {}
-            _ => self.insertion.mode = "automatic".into(),
+            _ => self.insertion.mode = "copy-only".into(),
         }
         match self.cleanup.mode.as_str() {
             "raw" | "clean" | "stream" => {}
@@ -322,6 +324,17 @@ impl Config {
             }
         }
         self.insertion.mode.clone()
+    }
+
+    /// Residency policy is authoritative. Economy never keeps an inference
+    /// sidecar alive; Balanced uses the configured TTL; Ready retains it up
+    /// to the configured safety cap.
+    pub fn effective_server_idle_secs(&self) -> u64 {
+        match self.general.residency_profile.as_str() {
+            "economy" => 0,
+            "balanced" | "ready" => self.recognition.server_idle_secs,
+            _ => 0,
+        }
     }
 
     /// Whitelisted single-key update from UI/CLI. Values are validated and
@@ -534,7 +547,8 @@ mod tests {
     fn defaults_are_safe() {
         let c = Config::default();
         assert_eq!(c.general.residency_profile, "economy");
-        assert_eq!(c.cleanup.mode, "stream");
+        assert_eq!(c.cleanup.mode, "raw");
+        assert_eq!(c.effective_server_idle_secs(), 0);
         assert!(!c.privacy.save_history);
     }
 
@@ -547,5 +561,13 @@ mod tests {
             .insert("foot".into(), "automatic".into());
         assert_eq!(c.insertion_mode_for("foot"), "automatic");
         assert_eq!(c.insertion_mode_for("firefox"), "copy-only");
+    }
+
+    #[test]
+    fn invalid_insertion_mode_falls_back_to_copy_only() {
+        let mut c = Config::default();
+        c.insertion.mode = "unsafe".into();
+        c.normalise();
+        assert_eq!(c.insertion.mode, "copy-only");
     }
 }

@@ -20,6 +20,7 @@ Hardware target: NVIDIA RTX 3050 6GB. Full fine-tuning does not fit;
 | 2. Grammar data | `scripts/build_grammar_data.py` | CoEdit instruction pairs (grammar/coherence) |
 | 3. Speech data | `scripts/build_speech_data.py` | synthetic transcript→clean pairs: fillers, false starts, duplicates, punctuation, lists/points |
 | 3b. Structure data | `scripts/build_structure_data.py` | LLM v1 formatting pairs: bullets, dotted bullets, numbers, titles, names, explicit emoji, no-invention controls |
+| 3c. Intent data | `scripts/build_intent_data.py` | LLM v3 intent, punctuation, technical terms, emoji, and format-only command examples |
 | 4. SFT | `scripts/train_sft.py` | LoRA (r=32 q/v/o + mlp) on grammar + speech mixes; v1 continues `dpo-sft` with `--from-adapter dpo-sft --structure-repeat N --out-name llm-v1` |
 | 5. Eval | `scripts/eval.py` | holdout: exact edits, list-format retention, and no-invention checks |
 | 6. DPO prefs | `scripts/mine_prefs.py` | SFT mistakes → chosen/rejected pairs (the practical RLHF) |
@@ -40,6 +41,7 @@ source env.sh
 .venv/bin/python scripts/build_grammar_data.py # CoEdit pairs
 .venv/bin/python scripts/build_speech_data.py  # transcript pairs
 .venv/bin/python scripts/build_structure_data.py  # LLM v1 formatting pairs
+.venv/bin/python scripts/build_intent_data.py     # LLM v3 intent/formatting pairs
 .venv/bin/python scripts/train_sft.py --steps 2000
 .venv/bin/python scripts/train_sft.py --from-adapter dpo-sft --structure-repeat 200 --lr 1e-4 --steps 600 --out-name llm-v1
 .venv/bin/python scripts/eval.py --tag llm-v1

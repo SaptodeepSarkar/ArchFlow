@@ -35,25 +35,23 @@ pub fn insert_automatic(
     configured_mode: &str,
 ) -> InsertOutcome {
     if configured_mode == "copy-only" {
-        return InsertOutcome::CopyReady("copy-only mode configured".into());
+        return copy_ready(text, "copy-only mode configured");
     }
     if configured_mode == "review" {
-        return InsertOutcome::CopyReady("review mode: awaiting explicit confirmation".into());
+        return copy_ready(text, "review mode: awaiting explicit confirmation");
     }
     // Recheck focus immediately before dispatch (documented race remains).
     let current = match focus::recheck_target(start_target) {
         Ok(t) => t,
-        Err(reason) => return InsertOutcome::CopyReady(format!("target changed ({reason})")),
+        Err(reason) => return copy_ready(text, &format!("target changed ({reason})")),
     };
     // Terminal policy: copy-only, and never auto-paste multiline shell-like
     // content or append Enter.
     if focus::is_terminal(&current.app_id) {
-        return InsertOutcome::CopyReady("terminal target: copy-only policy".into());
+        return copy_ready(text, "terminal target: copy-only policy");
     }
     if text.contains('\n') && looks_shell_like(text) {
-        return InsertOutcome::CopyReady(
-            "multiline shell-like text: copy-only to avoid accidental execution".into(),
-        );
+        return copy_ready(text, "multiline shell-like text: copy-only to avoid accidental execution");
     }
     // Automatic mode: type directly via the virtual keyboard (wtype).
     // This sends text straight into the focused window without
@@ -61,7 +59,7 @@ pub fn insert_automatic(
     if configured_mode == "automatic" {
         return match inject_stream(text) {
             Ok(()) => InsertOutcome::DispatchAttempted(format!("typed via keyboard into {}", current.app_id)),
-            Err(e) => InsertOutcome::CopyReady(format!("typing failed ({e}); text on clipboard")),
+            Err(e) => copy_ready(text, &format!("typing failed ({e})")),
         };
     }
     // Offer on clipboard, then dispatch the app's paste chord.
@@ -102,6 +100,15 @@ pub fn insert_automatic(
             current.app_id
         )),
         Err(e) => InsertOutcome::CopyReady(format!("dispatch failed ({e}); text on clipboard")),
+    }
+}
+
+/// Every non-delivery completion still offers text for an explicit paste or
+/// copy. Failures are reported honestly and the daemon retains pending text.
+fn copy_ready(text: &str, reason: &str) -> InsertOutcome {
+    match clipboard::offer_text(text) {
+        Ok(()) => InsertOutcome::CopyReady(reason.into()),
+        Err(e) => InsertOutcome::Failed(format!("{reason}; clipboard offer failed: {e}")),
     }
 }
 

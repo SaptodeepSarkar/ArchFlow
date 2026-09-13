@@ -1,0 +1,56 @@
+# Engineering and software terms for cleanup.vocabulary.
+CTC
+MCP
+Model Context Protocol
+MCM
+HKS
+CUDA
+PyTorch
+Whisper
+CTranslate2
+faster-whisper
+LoRA
+QLoRA
+DPO
+RLHF
+RNN-T
+VAD
+WER
+CER
+API
+SDK
+JSON
+YAML
+TOML
+Rust
+Cargo
+crate
+Linux
+Wayland
+Hyprland
+PipeWire
+Quickshell
+systemd
+NVIDIA
+NVML
+CUDA 13
+bf16
+fp16
+int8
+int4
+quantization
+distillation
+transformer
+attention
+encoder
+decoder
+tokenizer
+logits
+beam search
+shallow fusion
+contextual biasing
+rare word
+acoustic model
+language model
+phoneme
+grapheme

@@ -1,0 +1,1 @@
+<resources><style name="Theme.Vaani" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:fontFamily">sans</item><item name="android:colorAccent">#8B72D8</item><item name="android:navigationBarColor">#17181D</item></style></resources>

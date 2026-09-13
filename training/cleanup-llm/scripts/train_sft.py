@@ -5,7 +5,9 @@ Full fine-tuning does not fit 6 GB VRAM; LoRA r=32 on q/v/o + mlp matches
 it for style adaptation (same call Cozy made for STT). The base model stays
 frozen; only adapter weights move. Usage: train_sft.py [--steps N]
 [--tag NAME] [--from-adapter NAME] [--structure-repeat N] [--lr RATE]
-[--out-name DIR] [--smoke]
+[--intent-repeat N] [--out-name DIR] [--smoke]
+[--contract-repeat N]
+[--resume-from-checkpoint PATH]
 """
 import argparse
 import json
@@ -41,8 +43,16 @@ def main() -> None:
     ap.add_argument("--tag", default="sft")
     ap.add_argument("--from-adapter", default="", help="Continue an existing adapter without touching base weights")
     ap.add_argument("--structure-repeat", type=int, default=0, help="Repeat LLM v1 structure rows per epoch")
+    ap.add_argument("--intent-repeat", type=int, default=0, help="Repeat v3 intent rows per epoch")
+    ap.add_argument("--intent-only", action="store_true", help="Focused correction pass using only v3 intent rows")
+    ap.add_argument("--contract-repeat", type=int, default=0, help="Repeat v4 JSON contract rows per epoch")
+    ap.add_argument("--batch-size", type=int, default=2)
+    ap.add_argument("--grad-accum", type=int, default=8)
+    ap.add_argument("--max-length", type=int, default=1024)
+    ap.add_argument("--gradient-checkpointing", action="store_true")
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--out-name", default="", help="Adapter directory name; defaults to lora-TAG")
+    ap.add_argument("--resume-from-checkpoint", default="", help="Resume trainer and optimizer state from a saved checkpoint")
     ap.add_argument("--smoke", action="store_true", help="50 steps on 200 rows to prove the loop")
     a = ap.parse_args()
 
@@ -62,12 +72,30 @@ def main() -> None:
         if not os.path.exists(structure_path):
             raise SystemExit("sft_structure.jsonl missing: run build_structure_data.py first")
         structure = load_pairs(structure_path)
+    intent = []
+    intent_path = os.path.join(DATA, "sft_intent.jsonl")
+    if a.intent_repeat > 0:
+        if not os.path.exists(intent_path):
+            raise SystemExit("sft_intent.jsonl missing: run build_intent_data.py first")
+        intent = load_pairs(intent_path)
+    contract = []
+    contract_path = os.path.join(DATA, "sft_contract_v4.jsonl")
+    if a.contract_repeat > 0:
+        if not os.path.exists(contract_path):
+            raise SystemExit("sft_contract_v4.jsonl missing: run build_v4_contract_data.py first")
+        contract = load_pairs(contract_path)
     # Speech pairs are few but precious: upsample so every epoch sees them.
     train_rows = grammar + speech * max(1, len(grammar) // max(1, len(speech)) // 20)
     train_rows += structure * max(0, a.structure_repeat)
+    train_rows += intent * max(0, a.intent_repeat)
+    train_rows += contract * max(0, a.contract_repeat)
+    if a.intent_only:
+        if not intent:
+            raise SystemExit("--intent-only requires --intent-repeat and sft_intent.jsonl")
+        train_rows = intent * max(1, a.intent_repeat)
     if a.smoke:
         train_rows = (grammar[:150] + speech * 5 + structure[:20])[:200]
-    print(f"sft rows: {len(train_rows)} (grammar={len(grammar)} speech={len(speech)} structure={len(structure)})")
+    print(f"sft rows: {len(train_rows)} (grammar={len(grammar)} speech={len(speech)} structure={len(structure)} intent={len(intent)} contract={len(contract)})")
 
     tok = AutoTokenizer.from_pretrained(os.path.join(OUT, "base-model"), trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
@@ -101,23 +129,23 @@ def main() -> None:
     args = SFTConfig(
         output_dir=os.path.join(OUT, a.out_name or f"lora-{a.tag}"),
         max_steps=a.steps if not a.smoke else 50,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=8,
+        per_device_train_batch_size=a.batch_size,
+        gradient_accumulation_steps=a.grad_accum,
         learning_rate=a.lr,
         lr_scheduler_type="cosine",
         warmup_steps=20,
         bf16=True,
-        gradient_checkpointing=False,
+        gradient_checkpointing=a.gradient_checkpointing,
         logging_steps=10,
         save_steps=100 if not a.smoke else 50,
         save_total_limit=2,
-        max_length=1024,
+        max_length=a.max_length,
         packing=False,
         dataset_text_field="text",
         report_to="none",
     )
     trainer = SFTTrainer(model=model, args=args, train_dataset=ds, processing_class=tok)
-    trainer.train()
+    trainer.train(resume_from_checkpoint=a.resume_from_checkpoint or None)
     trainer.save_model()
     print("saved:", args.output_dir)
 

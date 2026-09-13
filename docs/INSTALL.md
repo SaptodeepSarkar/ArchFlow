@@ -3,7 +3,7 @@
 Vaani is a user-local Wayland dictation daemon for Hyprland. It captures
 16 kHz mono audio through PipeWire, shows a Quickshell preview, runs final
 speech recognition, optionally cleans the complete transcript with a local
-LLM, then sends the cleaned result through `wtype` to the focused application.
+LLM, then follows the configured copy-only/review/automatic delivery policy.
 
 ## Requirements
 
@@ -72,19 +72,18 @@ raw transcript if model startup or validation fails.
 5. Silence VAD ends capture, or `SUPER+J` ends it manually.
 6. Final STT processes the complete utterance; preview text is never merged
    into final text.
-7. In `stream` mode the already-prefetched local LLM cleans the final text.
+7. In opt-in `stream` mode the local LLM cleans the final text.
 8. Focus is checked again. If it changed, the result is copied and not typed.
-9. During `INSERTING`, a fullscreen transparent overlay consumes mouse and
-   touchpad pointer events while keyboard focus remains on the target app.
-10. The cleaned text is sent in small spacing-preserving chunks through
-    `wtype`; the final text is also offered on the clipboard.
-11. The overlay closes and the daemon returns to `IDLE`.
-12. Resident STT/LLM helpers are reaped after `server_idle_secs` (90 seconds
-    by default), returning application processes to low idle RSS.
+9. Copy-only and review sessions offer final text on the clipboard.
+   Automatic mode performs one final focus check before a virtual-keyboard
+   action; terminals remain copy-only.
+10. The overlay closes and the daemon returns to `IDLE`.
+11. Economy exits helpers after each operation. Balanced/Ready may reap
+   supported sidecars after `server_idle_secs`.
 
-`SUPER+J` performs steps 1–8, copies the cleaned result, closes the overlay,
-and skips keyboard delivery. Terminals receive single-line text through
-`wtype`; multiline shell-like text remains clipboard-only for safety.
+`SUPER+J` performs steps 1–8, copies the final result, closes the overlay,
+and skips automatic delivery. Terminals and multiline shell-like text remain
+clipboard-only for safety.
 
 ## Input-freeze boundary
 

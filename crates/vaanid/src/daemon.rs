@@ -58,6 +58,9 @@ struct Shared {
     target_lost: bool,
     /// Overlay child process handle, so we can kill it after streaming.
     overlay: Option<std::process::Child>,
+    /// Cleared as soon as the session is locked. Every delivery path checks
+    /// it immediately before it can touch the clipboard or virtual keyboard.
+    insertion_allowed: bool,
 }
 
 #[derive(Default, Clone, serde::Serialize)]
@@ -111,6 +114,7 @@ let shared = Arc::new(Mutex::new(Shared {
          session_started_at: None,
          last_activation: None,
          overlay: None,
+         insertion_allowed: true,
      }));
 
     // Session-lock/suspend guard: on lock, cancel capture + forbid insertion.
@@ -125,7 +129,7 @@ let shared = Arc::new(Mutex::new(Shared {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                let idle = s.lock().await.cfg.recognition.server_idle_secs;
+                let idle = s.lock().await.cfg.effective_server_idle_secs();
                 if idle > 0 {
                     worker_sup::reap_idle_servers(idle);
                     llm_sup::reap_idle_llm(idle);
@@ -543,11 +547,10 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
             let res = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
                 crate::inserter::inject_stream(&cleaned_for_inject)
             }).await;
-            let g = shared.lock().await;
+            let mut g = shared.lock().await;
             match res {
                 Ok(Ok(())) => {
                     let s = g.session.clone();
-                    let mut g = shared.lock().await;
                     g.pending = None;
                     resp_ok(&rid, &s, Some("injected via keyboard".into()), Some(serde_json::json!({"text": cleaned, "words": word_count, "threshold": threshold})))
                 }
@@ -588,6 +591,7 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
         g.live_transcript.clear();
         g.live_audio_cursor = 0;
         g.target_lost = false;
+        g.no_auto = None;
         g.session_started_at = None;
         emit(tx, &ev_state(Some(sid), State::Starting, Some("Starting microphone…")));
         // On-demand overlay UI (separate app-owned Quickshell config).
@@ -618,7 +622,9 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
     // Start loading the cleanup LLM model now,
     // in parallel with microphone capture.
     let cfg_prefill = shared.lock().await.cfg.clone();
-    let _ = tokio::task::spawn_blocking(move || llm_sup::prefill(&cfg_prefill));
+    if cfg_prefill.cleanup.mode == "stream" && cfg_prefill.effective_server_idle_secs() > 0 {
+        let _ = tokio::task::spawn_blocking(move || llm_sup::prefill(&cfg_prefill));
+    }
     let mut g = shared.lock().await;
     match cap {
         Ok(h) => {
@@ -1146,42 +1152,43 @@ let mut final_text = t.text.clone();
                 let s = g.session.clone();
                 return resp_ok("", &s, Some(format!("Saved to clipboard — target changed ({reason})")), Some(serde_json::json!({"text": final_text_c, "copied": true})));
             }
-            // Mark the short delivery window explicitly. The overlay uses
-            // this state to consume pointer/touch events while preserving
-            // keyboard focus for wtype delivery to the target app.
+            // There is one delivery implementation. It applies configured
+            // mode, app overrides, terminal policy, review/no-auto policy,
+            // focus checks, clipboard fallback and the final keyboard action.
+            // Do not bypass it with a second wtype streaming path.
+            let no_auto = g.no_auto.as_deref() == Some(sid.as_str());
+            let configured_mode = if no_auto || !g.insertion_allowed {
+                "copy-only".to_string()
+            } else {
+                g.cfg.insertion_mode_for(&target.app_id)
+            };
+            g.pending = Some(Pending { text: final_text.clone(), at: std::time::Instant::now() });
             let _ = g.session.transition(State::Ready);
             let _ = g.session.transition(State::Inserting);
-            emit(tx, &ev_state(Some(sid.clone()), State::Inserting, Some("Typing cleaned text…")));
-            g.pending = Some(Pending { text: final_text.clone(), at: std::time::Instant::now() });
-            let text_to_stream = final_text.clone();
+            emit(tx, &ev_state(Some(sid.clone()), State::Inserting, Some("Delivering text…")));
+            let text_to_insert = final_text.clone();
+            let target_for_insert = target.clone();
             drop(g);
-            let kb_guard = inserter::find_wtype()
-                .and_then(|_| inserter::grab_keyboard());
-            let stream_result = tokio::task::spawn_blocking(move || {
-                // The cleanup sidecar currently returns a completed string,
-                // so preserve its spacing and send small word/whitespace
-                // chunks as the observable stream to the virtual keyboard.
-                for token in text_to_stream.split_inclusive(char::is_whitespace) {
-                    inserter::inject_stream(token)?;
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                }
-                clipboard::offer_text(&text_to_stream)?;
-                Ok::<(), anyhow::Error>(())
+            let insert_result = tokio::task::spawn_blocking(move || {
+                inserter::insert_automatic(&text_to_insert, &target_for_insert, &configured_mode)
             }).await;
-            drop(kb_guard);
             if let Some(mut ov) = shared.lock().await.overlay.take() {
                 let _ = ov.kill();
                 let _ = ov.wait();
             }
-            let stream_ok = matches!(stream_result, Ok(Ok(())));
-            let _ = shared.lock().await.session.transition(State::Idle);
-            let s = shared.lock().await.session.clone();
-            let message = if stream_ok {
-                "Streamed via keyboard"
-            } else {
-                "Keyboard delivery failed — text remains on clipboard"
-            };
-            resp_ok("", &s, Some(message.into()), Some(serde_json::json!({"text": final_text, "streamed": stream_ok})))
+            let mut g = shared.lock().await;
+            if g.session.id != sid || !matches!(g.session.state, State::Inserting) {
+                let s = g.session.clone();
+                return resp_ok("", &s, Some("stale delivery discarded".into()), None);
+            }
+            let outcome = insert_result.unwrap_or_else(|e| {
+                inserter::InsertOutcome::CopyReady(format!("delivery task failed: {e}"))
+            });
+            let delivered = matches!(outcome, inserter::InsertOutcome::DispatchAttempted(_));
+            let message = outcome.to_string();
+            let _ = g.session.transition(State::Idle);
+            let s = g.session.clone();
+            resp_ok("", &s, Some(message), Some(serde_json::json!({"delivered": delivered, "pending": true})))
         }
         _ => {
             // Worker crash / error: controller stays up, audio retained briefly
@@ -1238,28 +1245,27 @@ async fn lock_watch(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>) {
     // for UI status). If detection is unavailable, automatic insertion is
     // disabled for the session and documented.
     let mut locked = false;
-    let mut insertion_allowed = true;
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         let is_locked = check_locked();
         if is_locked && !locked {
             locked = true;
-            insertion_allowed = false;
             let mut g = shared.lock().await;
-            if matches!(g.session.state, State::Recording | State::Starting) {
+            g.insertion_allowed = false;
+            if !matches!(g.session.state, State::Idle | State::Cancelled) {
                 if let Some(cap) = g.capture.take() {
                     cap.stop();
                 }
                 g.audio.clear();
+                g.pending_audio.clear();
                 let _ = g.session.transition(State::Cancelled);
                 let _ = g.session.transition(State::Idle);
                 emit(&tx, &ev_state(Some(g.session.id.clone()), State::Cancelled, Some("Session locked — capture cancelled")));
             }
         } else if !is_locked && locked {
             locked = false;
-            insertion_allowed = true;
+            shared.lock().await.insertion_allowed = true;
         }
-        let _ = insertion_allowed;
     }
 }
 

@@ -23,6 +23,26 @@ pub struct Transcript {
     pub inference_ms: u64,
 }
 
+/// Own a private transient directory containing audio. Removal is guaranteed
+/// on every return path, including sidecar and JSON protocol failures.
+struct TempAudioDir(std::path::PathBuf);
+
+impl TempAudioDir {
+    fn create(prefix: &str, id: u64) -> std::io::Result<Self> {
+        let path = std::env::temp_dir().join(format!("{prefix}-{}-{id}", std::process::id()));
+        // `create_dir`, rather than create_dir_all, refuses a pre-existing
+        // attacker-controlled path in the shared temp directory.
+        std::fs::create_dir(&path)?;
+        Ok(Self(path))
+    }
+
+    fn join(&self, name: &str) -> std::path::PathBuf { self.0.join(name) }
+}
+
+impl Drop for TempAudioDir {
+    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+}
+
 pub fn worker_bin() -> String {
     // Same install prefix as the daemon: prefer sibling binary on PATH,
     // else VAANI_WORKER_BIN override (packaging/tests).
@@ -81,12 +101,7 @@ pub fn silero_trailing(samples: &[f32]) -> Option<(bool, f32)> {
     }
     static VAD_JOB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let jid = VAD_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "vaani-vad-{}-{}",
-        std::process::id(),
-        jid
-    ));
-    std::fs::create_dir_all(&dir).ok()?;
+    let dir = TempAudioDir::create("vaani-vad", jid).ok()?;
     let wav = dir.join("in.wav");
     write_wav_mono16(&wav, samples).ok()?;
     let vad_model = vad_model_default();
@@ -96,7 +111,6 @@ pub fn silero_trailing(samples: &[f32]) -> Option<(bool, f32)> {
         cmd.arg("-vm").arg(vm);
     }
     let out = cmd.output().ok()?;
-    let _ = std::fs::remove_dir_all(&dir);
     if !out.status.success() {
         return None;
     }
@@ -352,12 +366,7 @@ fn fw_server_transcribe(
     let id = FW_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     // Unique dir per call: concurrent jobs (live tick vs finalize) share
     // nothing, so a finished call can never delete a sibling's wav.
-    let dir = std::env::temp_dir().join(format!(
-        "vaani-fwjob-{}-{}",
-        std::process::id(),
-        id
-    ));
-    std::fs::create_dir_all(&dir)?;
+    let dir = TempAudioDir::create("vaani-fwjob", id)?;
     let wav = dir.join("in.wav");
     write_wav_mono16(&wav, samples)?;
     let mut prompt = String::new();
@@ -395,7 +404,6 @@ fn fw_server_transcribe(
         answer = v.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
         break;
     }
-    let _ = std::fs::remove_dir_all(&dir);
     Ok((answer, t0.elapsed().as_millis() as u64))
 }
 
@@ -672,14 +680,23 @@ fn run_once(
     let bytes: Vec<u8> = samples.iter().flat_map(|x| x.to_le_bytes()).collect();
     // Bound write: worker takes max 120 s; write in one go (bounded ~7.7 MiB).
     if let Some(mut stdin) = child.stdin.take() {
-        // Write from a helper thread so a slow worker can't deadlock us while
-        // we wait on stdout; join with timeout via polling.
+        // A worker may stop consuming stdin. Keep the writer independent,
+        // enforce a hard child deadline, then kill it to release the pipe.
         std::thread::scope(|s| {
-            s.spawn(move || {
-                let _ = stdin.write_all(&bytes);
-                // stdin dropped -> EOF
-            });
-            s.spawn(move || ());
+            s.spawn(move || { let _ = stdin.write_all(&bytes); });
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(125);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if std::time::Instant::now() >= deadline => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break;
+                    }
+                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(25)),
+                    Err(_) => break,
+                }
+            }
         });
     }
     let out = child.wait_with_output()?;

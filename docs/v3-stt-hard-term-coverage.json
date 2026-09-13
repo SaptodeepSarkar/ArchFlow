@@ -1,0 +1,104 @@
+{
+  "manifest": "/home/saptodeep/Projects/Cozy/stt-finetune/data/manifests/public_indian/hard_eval.jsonl",
+  "clips": 102,
+  "terms": [
+    {
+      "term": "HTML",
+      "present_in_text": false,
+      "audio_count": 0
+    },
+    {
+      "term": "CSS",
+      "present_in_text": false,
+      "audio_count": 0
+    },
+    {
+      "term": "narcotics",
+      "present_in_text": false,
+      "audio_count": 0
+    },
+    {
+      "term": "acrobat",
+      "present_in_text": false,
+      "audio_count": 0
+    },
+    {
+      "term": "Celsius",
+      "present_in_text": false,
+      "audio_count": 0
+    },
+    {
+      "term": "MCP",
+      "present_in_text": false,
+      "audio_count": 0
+    },
+    {
+      "term": "CTC",
+      "present_in_text": true,
+      "audio_count": 2
+    },
+    {
+      "term": "glioblastoma",
+      "present_in_text": false,
+      "audio_count": 0
+    },
+    {
+      "term": "pharmacokinetics",
+      "present_in_text": false,
+      "audio_count": 0
+    },
+    {
+      "term": "otorhinolaryngology",
+      "present_in_text": true,
+      "audio_count": 2
+    },
+    {
+      "term": "CUDA",
+      "present_in_text": true,
+      "audio_count": 1
+    },
+    {
+      "term": "PyTorch",
+      "present_in_text": false,
+      "audio_count": 0
+    },
+    {
+      "term": "CTranslate2",
+      "present_in_text": false,
+      "audio_count": 0
+    },
+    {
+      "term": "NVIDIA",
+      "present_in_text": true,
+      "audio_count": 1
+    },
+    {
+      "term": "IRCTC",
+      "present_in_text": true,
+      "audio_count": 2
+    },
+    {
+      "term": "Bengaluru",
+      "present_in_text": true,
+      "audio_count": 1
+    },
+    {
+      "term": "₹",
+      "present_in_text": false,
+      "audio_count": 0
+    }
+  ],
+  "missing_audio_terms": [
+    "HTML",
+    "CSS",
+    "narcotics",
+    "acrobat",
+    "Celsius",
+    "MCP",
+    "glioblastoma",
+    "pharmacokinetics",
+    "PyTorch",
+    "CTranslate2",
+    "₹"
+  ]
+}

@@ -9,3 +9,6 @@ models/*.pt
 docs/screenshots/
 .vaani/
 .hf_cache
+android/.gradle/
+android/**/build/
+tools/__pycache__/
