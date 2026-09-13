@@ -58,12 +58,15 @@ The evaluation uses 100 clips held out from the same 1,000-row feedback selectio
 | Moonshine Small V5 aligned, LR 5e-6 | 17.28% | 14.82% | 66.7% (4/6) | 0.09445 | reject |
 | Moonshine Small V5 conservative 75-step, LR 5e-6 | 24.73% | not recorded | not recorded | 0.14027 | reject |
 | Moonshine Small V5 decoder-only, encoder frozen, 150 steps | 21.20% | not recorded | 66.7% (4/6) | 0.09893 | reject |
+| Moonshine Small V5 sequence-distilled, teacher weight 0.25, 150 steps | 21.22% | not recorded | 66.7% (4/6) | 0.12458 | reject |
 
 The first fine-tuned candidates were damaged by a decoder-target convention bug: Moonshine right-shifts labels and inserts BOS, while the original script passed tokenizer BOS too. The corrected BOS/EOS-aligned run removed empty/catastrophic outputs and reached near-control raw WER, but normalized WER remains worse than v2. The six-term subset is too small to override the WER result; no V5 candidate was wired into Vaani and Vaani was not reloaded to use one.
 
 The complete 1,000-row audit is summarized in `docs/v5-feedback-1000-summary.json`. It contains 9,002 reference words, 739 word-error events, total WER 10.23%, mean row WER 10.17%, mean reward 0.8953, and 83.78% protected-term accuracy. The 75-step experiment was also rejected: shortening the run did not preserve the holdout (24.73% raw WER), and it was slower on the host CPU than the aligned 300-step candidate.
 
 An encoder-frozen decoder-only run was also rejected at 21.20% raw WER. Freezing the acoustic encoder protects general speech features, but decoder adaptation alone did not recover the base model's holdout accuracy.
+
+The sequence-distillation run used confirmed references as the primary target and the recorded v2 hypothesis as a 0.25-weight auxiliary target. It was rejected at 21.22% raw WER; the technique is implemented for future larger/cleaner teacher data, but did not beat v2 here.
 
 The first attempted fine-tune was also rejected after a loss-alignment bug was found; it is not a release candidate. The corrected script compares the model logits to the model-provided labels without an extra shift.
 
