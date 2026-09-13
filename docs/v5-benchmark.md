@@ -50,7 +50,7 @@ The evaluation uses 100 clips held out from the same 1,000-row feedback selectio
 | System | Raw WER | Normalized WER | Protected-term accuracy | CPU RTF | Promotion |
 |---|---:|---:|---:|---:|---|
 | Existing v2/cozy control | 15.47% | 9.29% | 66.7% (4/6) | existing production path | pass/control |
-| Moonshine Tiny, untouched | 51.38% | 22.99% | 66.7% (4/6) | not recorded in this table | reject |
+| Moonshine Tiny, untouched | 51.90% | not recorded | 66.7% (4/6) | 0.06069 | reject |
 | Moonshine Small, untouched | 43.36% | 12.98% | 66.7% (4/6) | 0.10123 | reject |
 | Moonshine Tiny V5 corrected fine-tune | 66.71% | 65.81% | 83.3% (5/6) | 0.04696 | reject |
 | Moonshine Small V5 corrected fine-tune | 63.55% | 63.11% | 83.3% (5/6) | 0.11425 | reject |
@@ -75,7 +75,7 @@ STT holdout and the 12-case formatter set:
 
 | Artifact | Disk usage | Peak host RSS | Host CPU latency |
 |---|---:|---:|---:|
-| Moonshine Tiny | 170 MiB | not measured | not measured |
+| Moonshine Tiny | 170 MiB | 1,159 MiB | RTF 0.06069 |
 | Moonshine Small | 537 MiB | 1,559 MiB | RTF 0.1067 |
 | SmolLM2 360M + native V5 adapter | 4.7 GiB directory (PyTorch weights ~724 MiB) | 2,966 MiB | 2.68 s/case |
 
