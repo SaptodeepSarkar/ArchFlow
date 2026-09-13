@@ -69,6 +69,8 @@ The first attempted fine-tune was also rejected after a loss-alignment bug was f
 
 The first mixed-template V5 adapter produced valid contract JSON for **0/3** examples. The corrected assistant-only/EOS adapter produced **3/3 schema-valid** outputs on the original smoke set, but one output hallucinated content and missed list intent. On the expanded 12-case held-out set (`training/cleanup-llm/data/eval_contract_v5.jsonl`), it produced **12/12 schema-valid** outputs but only **2/12 exact contract matches**; it defaulted to `format_only` for explicit emoji/list cases. Readable prose or schema validity alone is not sufficient: the Vaani safety boundary also requires grounded content, correct operation selection, and exactly one JSON object.
 
+The longer 800-step contract SFT was completed from the reviewed contract set with the 12-case set held out. Its final adapter at `/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-800` scored **11/12 schema-valid** and **1/12 exact** on that held-out set. More steps did not solve operation selection, so the adapter is rejected and remains offline.
+
 V5 formatter therefore remains an offline research adapter. The existing v4 formatter remains active. The next iteration should use a larger reviewed contract set, explicit list/emoji positives and negatives, token-level groundedness checks, and a stop-sequence-aware runtime.
 
 ## Re-run commands
@@ -85,6 +87,11 @@ python tools/eval_v5_formatter.py \
   --adapter /home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-adapter \
   --data training/cleanup-llm/data/eval_contract_v4.jsonl \
   --out /tmp/v5-contract-eval.jsonl
+
+python tools/train_v5_formatter_contract.py \
+  --model /home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m \
+  --out /home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-800 \
+  --steps 800
 ```
 
 The next useful V5 iteration is not “make it larger”: first expand the reviewed contract set, add groundedness and operation-accuracy gates, and require 100% valid contract output on a held-out safety set before any DPO or integration. For STT, retain a stronger teacher, freeze more of the tiny acoustic encoder initially, add contextual biasing for protected terms, and use hard-example mining rather than promoting this candidate.
