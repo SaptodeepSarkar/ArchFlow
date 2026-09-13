@@ -42,13 +42,13 @@ No PPO was used for STT. The useful STT “RLHF” signal was applied as reward-
 
 The evaluation uses 100 clips held out from the same 1,000-row feedback selection. Raw WER includes case and punctuation; normalized WER is the more useful word-recognition measure.
 
-| System | Raw WER | Normalized WER | CPU RTF | Promotion |
-|---|---:|---:|---:|---|
-| Existing v2/cozy control | 15.47% | 9.57% | existing production path | pass/control |
-| Moonshine Tiny, untouched | 51.38% | 22.99% | not recorded in this table | reject |
-| Moonshine V5 corrected fine-tune | 66.71% | 65.81% | 0.04696 | reject |
+| System | Raw WER | Normalized WER | Protected-term accuracy | CPU RTF | Promotion |
+|---|---:|---:|---:|---:|---|
+| Existing v2/cozy control | 15.47% | 9.57% | 66.7% (4/6) | existing production path | pass/control |
+| Moonshine Tiny, untouched | 51.38% | 22.99% | 66.7% (4/6) | not recorded in this table | reject |
+| Moonshine V5 corrected fine-tune | 66.71% | 65.81% | 83.3% (5/6) | 0.04696 | reject |
 
-The fine-tuned candidate is very fast on the development CPU, but its accuracy is unacceptable and it is especially unsafe for names and technical vocabulary. It was not wired into Vaani and Vaani was not reloaded to use it.
+The fine-tuned candidate is very fast on the development CPU and improved the six-term protected subset, but its overall word accuracy is unacceptable. The six-term subset is too small to override the WER result; it was not wired into Vaani and Vaani was not reloaded to use it.
 
 The first attempted fine-tune was also rejected after a loss-alignment bug was found; it is not a release candidate. The corrected script compares the model logits to the model-provided labels without an extra shift.
 
