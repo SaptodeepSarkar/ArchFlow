@@ -15,6 +15,7 @@ V5 is **not activated**. Vaani remains on the tested v2/cozy STT and v4 formatte
 The downloaded artifacts are user-local and are intentionally not committed:
 
 - Moonshine Streaming Tiny: `/home/saptodeep/.local/share/vaani/models/v5-stt-moonshine-tiny` (~170 MiB on disk).
+- Moonshine Streaming Small: `/home/saptodeep/.local/share/vaani/models/v5-stt-moonshine-small` (~560 MiB weights).
 - SmolLM2 360M base: `/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m` (~4.7 GiB including ONNX exports; PyTorch weights are ~724 MiB).
 - V5 formatter LoRA adapter: `/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-adapter` (~244 MiB including checkpoints).
 
@@ -46,9 +47,11 @@ The evaluation uses 100 clips held out from the same 1,000-row feedback selectio
 |---|---:|---:|---:|---:|---|
 | Existing v2/cozy control | 15.47% | 9.57% | 66.7% (4/6) | existing production path | pass/control |
 | Moonshine Tiny, untouched | 51.38% | 22.99% | 66.7% (4/6) | not recorded in this table | reject |
-| Moonshine V5 corrected fine-tune | 66.71% | 65.81% | 83.3% (5/6) | 0.04696 | reject |
+| Moonshine Small, untouched | 43.36% | 12.98% | 66.7% (4/6) | 0.10123 | reject |
+| Moonshine Tiny V5 corrected fine-tune | 66.71% | 65.81% | 83.3% (5/6) | 0.04696 | reject |
+| Moonshine Small V5 corrected fine-tune | 63.55% | 63.11% | 83.3% (5/6) | 0.11425 | reject |
 
-The fine-tuned candidate is very fast on the development CPU and improved the six-term protected subset, but its overall word accuracy is unacceptable. The six-term subset is too small to override the WER result; it was not wired into Vaani and Vaani was not reloaded to use it.
+The fine-tuned candidates are fast on the development CPU and improved the six-term protected subset, but both fine-tunes damaged general word accuracy. The six-term subset is too small to override the WER result; neither was wired into Vaani and Vaani was not reloaded to use either one.
 
 The first attempted fine-tune was also rejected after a loss-alignment bug was found; it is not a release candidate. The corrected script compares the model logits to the model-provided labels without an extra shift.
 

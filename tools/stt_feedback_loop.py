@@ -33,11 +33,54 @@ SR = 16_000
 
 
 def score(reference: str, hypothesis: str) -> dict:
-    import jiwer
-
     ref = reference.strip()
     hyp = hypothesis.strip()
-    distance = jiwer.process_words(ref, hyp)
+    try:
+        import jiwer
+        distance = jiwer.process_words(ref, hyp)
+        alignments = distance.alignments[0]
+        wer = distance.wer
+        substitutions = distance.substitutions
+        deletions = distance.deletions
+        insertions = distance.insertions
+    except ModuleNotFoundError:
+        # Keep evaluation usable in the lightweight runtime. This is the same
+        # unit-cost word edit distance used by jiwer, with a compact traceback.
+        ref_tokens, hyp_tokens = ref.split(), hyp.split()
+        rows = len(ref_tokens) + 1
+        cols = len(hyp_tokens) + 1
+        dp = [[0] * cols for _ in range(rows)]
+        op = [["equal"] * cols for _ in range(rows)]
+        for i in range(1, rows):
+            dp[i][0], op[i][0] = i, "delete"
+        for j in range(1, cols):
+            dp[0][j], op[0][j] = j, "insert"
+        for i in range(1, rows):
+            for j in range(1, cols):
+                if ref_tokens[i - 1] == hyp_tokens[j - 1]:
+                    dp[i][j], op[i][j] = dp[i - 1][j - 1], "equal"
+                else:
+                    choices = [(dp[i - 1][j - 1] + 1, "substitute"),
+                               (dp[i - 1][j] + 1, "delete"),
+                               (dp[i][j - 1] + 1, "insert")]
+                    dp[i][j], op[i][j] = min(choices, key=lambda item: item[0])
+        alignments = []
+        i, j = len(ref_tokens), len(hyp_tokens)
+        while i or j:
+            kind = op[i][j]
+            if kind == "equal":
+                alignments.append(("equal", i - 1, i, j - 1, j)); i -= 1; j -= 1
+            elif kind == "substitute":
+                alignments.append(("substitute", i - 1, i, j - 1, j)); i -= 1; j -= 1
+            elif kind == "delete":
+                alignments.append(("delete", i - 1, i, j, j)); i -= 1
+            else:
+                alignments.append(("insert", i, i, j - 1, j)); j -= 1
+        alignments.reverse()
+        substitutions = sum(kind == "substitute" for kind, *_ in alignments)
+        deletions = sum(kind == "delete" for kind, *_ in alignments)
+        insertions = sum(kind == "insert" for kind, *_ in alignments)
+        wer = (substitutions + deletions + insertions) / max(1, len(ref_tokens))
     words = max(1, len(ref.split()))
     protected = re.findall(
         r"(?:https?://\S+|/[\w./-]+|\b[A-Z][A-Z0-9]{1,}\b|\b\d+(?:\.\d+)?\b|Celsius|narcotics|acrobat|glioblastoma|pharmacokinetics|otorhinolaryngology)",
@@ -47,24 +90,28 @@ def score(reference: str, hypothesis: str) -> dict:
     ref_words = ref.split()
     hyp_words = hyp.split()
     errors = []
-    for chunk in distance.alignments[0]:
-        if chunk.type == "equal":
+    if 'distance' in locals():
+        chunks = [(chunk.type, chunk.ref_start_idx, chunk.ref_end_idx,
+                   chunk.hyp_start_idx, chunk.hyp_end_idx) for chunk in alignments]
+    else:
+        chunks = alignments
+    for kind, ref_start, ref_end, hyp_start, hyp_end in chunks:
+        if kind == "equal":
             continue
         errors.append({
-            "type": chunk.type,
-            "reference_words": ref_words[chunk.ref_start_idx:chunk.ref_end_idx],
-            "hypothesis_words": hyp_words[chunk.hyp_start_idx:chunk.hyp_end_idx],
-            "reference_position": chunk.ref_start_idx,
+            "type": kind,
+            "reference_words": ref_words[ref_start:ref_end],
+            "hypothesis_words": hyp_words[hyp_start:hyp_end],
+            "reference_position": ref_start,
         })
-    wer = distance.wer
     # This is an auditable reward for ranking candidates, not a claim that WER
     # alone captures speech quality. Missing critical terms receive extra cost.
     reward = max(-1.0, 1.0 - wer - 0.25 * len(missing))
     return {
         "wer": round(wer, 6),
-        "substitutions": distance.substitutions,
-        "deletions": distance.deletions,
-        "insertions": distance.insertions,
+        "substitutions": substitutions,
+        "deletions": deletions,
+        "insertions": insertions,
         "errors": errors,
         "protected_terms": protected,
         "missing_protected_terms": missing,

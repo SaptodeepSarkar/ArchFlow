@@ -10,12 +10,11 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import wave
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
 import torch
-from scipy.signal import resample_poly
 from transformers import (AutoProcessor, MoonshineStreamingForConditionalGeneration,
                           Seq2SeqTrainer, Seq2SeqTrainingArguments)
 
@@ -23,11 +22,23 @@ SR = 16_000
 
 
 def read_audio(path: str, augment: bool) -> np.ndarray:
-    audio, rate = sf.read(path, dtype="float32")
-    if audio.ndim > 1:
-        audio = audio.mean(axis=1)
+    with wave.open(path, "rb") as handle:
+        rate = handle.getframerate()
+        channels = handle.getnchannels()
+        width = handle.getsampwidth()
+        raw = handle.readframes(handle.getnframes())
+    if width == 2:
+        audio = np.frombuffer(raw, dtype="<i2").astype("float32") / 32768.0
+    elif width == 4:
+        audio = np.frombuffer(raw, dtype="<i4").astype("float32") / 2147483648.0
+    else:
+        raise ValueError(f"unsupported PCM width {width} in {path}")
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1)
     if rate != SR:
-        audio = resample_poly(audio, SR, rate).astype("float32")
+        new_len = max(1, round(len(audio) * SR / rate))
+        audio = np.interp(np.linspace(0, len(audio) - 1, new_len),
+                          np.arange(len(audio)), audio).astype("float32")
     if augment:
         if random.random() < 0.7:
             audio *= random.uniform(0.85, 1.15)
@@ -36,8 +47,11 @@ def read_audio(path: str, augment: bool) -> np.ndarray:
             audio = audio + noise
         if random.random() < 0.25 and len(audio) > SR:
             rate_factor = random.choice((0.94, 1.06))
-            changed = resample_poly(audio, int(100 * rate_factor), 100)
-            audio = resample_poly(changed, 100, int(100 * rate_factor))
+            new_len = max(1, round(len(audio) / rate_factor))
+            changed = np.interp(np.linspace(0, len(audio) - 1, new_len),
+                                np.arange(len(audio)), audio)
+            audio = np.interp(np.linspace(0, len(changed) - 1, len(audio)),
+                              np.arange(len(changed)), changed)
     return np.clip(audio, -1.0, 1.0).astype("float32")
 
 

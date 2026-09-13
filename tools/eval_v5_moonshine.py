@@ -6,11 +6,11 @@ import argparse
 import json
 import random
 import time
+import wave
 from pathlib import Path
 
-import soundfile as sf
+import numpy as np
 import torch
-from scipy.signal import resample_poly
 from transformers import AutoProcessor, MoonshineStreamingForConditionalGeneration
 
 from stt_feedback_loop import score
@@ -19,12 +19,24 @@ SR = 16_000
 
 
 def audio(path):
-    samples, rate = sf.read(path, dtype="float32")
-    if samples.ndim > 1:
-        samples = samples.mean(axis=1)
+    with wave.open(str(path), "rb") as handle:
+        rate = handle.getframerate()
+        channels = handle.getnchannels()
+        width = handle.getsampwidth()
+        raw = handle.readframes(handle.getnframes())
+    if width == 2:
+        samples = np.frombuffer(raw, dtype="<i2").astype("float32") / 32768.0
+    elif width == 4:
+        samples = np.frombuffer(raw, dtype="<i4").astype("float32") / 2147483648.0
+    else:
+        raise ValueError(f"unsupported PCM width {width} in {path}")
+    if channels > 1:
+        samples = samples.reshape(-1, channels).mean(axis=1)
     if rate != SR:
-        samples = resample_poly(samples, SR, rate).astype("float32")
-    return samples
+        new_len = max(1, round(len(samples) * SR / rate))
+        samples = np.interp(np.linspace(0, len(samples) - 1, new_len),
+                            np.arange(len(samples)), samples)
+    return samples.astype("float32")
 
 
 def main():
