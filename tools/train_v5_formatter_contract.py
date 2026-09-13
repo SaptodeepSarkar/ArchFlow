@@ -61,6 +61,7 @@ def main() -> None:
     ap.add_argument("--model", type=Path, default=Path("/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m"))
     ap.add_argument("--out", type=Path, default=Path("/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-adapter"))
     ap.add_argument("--steps", type=int, default=500)
+    ap.add_argument("--resume-from-checkpoint", type=Path, default=None)
     args = ap.parse_args()
 
     files = ["sft_grammar.jsonl", "sft_speech.jsonl", "sft_structure.jsonl",
@@ -114,7 +115,7 @@ def main() -> None:
         r=16, lora_alpha=32, lora_dropout=0.05,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         task_type="CAUSAL_LM"))
-    trainer.train()
+    trainer.train(resume_from_checkpoint=str(args.resume_from_checkpoint) if args.resume_from_checkpoint else None)
     trainer.save_model(str(args.out))
     tokenizer.save_pretrained(str(args.out))
     print(f"saved contract adapter: {args.out}")
