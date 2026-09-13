@@ -52,6 +52,7 @@ The evaluation uses 100 clips held out from the same 1,000-row feedback selectio
 | Existing v2/cozy control | 15.47% | 9.29% | 66.7% (4/6) | existing production path | pass/control |
 | Moonshine Tiny, untouched | 51.90% | not recorded | 66.7% (4/6) | 0.06069 | reject |
 | Moonshine Small, untouched | 43.36% | 12.98% | 66.7% (4/6) | 0.10123 | reject |
+| Moonshine Small + repository vocabulary bias | 43.31% | not recorded | 83.3% (5/6) | 0.10123 | reject |
 | Moonshine Tiny V5 corrected fine-tune | 66.71% | 65.81% | 83.3% (5/6) | 0.04696 | reject |
 | Moonshine Small V5 corrected fine-tune | 63.55% | 63.11% | 83.3% (5/6) | 0.11425 | reject |
 | Moonshine Small V5 BOS/EOS-aligned fine-tune | 16.12% | 14.18% | 66.7% (4/6) | 0.08924 | reject |
@@ -68,6 +69,12 @@ The complete 1,000-row audit is summarized in `docs/v5-feedback-1000-summary.jso
 An encoder-frozen decoder-only run was also rejected at 21.20% raw WER. Freezing the acoustic encoder protects general speech features, but decoder adaptation alone did not recover the base model's holdout accuracy.
 
 The sequence-distillation run used confirmed references as the primary target and the recorded v2 hypothesis as a 0.25-weight auxiliary target. It was rejected at 21.22% raw WER; the technique is implemented for future larger/cleaner teacher data, but did not beat v2 here.
+
+`tools/stt_context_bias.py` applies the repository vocabulary packs as a
+conservative fuzzy rescoring layer. On the same holdout it corrected `ifsi` to
+`IFSC`, improving mean WER from 43.36% to 43.31% and protected-term accuracy
+from 66.7% to 83.3%. This validates personalization, but does not make Small
+an overall V5 replacement.
 
 The logit-KD run added token-distribution KL loss against a frozen untouched
 Moonshine Small teacher at temperature 2.0 and weight 0.25. It was rejected at
