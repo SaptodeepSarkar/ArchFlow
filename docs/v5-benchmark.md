@@ -71,6 +71,8 @@ The first mixed-template V5 adapter produced valid contract JSON for **0/3** exa
 
 The longer 800-step contract SFT was completed from the reviewed contract set with the 12-case set held out. Its final adapter at `/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-800` scored **11/12 schema-valid** and **1/12 exact** on that held-out set. More steps did not solve operation selection, so the adapter is rejected and remains offline.
 
+A contract-only 500-step follow-up was also completed at `/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-only-500`. It scored **6/12 schema-valid** and **0/12 exact**, so simply increasing the contract-data ratio is not sufficient; the adapter is rejected.
+
 V5 formatter therefore remains an offline research adapter. The existing v4 formatter remains active. The next iteration should use a larger reviewed contract set, explicit list/emoji positives and negatives, token-level groundedness checks, and a stop-sequence-aware runtime.
 
 ## Re-run commands
