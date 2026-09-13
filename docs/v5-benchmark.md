@@ -95,6 +95,24 @@ No Android device benchmark was available in this run. Therefore V5 has no
 verified mobile CPU latency or mobile RAM result and cannot be declared safe
 to activate, even apart from its accuracy failures.
 
+## Android status
+
+The Android keyboard container builds successfully on 2026-09-14:
+
+```sh
+cd android
+./gradlew :app:assembleDebug --no-daemon
+```
+
+Result: `BUILD SUCCESSFUL` (Gradle 8.9, 33 tasks up to date). The generated
+debug APK is an installable IME shell, but it does **not** contain the V5
+Moonshine STT or SmolLM2 formatter. `VoicePipeline.kt` currently uses the
+Android on-device `SpeechRecognizer` when the device supplies one, and its
+cleanup path is conservative capitalization/spacing. The `SttEngine`,
+`PcmSttEngine`, and `CleanupEngine` interfaces are the integration seam for a
+future bundled quantized native engine. No Android V5 latency, RAM, or accuracy
+claim is made until that engine is bundled and measured on a physical device.
+
 The first attempted fine-tune was also rejected after a loss-alignment bug was found; it is not a release candidate. The corrected script compares the model logits to the model-provided labels without an extra shift.
 
 ## Formatter held-out result
