@@ -68,6 +68,21 @@ An encoder-frozen decoder-only run was also rejected at 21.20% raw WER. Freezing
 
 The sequence-distillation run used confirmed references as the primary target and the recorded v2 hypothesis as a 0.25-weight auxiliary target. It was rejected at 21.22% raw WER; the technique is implemented for future larger/cleaner teacher data, but did not beat v2 here.
 
+## Footprint measurements
+
+These are host measurements, not Android claims. They used the same 100-clip
+STT holdout and the 12-case formatter set:
+
+| Artifact | Disk usage | Peak host RSS | Host CPU latency |
+|---|---:|---:|---:|
+| Moonshine Tiny | 170 MiB | not measured | not measured |
+| Moonshine Small | 537 MiB | 1,559 MiB | RTF 0.1067 |
+| SmolLM2 360M + native V5 adapter | 4.7 GiB directory (PyTorch weights ~724 MiB) | 2,966 MiB | 2.68 s/case |
+
+No Android device benchmark was available in this run. Therefore V5 has no
+verified mobile CPU latency or mobile RAM result and cannot be declared safe
+to activate, even apart from its accuracy failures.
+
 The first attempted fine-tune was also rejected after a loss-alignment bug was found; it is not a release candidate. The corrected script compares the model logits to the model-provided labels without an extra shift.
 
 ## Formatter held-out result
