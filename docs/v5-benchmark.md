@@ -45,13 +45,15 @@ The evaluation uses 100 clips held out from the same 1,000-row feedback selectio
 
 | System | Raw WER | Normalized WER | Protected-term accuracy | CPU RTF | Promotion |
 |---|---:|---:|---:|---:|---|
-| Existing v2/cozy control | 15.47% | 9.57% | 66.7% (4/6) | existing production path | pass/control |
+| Existing v2/cozy control | 15.47% | 9.29% | 66.7% (4/6) | existing production path | pass/control |
 | Moonshine Tiny, untouched | 51.38% | 22.99% | 66.7% (4/6) | not recorded in this table | reject |
 | Moonshine Small, untouched | 43.36% | 12.98% | 66.7% (4/6) | 0.10123 | reject |
 | Moonshine Tiny V5 corrected fine-tune | 66.71% | 65.81% | 83.3% (5/6) | 0.04696 | reject |
 | Moonshine Small V5 corrected fine-tune | 63.55% | 63.11% | 83.3% (5/6) | 0.11425 | reject |
+| Moonshine Small V5 BOS/EOS-aligned fine-tune | 16.12% | 14.18% | 66.7% (4/6) | 0.08924 | reject |
+| Moonshine Small V5 aligned, LR 5e-6 | 17.28% | 14.82% | 66.7% (4/6) | 0.09445 | reject |
 
-The fine-tuned candidates are fast on the development CPU and improved the six-term protected subset, but both fine-tunes damaged general word accuracy. The six-term subset is too small to override the WER result; neither was wired into Vaani and Vaani was not reloaded to use either one.
+The first fine-tuned candidates were damaged by a decoder-target convention bug: Moonshine right-shifts labels and inserts BOS, while the original script passed tokenizer BOS too. The corrected BOS/EOS-aligned run removed empty/catastrophic outputs and reached near-control raw WER, but normalized WER remains worse than v2. The six-term subset is too small to override the WER result; no V5 candidate was wired into Vaani and Vaani was not reloaded to use one.
 
 The first attempted fine-tune was also rejected after a loss-alignment bug was found; it is not a release candidate. The corrected script compares the model logits to the model-provided labels without an extra shift.
 

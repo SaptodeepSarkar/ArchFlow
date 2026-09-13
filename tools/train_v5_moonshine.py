@@ -61,6 +61,16 @@ def prepare(rows, processor, augment):
         audio = read_audio(row["audio_path"], augment)
         features = processor(audio, sampling_rate=SR)
         labels = processor.tokenizer(row["text"]).input_ids
+        # The model's forward() right-shifts labels and inserts BOS itself.
+        # Tokenizer output already contains BOS, so remove that copy or the
+        # decoder learns a duplicated BOS and often emits an empty transcript.
+        if labels and labels[0] == processor.tokenizer.bos_token_id:
+            labels = labels[1:]
+        # Moonshine's tokenizer emits BOS but not EOS. Without an explicit
+        # stop target, fine-tuned generation can continue into repeated or
+        # unrelated text even when teacher-forced loss looks good.
+        if labels[-1] != processor.tokenizer.eos_token_id:
+            labels = labels + [processor.tokenizer.eos_token_id]
         reward = float(row.get("feedback_reward", 1.0))
         # Hard/low-reward samples get a larger gradient, capped for stability.
         weight = min(2.0, max(0.75, 1.0 + 0.75 * (1.0 - reward)))
@@ -118,6 +128,7 @@ def main():
     ap.add_argument("--steps", type=int, default=500)
     ap.add_argument("--batch-size", type=int, default=2)
     ap.add_argument("--grad-accum", type=int, default=8)
+    ap.add_argument("--learning-rate", type=float, default=2e-5)
     args = ap.parse_args()
 
     rows = [json.loads(line) for line in args.manifest.read_text().splitlines() if line.strip()]
@@ -138,7 +149,7 @@ def main():
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=max(1, args.batch_size // 2),
         gradient_accumulation_steps=args.grad_accum,
-        learning_rate=2e-5, warmup_steps=25, lr_scheduler_type="cosine",
+        learning_rate=args.learning_rate, warmup_steps=25, lr_scheduler_type="cosine",
         fp16=True, gradient_checkpointing=True,
         eval_strategy="steps", eval_steps=100, save_steps=100,
         save_total_limit=2, logging_steps=10, report_to="none",
