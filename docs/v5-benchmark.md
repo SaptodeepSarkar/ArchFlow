@@ -35,6 +35,8 @@ Reproducible project scripts:
 - `tools/eval_v5_moonshine.py`: same shuffled held-out set for v2/base-V5/fine-tuned-V5 comparison.
 - `tools/train_v5_formatter.py`: LoRA SFT over grammar, speech, intent, structure, and v4 contract data.
 - `tools/eval_v5_formatter.py`: exact contract and protected-token validation.
+- `tools/v5_contract_guard.py`: allowed-operation enforcement, explicit emoji/list
+  handling, grounding checks, and conservative transcript fallback.
 - `tools/train_v5_formatter_contract.py`: contract-focused LoRA training with assistant-only loss masking and an explicit EOS boundary.
 - `tools/summarize_stt_feedback.py`: transcript-free aggregate of the complete
   1,000-row scored feedback report.
@@ -72,6 +74,8 @@ The first mixed-template V5 adapter produced valid contract JSON for **0/3** exa
 The longer 800-step contract SFT was completed from the reviewed contract set with the 12-case set held out. Its final adapter at `/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-800` scored **11/12 schema-valid** and **1/12 exact** on that held-out set. More steps did not solve operation selection, so the adapter is rejected and remains offline.
 
 A contract-only 500-step follow-up was also completed at `/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-only-500`. It scored **6/12 schema-valid** and **0/12 exact**, so simply increasing the contract-data ratio is not sufficient; the adapter is rejected.
+
+Using the corrected native-template adapter plus `tools/v5_contract_guard.py`, the same held-out set scores **12/12 schema-valid** and **3/12 exact**. The guard prevents action-like operation names and keeps unsafe or weakly grounded output as formatted transcript data, but the exact semantic score is still below the promotion gate.
 
 V5 formatter therefore remains an offline research adapter. The existing v4 formatter remains active. The next iteration should use a larger reviewed contract set, explicit list/emoji positives and negatives, token-level groundedness checks, and a stop-sequence-aware runtime.
 

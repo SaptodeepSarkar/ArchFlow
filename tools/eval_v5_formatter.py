@@ -12,6 +12,7 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from v5_formatter_prompt import prompt as native_prompt
+from v5_contract_guard import repair
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "training/cleanup-llm/data"
@@ -39,6 +40,7 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--max-new-tokens", type=int, default=180)
     ap.add_argument("--template", choices=["legacy", "contract-v2"], default="legacy")
+    ap.add_argument("--guard", action="store_true", help="apply the conservative contract guard")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
 
@@ -56,11 +58,17 @@ def main() -> None:
             generated = model.generate(**inputs, max_new_tokens=args.max_new_tokens, do_sample=False,
                                        pad_token_id=tokenizer.eos_token_id)
         text = tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+        if args.guard:
+            text = repair(text, row["input"])
         validation = parse_and_validate(text, row["input"])
         expected = row.get("output", "")
+        try:
+            exact = json.loads(text) == json.loads(expected)
+        except json.JSONDecodeError:
+            exact = text == expected
         results.append({"input": row["input"], "expected": expected, "generated": text,
                         "valid": validation.valid, "reason": validation.reason,
-                        "exact": text == expected})
+                        "exact": exact})
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text("\n".join(json.dumps(item, ensure_ascii=False) for item in results) + "\n")
     valid = sum(item["valid"] for item in results)
