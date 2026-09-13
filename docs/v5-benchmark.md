@@ -36,6 +36,8 @@ Reproducible project scripts:
 - `tools/train_v5_formatter.py`: LoRA SFT over grammar, speech, intent, structure, and v4 contract data.
 - `tools/eval_v5_formatter.py`: exact contract and protected-token validation.
 - `tools/train_v5_formatter_contract.py`: contract-focused LoRA training with assistant-only loss masking and an explicit EOS boundary.
+- `tools/summarize_stt_feedback.py`: transcript-free aggregate of the complete
+  1,000-row scored feedback report.
 
 No PPO was used for STT. The useful STT “RLHF” signal was applied as reward-weighted supervised loss and error/hard-example mining. This avoids reinforcing bad transcripts as if they were correct. The formatter was SFT-only in this run; DPO is deferred until contract-valid outputs exist.
 
@@ -52,8 +54,11 @@ The evaluation uses 100 clips held out from the same 1,000-row feedback selectio
 | Moonshine Small V5 corrected fine-tune | 63.55% | 63.11% | 83.3% (5/6) | 0.11425 | reject |
 | Moonshine Small V5 BOS/EOS-aligned fine-tune | 16.12% | 14.18% | 66.7% (4/6) | 0.08924 | reject |
 | Moonshine Small V5 aligned, LR 5e-6 | 17.28% | 14.82% | 66.7% (4/6) | 0.09445 | reject |
+| Moonshine Small V5 conservative 75-step, LR 5e-6 | 24.73% | not recorded | not recorded | 0.14027 | reject |
 
 The first fine-tuned candidates were damaged by a decoder-target convention bug: Moonshine right-shifts labels and inserts BOS, while the original script passed tokenizer BOS too. The corrected BOS/EOS-aligned run removed empty/catastrophic outputs and reached near-control raw WER, but normalized WER remains worse than v2. The six-term subset is too small to override the WER result; no V5 candidate was wired into Vaani and Vaani was not reloaded to use one.
+
+The complete 1,000-row audit is summarized in `docs/v5-feedback-1000-summary.json`. It contains 9,002 reference words, 739 word-error events, total WER 10.23%, mean row WER 10.17%, mean reward 0.8953, and 83.78% protected-term accuracy. The 75-step experiment was also rejected: shortening the run did not preserve the holdout (24.73% raw WER), and it was slower on the host CPU than the aligned 300-step candidate.
 
 The first attempted fine-tune was also rejected after a loss-alignment bug was found; it is not a release candidate. The corrected script compares the model logits to the model-provided labels without an extra shift.
 

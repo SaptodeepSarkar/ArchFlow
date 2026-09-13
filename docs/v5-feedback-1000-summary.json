@@ -1,0 +1,19 @@
+{
+  "rows": 1000,
+  "reference_words": 9002,
+  "word_errors": 739,
+  "wer_from_totals": 0.102311,
+  "mean_row_wer": 0.101694,
+  "substitutions": 751,
+  "deletions": 91,
+  "insertions": 79,
+  "substitution_rate": 0.083426,
+  "deletion_rate": 0.010109,
+  "insertion_rate": 0.008776,
+  "mean_reward": 0.895306,
+  "protected_terms": 74,
+  "protected_terms_missing": 12,
+  "protected_term_accuracy": 0.837838,
+  "reference_confirmed_rows": 1000,
+  "source_report": "/home/saptodeep/Projects/Cozy/stt-finetune/data/stt_feedback/feedback_train_1000.jsonl"
+}
