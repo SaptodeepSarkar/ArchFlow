@@ -55,28 +55,35 @@ def read_audio(path: str, augment: bool) -> np.ndarray:
     return np.clip(audio, -1.0, 1.0).astype("float32")
 
 
-def prepare(rows, processor, augment):
+def prepare(rows, processor, augment, distill_weight=0.0):
     output = []
     for row in rows:
+        variants = [(row["text"], 1.0)]
+        teacher = str(row.get("baseline_hypothesis", "")).strip()
+        if distill_weight > 0 and teacher and teacher != row["text"].strip():
+            # Sequence-level distillation: the stronger v2 transcript is an
+            # auxiliary target, never a replacement for the confirmed label.
+            variants.append((teacher, distill_weight))
         audio = read_audio(row["audio_path"], augment)
         features = processor(audio, sampling_rate=SR)
-        labels = processor.tokenizer(row["text"]).input_ids
-        # The model's forward() right-shifts labels and inserts BOS itself.
-        # Tokenizer output already contains BOS, so remove that copy or the
-        # decoder learns a duplicated BOS and often emits an empty transcript.
-        if labels and labels[0] == processor.tokenizer.bos_token_id:
-            labels = labels[1:]
-        # Moonshine's tokenizer emits BOS but not EOS. Without an explicit
-        # stop target, fine-tuned generation can continue into repeated or
-        # unrelated text even when teacher-forced loss looks good.
-        if labels[-1] != processor.tokenizer.eos_token_id:
-            labels = labels + [processor.tokenizer.eos_token_id]
-        reward = float(row.get("feedback_reward", 1.0))
-        # Hard/low-reward samples get a larger gradient, capped for stability.
-        weight = min(2.0, max(0.75, 1.0 + 0.75 * (1.0 - reward)))
-        output.append({"input_values": features["input_values"][0],
-                       "attention_mask": features["attention_mask"][0],
-                       "labels": labels, "sample_weight": weight})
+        for target_text, target_weight in variants:
+            labels = processor.tokenizer(target_text).input_ids
+            # The model's forward() right-shifts labels and inserts BOS itself.
+            # Tokenizer output already contains BOS, so remove that copy or the
+            # decoder learns a duplicated BOS and often emits an empty transcript.
+            if labels and labels[0] == processor.tokenizer.bos_token_id:
+                labels = labels[1:]
+            # Moonshine's tokenizer emits BOS but not EOS. Without an explicit
+            # stop target, fine-tuned generation can continue into repeated or
+            # unrelated text even when teacher-forced loss looks good.
+            if labels[-1] != processor.tokenizer.eos_token_id:
+                labels = labels + [processor.tokenizer.eos_token_id]
+            reward = float(row.get("feedback_reward", 1.0))
+            # Hard/low-reward samples get a larger gradient, capped for stability.
+            weight = min(2.0, max(0.75, 1.0 + 0.75 * (1.0 - reward))) * target_weight
+            output.append({"input_values": features["input_values"][0],
+                           "attention_mask": features["attention_mask"][0],
+                           "labels": labels, "sample_weight": weight})
     return output
 
 
@@ -129,6 +136,8 @@ def main():
     ap.add_argument("--batch-size", type=int, default=2)
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--learning-rate", type=float, default=2e-5)
+    ap.add_argument("--distill-weight", type=float, default=0.0,
+                    help="add baseline_hypothesis targets at this relative loss weight")
     ap.add_argument(
         "--freeze-encoder",
         action="store_true",
@@ -142,7 +151,7 @@ def main():
     train_rows = rows[:-100]
     processor = AutoProcessor.from_pretrained(args.model)
     print(f"train={len(train_rows)} eval={len(eval_rows)} model={args.model}", flush=True)
-    train = prepare(train_rows, processor, augment=True)
+    train = prepare(train_rows, processor, augment=True, distill_weight=args.distill_weight)
     evaluation = prepare(eval_rows, processor, augment=False)
     # Keep master weights in FP32; Seq2SeqTrainer/GradScaler owns the FP16
     # autocast and gradient scaling. Loading FP16 weights here causes the
