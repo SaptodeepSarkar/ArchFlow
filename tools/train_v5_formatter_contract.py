@@ -62,6 +62,11 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=Path("/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-adapter"))
     ap.add_argument("--steps", type=int, default=500)
     ap.add_argument("--resume-from-checkpoint", type=Path, default=None)
+    ap.add_argument(
+        "--contract-only",
+        action="store_true",
+        help="train only on reviewed contract examples instead of mixing broad prose data",
+    )
     args = ap.parse_args()
 
     files = ["sft_grammar.jsonl", "sft_speech.jsonl", "sft_structure.jsonl",
@@ -73,7 +78,7 @@ def main() -> None:
     other_rows = [row for name in files[:-1] for row in load(name)]
     # Put safety-contract examples first and repeat them so a short run sees
     # the exact JSON/list/emoji/protected-term behavior before broad prose.
-    source_rows = contract_rows * 200 + other_rows
+    source_rows = contract_rows * 200 if args.contract_only else contract_rows * 200 + other_rows
     rows = []
     for row in source_rows:
         target = json.dumps(canonical(row), ensure_ascii=False, separators=(",", ":"))
