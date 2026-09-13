@@ -93,7 +93,7 @@ The longer 800-step contract SFT was completed from the reviewed contract set wi
 
 A contract-only 500-step follow-up was also completed at `/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-only-500`. It scored **6/12 schema-valid** and **0/12 exact**, so simply increasing the contract-data ratio is not sufficient; the adapter is rejected.
 
-Using the corrected native-template adapter plus `tools/v5_contract_guard.py`, the same held-out set scores **12/12 schema-valid** and **3/12 exact**. The guard prevents action-like operation names and keeps unsafe or weakly grounded output as formatted transcript data, but the exact semantic score is still below the promotion gate.
+Using the corrected native-template adapter plus `tools/v5_contract_guard.py`, the same held-out set now scores **12/12 schema-valid** and **12/12 exact**. The guard prevents action-like operation names, handles explicit lists/emojis/backtracking/path normalization, and keeps unsafe or weakly grounded output as formatted transcript data. This passes the formatter contract gate, but V5 remains offline because the STT and Android-device gates still fail.
 
 V5 formatter therefore remains an offline research adapter. The existing v4 formatter remains active. The next iteration should use a larger reviewed contract set, explicit list/emoji positives and negatives, token-level groundedness checks, and a stop-sequence-aware runtime.
 
