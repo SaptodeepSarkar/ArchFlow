@@ -59,6 +59,7 @@ The evaluation uses 100 clips held out from the same 1,000-row feedback selectio
 | Moonshine Small V5 conservative 75-step, LR 5e-6 | 24.73% | not recorded | not recorded | 0.14027 | reject |
 | Moonshine Small V5 decoder-only, encoder frozen, 150 steps | 21.20% | not recorded | 66.7% (4/6) | 0.09893 | reject |
 | Moonshine Small V5 sequence-distilled, teacher weight 0.25, 150 steps | 21.22% | not recorded | 66.7% (4/6) | 0.12458 | reject |
+| Moonshine Small V5 logit-KD, teacher weight 0.25, 75 steps | 32.64% | not recorded | 83.3% (5/6) | 0.09297 | reject |
 
 The first fine-tuned candidates were damaged by a decoder-target convention bug: Moonshine right-shifts labels and inserts BOS, while the original script passed tokenizer BOS too. The corrected BOS/EOS-aligned run removed empty/catastrophic outputs and reached near-control raw WER, but normalized WER remains worse than v2. The six-term subset is too small to override the WER result; no V5 candidate was wired into Vaani and Vaani was not reloaded to use one.
 
@@ -67,6 +68,10 @@ The complete 1,000-row audit is summarized in `docs/v5-feedback-1000-summary.jso
 An encoder-frozen decoder-only run was also rejected at 21.20% raw WER. Freezing the acoustic encoder protects general speech features, but decoder adaptation alone did not recover the base model's holdout accuracy.
 
 The sequence-distillation run used confirmed references as the primary target and the recorded v2 hypothesis as a 0.25-weight auxiliary target. It was rejected at 21.22% raw WER; the technique is implemented for future larger/cleaner teacher data, but did not beat v2 here.
+
+The logit-KD run added token-distribution KL loss against a frozen untouched
+Moonshine Small teacher at temperature 2.0 and weight 0.25. It was rejected at
+32.64% raw WER (one empty output), despite 83.3% protected-term accuracy.
 
 ## Footprint measurements
 

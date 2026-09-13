@@ -109,6 +109,12 @@ class Collator:
 
 
 class WeightedTrainer(Seq2SeqTrainer):
+    def __init__(self, *args, teacher_model=None, kd_weight=0.0, kd_temperature=2.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.teacher_model = teacher_model
+        self.kd_weight = kd_weight
+        self.kd_temperature = kd_temperature
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         weights = inputs.pop("sample_weight").to(model.device)
         labels = inputs["labels"]
@@ -124,6 +130,19 @@ class WeightedTrainer(Seq2SeqTrainer):
         mask = labels.ne(-100)
         per_example = (token_loss * mask).sum(1) / mask.sum(1).clamp_min(1)
         loss = (per_example * weights).sum() / weights.sum().clamp_min(1e-6)
+        if self.teacher_model is not None and self.kd_weight > 0:
+            self.teacher_model.to(model.device)
+            self.teacher_model.eval()
+            with torch.no_grad():
+                teacher_logits = self.teacher_model(**inputs).logits
+            temperature = self.kd_temperature
+            student_log_probs = torch.log_softmax(logits / temperature, dim=-1)
+            teacher_probs = torch.softmax(teacher_logits / temperature, dim=-1)
+            kd_tokens = torch.nn.functional.kl_div(
+                student_log_probs, teacher_probs, reduction="none"
+            ).sum(-1)
+            kd_loss = (kd_tokens * mask).sum() / mask.sum().clamp_min(1)
+            loss = loss + self.kd_weight * (temperature ** 2) * kd_loss
         return (loss, outputs) if return_outputs else loss
 
 
@@ -138,6 +157,9 @@ def main():
     ap.add_argument("--learning-rate", type=float, default=2e-5)
     ap.add_argument("--distill-weight", type=float, default=0.0,
                     help="add baseline_hypothesis targets at this relative loss weight")
+    ap.add_argument("--kd-weight", type=float, default=0.0,
+                    help="logit-KL weight against a frozen copy of the base model")
+    ap.add_argument("--kd-temperature", type=float, default=2.0)
     ap.add_argument(
         "--freeze-encoder",
         action="store_true",
@@ -165,6 +187,14 @@ def main():
         for parameter in model.model.encoder.parameters():
             parameter.requires_grad = False
         print("freeze_encoder=true", flush=True)
+    teacher_model = None
+    if args.kd_weight > 0:
+        teacher_model = MoonshineStreamingForConditionalGeneration.from_pretrained(args.model)
+        teacher_model.config.use_cache = False
+        for parameter in teacher_model.parameters():
+            parameter.requires_grad = False
+        teacher_model.eval()
+        print(f"logit_kd=true weight={args.kd_weight} temperature={args.kd_temperature}", flush=True)
     training = Seq2SeqTrainingArguments(
         output_dir=str(args.out), max_steps=args.steps,
         per_device_train_batch_size=args.batch_size,
@@ -178,7 +208,9 @@ def main():
     )
     trainer = WeightedTrainer(model=model, args=training,
                               train_dataset=train, eval_dataset=evaluation,
-                              data_collator=Collator(processor), processing_class=processor)
+                              data_collator=Collator(processor), processing_class=processor,
+                              teacher_model=teacher_model, kd_weight=args.kd_weight,
+                              kd_temperature=args.kd_temperature)
     trainer.train()
     trainer.save_model(str(args.out))
     processor.save_pretrained(str(args.out))
