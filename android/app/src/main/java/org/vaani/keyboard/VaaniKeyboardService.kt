@@ -8,15 +8,26 @@ import android.graphics.Paint
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.text.InputType
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.view.View
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
+import android.view.WindowInsets
+import android.view.textservice.SpellCheckerSession
+import android.view.textservice.SuggestionsInfo
+import android.view.textservice.TextInfo
+import android.view.textservice.TextServicesManager
+import java.util.Locale
 import android.widget.*
 
 private class Wave(context: Context) : View(context) {
     private val levels = FloatArray(40)
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Ui.ink; strokeCap = Paint.Cap.ROUND }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Ui(context).ink; strokeCap = Paint.Cap.ROUND }
     fun push(level: Float) {
         for (i in 0 until levels.lastIndex) levels[i] = levels[i + 1]
         levels[levels.lastIndex] = ((level + 2f) / 12f).coerceIn(0f, 1f)
@@ -46,11 +57,45 @@ class VaaniKeyboardService : InputMethodService() {
     private val handler = Handler(Looper.getMainLooper())
     private var holdStart: Runnable? = null
     private lateinit var status: TextView
+    private lateinit var keyboardBody: LinearLayout
+    private lateinit var suggestionBar: LinearLayout
+    private var spellSession: SpellCheckerSession? = null
+    private var requestedPrefix = ""
+    private var deleteHold: Runnable? = null
+    private val spellListener = object : SpellCheckerSession.SpellCheckerSessionListener {
+        override fun onGetSuggestions(results: Array<SuggestionsInfo>) {
+            val suggestions = results.flatMap { info ->
+                (0 until info.suggestionsCount).map { info.getSuggestionAt(it) }
+            }.filter { it.isNotBlank() && !it.equals(requestedPrefix, true) }.distinct().take(3)
+            handler.post {
+                if (::suggestionBar.isInitialized && requestedPrefix.isNotBlank() && suggestions.isNotEmpty()) renderSuggestionChips(suggestions)
+            }
+        }
+        override fun onGetSentenceSuggestions(results: Array<android.view.textservice.SentenceSuggestionsInfo>) = Unit
+    }
+    override fun onCreate() {
+        super.onCreate()
+        val manager = getSystemService(TEXT_SERVICES_MANAGER_SERVICE) as TextServicesManager
+        spellSession = manager.newSpellCheckerSession(null, Locale.getDefault(), spellListener, true)
+    }
+    private lateinit var wave: Wave
+    private lateinit var cancel: Button
     private val timeout = Runnable { cancelVoice(); showKeys("Speech timed out. Hold Send to retry.") }
 
     override fun onEvaluateFullscreenMode() = false
     override fun onCreateInputView(): View {
-        root = ui.column().apply { setPadding(ui.dp(4), ui.dp(6), ui.dp(4), ui.dp(8)) }
+        root = ui.keyboardColumn().apply {
+            setPadding(ui.dp(6), ui.dp(6), ui.dp(6), ui.dp(8))
+            setOnApplyWindowInsetsListener { view, insets ->
+                val nav = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+                } else {
+                    @Suppress("DEPRECATION") insets.systemWindowInsetBottom
+                }
+                view.setPadding(ui.dp(6), ui.dp(6), ui.dp(6), ui.dp(8) + nav)
+                insets
+            }
+        }
         showKeys()
         return root
     }
@@ -61,28 +106,62 @@ class VaaniKeyboardService : InputMethodService() {
     }
     private fun showKeys(message: String = "Vanni · hold Send to speak") {
         root.removeAllViews()
-        root.addView(ui.label(message, 13f))
-        if (!prefs.getBoolean("keyboard_guide", false)) {
-            root.addView(ui.label("Hold Send while speaking. Release to clean and insert your text. Tap Cancel while recording to discard it.", 14f))
-            root.addView(ui.button("Got it") { prefs.edit().putBoolean("keyboard_guide", true).apply(); showKeys() })
+        status = TextView(this).apply {
+            text = message; textSize = 12f; setTextColor(ui.palette.muted)
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(ui.dp(10), 0, ui.dp(10), 0)
         }
-        val rows = if (symbols) listOf("1234567890", "@#₹%&*()-", "!?/:;,.") else listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
-        rows.forEach { chars ->
-            val row = LinearLayout(this)
-            chars.forEach { c -> key(row, if (shifted && !symbols) c.uppercase() else c.toString()) {
-                currentInputConnection?.commitText(if (shifted && !symbols) c.uppercase() else c.toString(), 1)
-            } }
-            root.addView(row)
+        root.addView(status, LinearLayout.LayoutParams(-1, ui.dp(26)))
+        suggestionBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        root.addView(suggestionBar, LinearLayout.LayoutParams(-1, 0))
+        wave = Wave(this).apply { visibility = View.GONE }
+        root.addView(wave, LinearLayout.LayoutParams(-1, ui.dp(88)))
+        cancel = ui.key("Cancel") { cancelVoice(); showKeys("Dictation cancelled") }.apply { visibility = View.GONE }
+        root.addView(cancel, LinearLayout.LayoutParams(-1, ui.dp(42)).apply { bottomMargin = ui.dp(4) })
+        keyboardBody = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(keyboardBody)
+        if (!prefs.getBoolean("keyboard_guide", false)) {
+            keyboardBody.addView(ui.label("Hold Send while speaking. Release to clean and insert your text.", 13f))
+            keyboardBody.addView(ui.key("Got it") { prefs.edit().putBoolean("keyboard_guide", true).apply(); showKeys() }, LinearLayout.LayoutParams(-1, ui.dp(40)))
+        }
+        val inputType = currentInputEditorInfo?.inputType ?: 0
+        val numberField = (inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_NUMBER
+        if (numberField) {
+            listOf("123", "456", "789").forEach(::addCharacterRow)
+        } else if (symbols) {
+            listOf("1234567890", "@#₹%&*()-", "!?/:;,.\"'").forEach(::addCharacterRow)
+        } else {
+            addCharacterRow("qwertyuiop")
+            addCharacterRow("asdfghjkl")
+            val thirdRow = LinearLayout(this)
+            iconControlKey(thirdRow, R.drawable.ic_shift, "Shift", 1.25f) { shifted = !shifted; showKeys() }
+            "zxcvbnm".forEach { characterKey(thirdRow, it) }
+            val backspace = controlKey(thirdRow, "⌫", 1.25f) { delete() }
+            enableRepeatDelete(backspace)
+            keyboardBody.addView(thirdRow)
         }
         val row = LinearLayout(this)
-        key(row, if (shifted) "⇧ ON" else "⇧") { shifted = !shifted; showKeys() }
-        key(row, if (symbols) "ABC" else "?123") { symbols = !symbols; showKeys() }
-        key(row, "Space", 2f) { currentInputConnection?.commitText(" ", 1) }
-        key(row, "⌫") {
-            val ic = currentInputConnection
-            if (!ic?.getSelectedText(0).isNullOrEmpty()) ic?.commitText("", 1) else ic?.deleteSurroundingTextInCodePoints(1, 0)
+        if (numberField) {
+            key(row, ".") { commit(".") }
+            key(row, "0", 2f) { commit("0") }
+        } else {
+            controlKey(row, if (symbols) "ABC" else "?123", 1.25f) { symbols = !symbols; showKeys() }
+            key(row, ",") { commit(",") }
+            val space = key(row, "Space", 4f) { commit(" ") }
+            enableCursorScrub(space)
+            key(row, ".") { commit(".") }
         }
-        val send = key(row, "Send") { }
+        if (numberField) {
+            val backspace = controlKey(row, "⌫", 1.2f) { delete() }
+            enableRepeatDelete(backspace)
+        }
+        else key(row, "⌨") { (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showInputMethodPicker() }
+        val send = sendKey(row, "↑", 1.25f) { }.apply {
+            text = ""
+            setCompoundDrawablesWithIntrinsicBounds(0, R.drawable.ic_send, 0, 0)
+            gravity = android.view.Gravity.CENTER
+            contentDescription = "Hold to dictate; release to insert"
+        }
         send.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -102,14 +181,172 @@ class VaaniKeyboardService : InputMethodService() {
                 else -> true
             }
         }
-        root.addView(row)
-        root.addView(ui.button("Switch keyboard") { (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showInputMethodPicker() })
+        keyboardBody.addView(row)
+        showSuggestions()
+    }
+    private fun addCharacterRow(chars: String) {
+        val row = LinearLayout(this)
+        chars.forEach { characterKey(row, it) }
+        keyboardBody.addView(row)
+    }
+    private fun delete() {
+        val ic = currentInputConnection
+        if (!ic?.getSelectedText(0).isNullOrEmpty()) ic?.commitText("", 1)
+        else ic?.deleteSurroundingTextInCodePoints(1, 0)
+        showSuggestions()
+    }
+    private fun enableRepeatDelete(button: Button) {
+        button.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    delete()
+                    deleteHold = object : Runnable {
+                        override fun run() {
+                            delete()
+                            handler.postDelayed(this, 55)
+                        }
+                    }
+                    handler.postDelayed(deleteHold!!, 360)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    deleteHold?.let(handler::removeCallbacks)
+                    deleteHold = null
+                    true
+                }
+                else -> true
+            }
+        }
+    }
+    private fun enableCursorScrub(button: Button) {
+        var downX = 0f
+        var start = -1
+        var moved = false
+        button.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    start = currentInputConnection?.getExtractedText(null, 0)?.selectionStart ?: -1
+                    moved = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (start >= 0) {
+                        val steps = ((event.x - downX) / ui.dp(14).toFloat()).toInt()
+                        if (steps != 0) {
+                            val length = currentInputConnection?.getExtractedText(null, 0)?.text?.length ?: start
+                            currentInputConnection?.setSelection((start + steps).coerceIn(0, length), (start + steps).coerceIn(0, length))
+                            moved = true
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!moved) commit(" ")
+                    true
+                }
+                else -> true
+            }
+        }
+    }
+    private fun characterKey(row: LinearLayout, character: Char) {
+        val number = "1234567890".getOrNull("qwertyuiop".indexOf(character.lowercaseChar()))
+        val shown = if (shifted && !symbols) character.uppercaseChar().toString() else character.toString()
+        val button = key(row, shown) { }
+        if (number != null && !symbols) {
+            val label = SpannableString("$shown  $number")
+            label.setSpan(RelativeSizeSpan(.55f), shown.length + 2, label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            label.setSpan(ForegroundColorSpan(ui.palette.muted), shown.length + 2, label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            button.text = label
+        }
+        if (number == null || symbols) {
+            button.setOnClickListener { commit(shown) }
+            return
+        }
+        var longPressed = false
+        var hold: Runnable? = null
+        button.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    longPressed = false
+                    hold = Runnable {
+                        longPressed = true
+                        commit(number.toString())
+                    }.also { handler.postDelayed(it, 360) }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    hold?.let(handler::removeCallbacks)
+                    if (!longPressed) commit(shown)
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> { hold?.let(handler::removeCallbacks); true }
+                else -> true
+            }
+        }
+    }
+    private fun commit(value: String) {
+        currentInputConnection?.commitText(value, 1)
+        handler.post { if (::suggestionBar.isInitialized) showSuggestions() }
+    }
+    private fun showSuggestions() {
+        val before = currentInputConnection?.getTextBeforeCursor(72, 0)?.toString().orEmpty()
+        val prefix = before.takeLastWhile { it.isLetter() || it == '\'' }.lowercase()
+        if (prefix.isEmpty()) {
+            requestedPrefix = ""
+            suggestionBar.removeAllViews()
+            suggestionBar.layoutParams = suggestionBar.layoutParams.apply { height = 0 }
+            return
+        }
+        requestedPrefix = prefix
+        val fallback = listOf("Vanni", "voice", "very", "please", "thanks", "tomorrow", "today", "message", "meeting", "because", "keyboard", "cleanup", "speech", "send", "write")
+            .filter { it.startsWith(prefix, true) && !it.equals(prefix, true) }.take(3)
+        renderSuggestionChips(fallback)
+        spellSession?.getSuggestions(TextInfo(prefix), 3)
+    }
+    private fun renderSuggestionChips(candidates: List<String>) {
+        suggestionBar.removeAllViews()
+        suggestionBar.layoutParams = suggestionBar.layoutParams.apply { height = if (candidates.isEmpty()) 0 else ui.dp(38) }
+        candidates.forEach { candidate ->
+            val button = ui.key(candidate) {
+                if (requestedPrefix.isNotEmpty()) currentInputConnection?.deleteSurroundingText(requestedPrefix.length, 0)
+                commit("$candidate ")
+            }.apply {
+                textSize = 14f
+                contentDescription = "Insert $candidate"
+            }
+            suggestionBar.addView(button, LinearLayout.LayoutParams(0, ui.dp(34), 1f).apply {
+                setMargins(ui.dp(2), ui.dp(1), ui.dp(2), ui.dp(1))
+            })
+        }
     }
     private fun key(row: LinearLayout, text: String, weight: Float = 1f, action: () -> Unit): Button {
-        val button = ui.button(text, action).apply {
-            textSize = 14f; minWidth = 0; minimumWidth = 0; setPadding(0, ui.dp(8), 0, ui.dp(8))
+        val button = ui.key(text, action).apply {
+            textSize = 16f; minWidth = 0; minimumWidth = 0; minHeight = ui.dp(40); minimumHeight = ui.dp(40); setPadding(0, 0, 0, 0)
         }
-        row.addView(button, LinearLayout.LayoutParams(0, -2, weight).apply { setMargins(ui.dp(2), ui.dp(2), ui.dp(2), ui.dp(2)) })
+        row.addView(button, LinearLayout.LayoutParams(0, ui.dp(34), weight).apply { gravity = android.view.Gravity.CENTER_VERTICAL; setMargins(ui.dp(2), ui.dp(2), ui.dp(2), ui.dp(2)) })
+        return button
+    }
+    private fun controlKey(row: LinearLayout, text: String, weight: Float = 1f, action: () -> Unit): Button {
+        val button = ui.controlKey(text, action).apply {
+            textSize = 15f; minWidth = 0; minimumWidth = 0; minHeight = ui.dp(40); minimumHeight = ui.dp(40); setPadding(0, 0, 0, 0)
+        }
+        row.addView(button, LinearLayout.LayoutParams(0, ui.dp(34), weight).apply { gravity = android.view.Gravity.CENTER_VERTICAL; setMargins(ui.dp(2), ui.dp(2), ui.dp(2), ui.dp(2)) })
+        return button
+    }
+    private fun iconControlKey(row: LinearLayout, icon: Int, description: String, weight: Float = 1f, action: () -> Unit): Button {
+        val button = controlKey(row, "", weight, action).apply {
+            setCompoundDrawablesWithIntrinsicBounds(0, icon, 0, 0)
+            gravity = android.view.Gravity.CENTER
+            contentDescription = description
+        }
+        return button
+    }
+    private fun sendKey(row: LinearLayout, text: String, weight: Float = 1f, action: () -> Unit): Button {
+        val button = ui.sendKey(text, action).apply {
+            textSize = 19f; minWidth = 0; minimumWidth = 0; minHeight = ui.dp(40); minimumHeight = ui.dp(40); setPadding(0, 0, 0, 0)
+        }
+        row.addView(button, LinearLayout.LayoutParams(0, ui.dp(34), weight).apply { gravity = android.view.Gravity.CENTER_VERTICAL; setMargins(ui.dp(2), ui.dp(2), ui.dp(2), ui.dp(2)) })
         return button
     }
     private fun startVoice() {
@@ -125,13 +362,10 @@ class VaaniKeyboardService : InputMethodService() {
         }
         voice = true; released = false; recognitionText = null
         val token = ++generation
-        root.removeAllViews()
-        status = ui.label("Starting microphone…", 18f)
-        root.addView(status)
-        val wave = Wave(this)
-        root.addView(wave, LinearLayout.LayoutParams(-1, ui.dp(140)))
-        root.addView(ui.label("Keep holding Send and speak. Release to insert the cleaned text.", 14f))
-        root.addView(ui.button("Cancel") { cancelVoice(); showKeys() })
+        status.text = "Listening… keep holding Send"
+        wave.visibility = View.VISIBLE
+        cancel.visibility = View.VISIBLE
+        keyboardBody.alpha = .16f
         val lang = prefs.getString("language", "en-IN") ?: "en-IN"
         engine = OnDeviceSttEngine(this, lang, { if (token == generation) wave.push(it) },
             { if (token == generation) status.text = "Listening…" })
@@ -169,5 +403,5 @@ class VaaniKeyboardService : InputMethodService() {
     }
     override fun onFinishInputView(finishingInput: Boolean) { cancelVoice(); super.onFinishInputView(finishingInput) }
     override fun onFinishInput() { cancelVoice(); super.onFinishInput() }
-    override fun onDestroy() { cancelVoice(); super.onDestroy() }
+    override fun onDestroy() { cancelVoice(); spellSession?.close(); super.onDestroy() }
 }

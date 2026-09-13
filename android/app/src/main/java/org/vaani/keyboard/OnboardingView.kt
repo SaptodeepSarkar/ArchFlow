@@ -58,19 +58,19 @@ class OnboardingView(context: Context, private val done: () -> Unit) : LinearLay
     private fun dp(n: Int) = (n * resources.displayMetrics.density).toInt()
     private fun label(value: String, size: Float, color: Int, bold: Boolean = false) = TextView(context).apply { text = value; textSize = size; setTextColor(color); typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT }
     init {
-        orientation = VERTICAL; setBackgroundColor(Ui.paper); setPadding(dp(22), dp(22), dp(22), dp(20)); build(); update()
+        orientation = VERTICAL; setBackgroundColor(Ui.brandPaper); setPadding(dp(22), dp(22), dp(22), dp(20)); build(); update()
     }
     private fun build() {
         val header = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
         header.addView(ImageView(context).apply { setImageResource(R.drawable.vaani_mark); contentDescription = "Vanni" }, LayoutParams(dp(42), dp(42)))
-        header.addView(label("vanni", 22f, Ui.ink, true), LayoutParams(0, dp(42), 1f).apply { marginStart = dp(9) })
+        header.addView(label("vanni", 22f, Ui.brandInk, true), LayoutParams(0, dp(42), 1f).apply { marginStart = dp(9) })
         progress = label("1 / 3", 11f, 0xff657063.toInt()); header.addView(progress); addView(header)
-        title = label("", 30f, Ui.ink, true).apply { typeface = Typeface.create("serif", Typeface.NORMAL) }; addView(title, LayoutParams(-1, -2).apply { topMargin = dp(28) })
+        title = label("", 30f, Ui.brandInk, true).apply { typeface = Typeface.create("serif", Typeface.NORMAL) }; addView(title, LayoutParams(-1, -2).apply { topMargin = dp(28) })
         body = label("", 16f, 0xff657063.toInt()); addView(body, LayoutParams(-1, -2).apply { topMargin = dp(10) })
         visual = OnboardingVisual(context); addView(visual, LayoutParams(-1, dp(190)).apply { topMargin = dp(18); bottomMargin = dp(18) })
         addView(Space(context), LayoutParams(1, 0, 1f))
-        next = Button(context).apply { isAllCaps = false; textSize = 16f; setTextColor(Ui.ink); background = GradientDrawable().apply { setColor(Ui.lime); cornerRadius = dp(18).toFloat() }; setOnClickListener { if (page == 2) done() else { page++; update() } } }; addView(next, LayoutParams(-1, dp(54)))
-        back = Button(context).apply { text = "Back"; isAllCaps = false; setTextColor(Ui.ink); background = null; setOnClickListener { page--; update() } }; addView(back, LayoutParams(-1, dp(48)))
+        next = Button(context).apply { isAllCaps = false; textSize = 16f; setTextColor(Ui.brandInk); background = GradientDrawable().apply { setColor(Ui.brandLime); cornerRadius = dp(18).toFloat() }; setOnClickListener { if (page == 2) done() else { page++; update() } } }; addView(next, LayoutParams(-1, dp(54)))
+        back = Button(context).apply { text = "Back"; isAllCaps = false; setTextColor(Ui.brandInk); background = null; setOnClickListener { page--; update() } }; addView(back, LayoutParams(-1, dp(48)))
     }
     private fun update() {
         progress.text = "${page + 1} / 3"; visual.setMode(page)

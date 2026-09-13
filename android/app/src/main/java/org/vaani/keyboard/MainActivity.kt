@@ -10,10 +10,19 @@ import android.widget.*
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.doOnLayout
 
 class MainActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("vaani", 0) }
-    override fun onCreate(state: Bundle?) { super.onCreate(state); hideBars(); render() }
+    private var scrollY = 0
+    private var activeScroll: ScrollView? = null
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
+        if (!prefs.getBoolean("appearance_v2", false)) {
+            prefs.edit().putBoolean("appearance_v2", true).putString("background", "image").apply()
+        }
+        hideBars(); render()
+    }
     override fun onWindowFocusChanged(focused: Boolean) {
         super.onWindowFocusChanged(focused)
         if (focused) hideBars()
@@ -27,6 +36,7 @@ class MainActivity : Activity() {
         return imm.enabledInputMethodList.any { it.packageName == packageName && it.serviceName == VaaniKeyboardService::class.java.name }
     }
     private fun render() {
+        scrollY = activeScroll?.scrollY ?: scrollY
         if (!prefs.getBoolean("onboarding_v2", false)) {
             val scroll = ScrollView(this)
             scroll.addView(OnboardingView(this) { prefs.edit().putBoolean("onboarding_v2", true).apply(); render() })
@@ -55,12 +65,37 @@ class MainActivity : Activity() {
         }
         section("Light cleanup", "Capitalization, spacing and a final period. This version does not include an LLM.")
         root.addView(Switch(this).apply {
-            text = "Clean up dictated text"; textSize = 16f; setTextColor(Ui.ink)
+            text = "Clean up dictated text"; textSize = 16f; setTextColor(ui.ink)
             isChecked = prefs.getBoolean("cleanup", true)
             setPadding(0, ui.dp(12), 0, ui.dp(12))
             setOnCheckedChangeListener { _, checked -> prefs.edit().putBoolean("cleanup", checked).apply() }
         })
+        section("Appearance", "Choose a theme, an accent, and the background texture used in Vanni and its keyboard.")
+        listOf("Light" to "light", "Dark" to "dark", "Forest" to "forest", "Blush" to "blush").forEach { (name, key) ->
+            root.addView(ui.button((if (prefs.getString("theme", "light") == key) "✓  " else "") + name) {
+                prefs.edit().putString("theme", key).apply(); render()
+            })
+        }
+        section("Accent colour", "A small personal touch for actions and the Send key.")
+        listOf("Vanni lime" to 0, "Lilac" to 0xffe6cff9.toInt(), "Coral" to 0xffe9bbb6.toInt()).forEach { (name, color) ->
+            root.addView(ui.button((if (prefs.getInt("accent", 0) == color) "✓  " else "") + name) {
+                prefs.edit().putInt("accent", color).apply(); render()
+            })
+        }
+        section("Background", "This is only visual. It never changes what Vanni hears or sends.")
+        listOf("Plain paper" to "paper", "Fine grain" to "grain", "Vanni artwork" to "image").forEach { (name, key) ->
+            root.addView(ui.button((if (prefs.getString("background", "image") == key) "✓  " else "") + name) {
+                prefs.edit().putString("background", key).apply(); render()
+            })
+        }
         section("Hold Send to speak", "Hold Send while speaking. Release to finish and insert your cleaned text. Cancel only if you want to discard it.")
-        setContentView(ScrollView(this).apply { setBackgroundColor(Ui.paper); addView(root) })
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(ui.paper)
+            addView(root)
+            setOnScrollChangeListener { _, _, y, _, _ -> scrollY = y }
+        }
+        activeScroll = scroll
+        setContentView(scroll)
+        scroll.doOnLayout { scroll.scrollTo(0, scrollY) }
     }
 }
