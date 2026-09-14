@@ -65,14 +65,15 @@ The evaluation uses 100 clips held out from the same 1,000-row feedback selectio
 ### Safe decoder improvement
 
 The V5 model candidates were not promoted, but a decoding-only change was
-tested on the same 100 held-out clips. With the existing production `cozy`
-CT2 model and its current prompt, beam 5 measured **7.82% corpus-normalized
-WER** versus the documented **9.29% normalized control** (beam 1). CPU RTF was
-0.427 on the test host for 414.4 seconds of audio. The default beam was changed
-from 1 to 5 in `crates/vaani-worker/fw-transcribe.py` and
-`crates/vaani-worker/fw-server.py`; `--beam 1` remains an explicit low-latency
-override. This is a decoder improvement to v2/cozy, not evidence that the V5
-model passes the promotion gate.
+tested on the same 100 held-out clips. With the existing `cozy` CT2 model,
+beam 5 with no prompt measured **7.58% corpus-normalized WER**; adding the
+technical fallback prompt measured **7.23%** versus the documented **9.29%
+normalized control** (beam 1). CPU RTF was 0.404 on the test host for 414.4
+seconds of audio. The default beam was changed from 1 to 5 and the fallback
+technical prompt was added in `crates/vaani-worker/fw-transcribe.py` and
+`crates/vaani-worker/fw-server.py`; explicit personal vocabulary still takes
+precedence and `--beam 1` remains available. This is a decoder improvement to
+v2/cozy, not evidence that the V5 model passes the promotion gate.
 
 The first fine-tuned candidates were damaged by a decoder-target convention bug: Moonshine right-shifts labels and inserts BOS, while the original script passed tokenizer BOS too. The corrected BOS/EOS-aligned run removed empty/catastrophic outputs and reached near-control raw WER, but normalized WER remains worse than v2. The six-term subset is too small to override the WER result; no V5 candidate was wired into Vaani and Vaani was not reloaded to use one.
 

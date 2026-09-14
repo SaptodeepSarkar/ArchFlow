@@ -30,8 +30,8 @@ def main() -> None:
     # Default initial prompt: Cozy's validated Hindi-word hint. An explicit
     # --prompt (user vocabulary) overrides it. Never empty for the cozy
     # fine-tune: the prompt is part of its measured accuracy recipe.
-    prompt = ("Cozy assistant. Romanized Hindi words: aaj kaisa karo yaar "
-              "accha theek thoda nahi bas arre.")
+    prompt = ("Indian English. HTML CSS MCP CTC CUDA LLM STT WER QLoRA VLM "
+              "Celsius narcotics acrobat glioblastoma pharmacokinetics.")
     # Beam 5 is the measured V5 decoding improvement for the existing cozy
     # checkpoint.  Callers can still pass --beam 1 for the lowest latency.
     beam = 5

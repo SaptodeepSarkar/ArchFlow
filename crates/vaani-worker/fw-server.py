@@ -19,6 +19,11 @@ import json
 import os
 import sys
 
+DEFAULT_PROMPT = (
+    "Indian English. HTML CSS MCP CTC CUDA LLM STT WER QLoRA VLM "
+    "Celsius narcotics acrobat glioblastoma pharmacokinetics."
+)
+
 # Fully local like Cozy's env.sh: never touch the network (hub checks add
 # seconds per load and fail offline). Set before importing faster-whisper.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
@@ -83,8 +88,10 @@ def main() -> None:
                 # (silence padding hallucinations) by probability.
                 "condition_on_previous_text": False,
             }
-            if job.get("prompt"):
-                kwargs["initial_prompt"] = job["prompt"]
+            # Use a small, domain-neutral technical hint only when the user
+            # has not supplied personal vocabulary. This improves rare-term
+            # decoding while preserving explicit vocabulary precedence.
+            kwargs["initial_prompt"] = job.get("prompt") or DEFAULT_PROMPT
             segments, _info = model.transcribe(job["wav"], **kwargs)
             kept = [
                 s.text.strip()
