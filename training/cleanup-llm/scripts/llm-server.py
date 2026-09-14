@@ -50,15 +50,17 @@ def main() -> None:
         sys.stderr.write("usage: llm-server.py <model_dir> <adapter_dir> [--threshold N]\n")
         raise SystemExit(2)
     model_dir, adapter_dir = args[0], args[1]
-    threshold = 10
+    # Keep this aligned with config.example.toml: zero means every non-empty
+    # transcript is offered to the formatter.
+    threshold = 0
     i = 2
     while i < len(args):
         if args[i] == "--threshold":
             i += 1
             try:
-                threshold = int(args[i]) if i < len(args) else 10
+                threshold = int(args[i]) if i < len(args) else 0
             except ValueError:
-                threshold = 10
+                threshold = 0
         i += 1
 
     import torch

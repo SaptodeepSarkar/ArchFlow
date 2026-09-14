@@ -8,7 +8,6 @@ import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.inputmethodservice.InputMethodService
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
@@ -52,7 +51,7 @@ private class Wave(context: Context) : View(context) {
 
 class VaaniKeyboardService : InputMethodService() {
     private val prefs by lazy { getSharedPreferences("vaani", 0) }
-    private val ui by lazy { Ui(this) }
+    private lateinit var ui: Ui
     private lateinit var root: LinearLayout
     private lateinit var wave: Wave
     private lateinit var cancel: Button
@@ -84,13 +83,14 @@ class VaaniKeyboardService : InputMethodService() {
     }
 
     private val timeout = Runnable {
-        if (dictationState is DictationState.Listening || dictationState is DictationState.Endpointing || dictationState is DictationState.Finalizing) {
+        if (dictationState is DictationState.Starting || dictationState is DictationState.Listening || dictationState is DictationState.Endpointing || dictationState is DictationState.Finalizing) {
             fail(DictationState.Failure(FailureKind.TIMEOUT, getString(R.string.status_timed_out)))
         }
     }
 
     override fun onCreate() {
         super.onCreate()
+        ui = Ui(this)
         val manager = getSystemService(TEXT_SERVICES_MANAGER_SERVICE) as TextServicesManager
         spellSession = manager.newSpellCheckerSession(null, Locale.getDefault(), spellListener, true)
     }
@@ -98,10 +98,13 @@ class VaaniKeyboardService : InputMethodService() {
     override fun onEvaluateFullscreenMode() = false
 
     override fun onCreateInputView(): View {
+        // Theme changes made while the IME process survives take effect the
+        // next time Android asks for an input view.
+        ui = Ui(this)
         root = ui.keyboardColumn().apply {
             setPadding(ui.dp(6), ui.dp(6), ui.dp(6), ui.dp(8))
             setOnApplyWindowInsetsListener { view, insets ->
-                val nav = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) insets.getInsets(WindowInsets.Type.navigationBars()).bottom else 0
+                val nav = insets.getInsets(WindowInsets.Type.navigationBars()).bottom
                 view.setPadding(ui.dp(6), ui.dp(6), ui.dp(6), ui.dp(8) + nav)
                 insets
             }
@@ -233,13 +236,16 @@ class VaaniKeyboardService : InputMethodService() {
                 MotionEvent.ACTION_UP -> {
                     holdStart?.let(handler::removeCallbacks); holdStart = null
                     if (dictationState is DictationState.Listening || dictationState is DictationState.Starting || dictationState is DictationState.Endpointing || dictationState is DictationState.Finalizing) {
-                        if (dictationState is DictationState.Starting) cancelVoice() else releaseVoice()
+                        releaseVoice()
                     } else view.performClick()
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     holdStart?.let(handler::removeCallbacks); holdStart = null
-                    if (dictationState !is DictationState.Hidden) cancelVoice()
+                    if (dictationState !is DictationState.Hidden) {
+                        cancelVoice()
+                        showKeys(getString(R.string.status_cancelled))
+                    }
                     true
                 }
                 else -> true
@@ -417,6 +423,8 @@ class VaaniKeyboardService : InputMethodService() {
                 wave.push(level)
             }
         }, { if (token == generation && dictationState is DictationState.Starting) transition(DictationState.Listening()) })
+        handler.removeCallbacks(timeout)
+        handler.postDelayed(timeout, 120000)
         engine?.start({ raw ->
             if (token != generation || dictationState is DictationState.Hidden || dictationState is DictationState.Cancelled) return@start
             handler.removeCallbacks(timeout)
@@ -428,12 +436,12 @@ class VaaniKeyboardService : InputMethodService() {
                     dictationState = current.copy(finalText = finalText)
                     transition(dictationState)
                 }
+                DictationState.Starting -> transition(DictationState.Listening(finalText = finalText))
                 else -> Unit
             }
         }, { error ->
             if (token == generation) fail(DictationState.Failure(FailureKind.RECOGNITION, error))
         })
-        handler.postDelayed(timeout, 120000)
     }
 
     private fun releaseVoice() {
@@ -442,7 +450,7 @@ class VaaniKeyboardService : InputMethodService() {
             deliver(current.finalText)
             return
         }
-        if (current !is DictationState.Listening) return
+        if (current !is DictationState.Listening && current !is DictationState.Starting) return
         transition(DictationState.Endpointing)
         handler.removeCallbacks(timeout)
         handler.postDelayed({ if (dictationState == DictationState.Endpointing) transition(DictationState.Finalizing) }, 150)

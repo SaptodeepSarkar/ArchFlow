@@ -42,10 +42,10 @@ translate_to_en = false
 device = "cpu"
 
 [insertion]
-# copy-only (default: transcript ends on clipboard + confirmation popup)
-# | automatic (type into the focused app only after focus/policy checks)
+# automatic (default: type into the focused app after focus/policy checks)
+# | copy-only (keep transcript on clipboard + confirmation popup)
 # | review (hold for explicit copy)
-mode = "copy-only"
+mode = "automatic"
 clipboard_serve_secs = 30
 # pending final text expiry, in-memory only, seconds
 pending_expiry_secs = 300
@@ -67,8 +67,8 @@ model_path = ""
 # stream only: path to the local LLM LoRA adapter dir (e.g. output/llm-v1).
 # Empty keeps the legacy dpo-sft adapter next to model_path.
 adapter_path = ""
-# stream only: skip LLM when transcript word count is below this (0 = always clean).
-word_threshold = 10
+# stream only: skip LLM when transcript word count is below this (0 = clean all).
+word_threshold = 0
 # stream only: path to vaani_inject.py. If empty, daemon looks beside the binary.
 python_path = ""
 

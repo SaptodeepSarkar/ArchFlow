@@ -1,5 +1,8 @@
 # Troubleshooting
 
+- Dictation only copies instead of typing → older configs may still contain
+  `insertion.mode = "copy-only"`; restore typing with
+  `vaani config-set insertion.mode automatic` (terminals remain copy-only).
 - `cannot reach vaanid` → `systemctl --user status vaanid` (user unit, not root).
 - `capture failed` → PipeWire running? `pw-record --help`; EasyEffects virtual
   source selectable via audio.device_selector (stable name).
@@ -13,7 +16,7 @@
   is never synthesized.
 - Transcription failed → worker crash leaves controller up; audio kept briefly
   for retry with visible controls and bounded expiry.
-- Clipboard replaced → expected in automatic mode (setup consent); restoration
+- Clipboard replaced → expected in automatic mode; restoration
   only of our own bounded plain-text snapshot, never clobbering newer copies.
 - Lock/suspend during recording → capture cancelled, insertion forbidden for
   that op; re-unlock before next recording. If lock detection is unavailable

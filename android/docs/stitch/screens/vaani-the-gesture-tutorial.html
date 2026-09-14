@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Epilogue:ital,wght@0,600;0,700;1,600&amp;family=Hanken+Grotesk:wght@400;600;700&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100%;min-height:100%;margin:0;padding:0;}body{overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"tertiary":"#780c02","primary-fixed":"#bceec8","on-error":"#ffffff","error":"#ba1a1a","inverse-surface":"#2e312e","secondary-container":"#fe932c","secondary-fixed":"#ffdcc3","on-secondary-fixed":"#2f1500","surface-container":"#edeee9","on-surface":"#191c19","primary":"#144227","on-primary-container":"#9ed0ab","on-tertiary-container":"#ffb1a3","on-surface-variant":"#414942","surface-container-high":"#e7e9e3","surface-tint":"#3b684a","surface-variant":"#e1e3de","error-container":"#ffdad6","background":"#f8faf5","on-primary":"#ffffff","inverse-on-surface":"#f0f1ec","on-secondary-fixed-variant":"#6e3900","on-primary-fixed":"#00210f","on-error-container":"#93000a","tertiary-container":"#992617","surface":"#f8faf5","tertiary-fixed-dim":"#ffb4a7","primary-container":"#2d5a3d","on-tertiary-fixed":"#400200","surface-dim":"#d9dbd5","on-tertiary":"#ffffff","secondary-fixed-dim":"#ffb77d","on-background":"#191c19","on-primary-fixed-variant":"#224f33","tertiary-fixed":"#ffdad4","on-tertiary-fixed-variant":"#8a1b0d","inverse-primary":"#a1d2ad","surface-bright":"#f8faf5","secondary":"#904d00","outline":"#717971","on-secondary-container":"#663500","surface-container-low":"#f3f4ef","outline-variant":"#c1c9c0","on-secondary":"#ffffff","surface-container-lowest":"#ffffff","surface-container-highest":"#e1e3de","primary-fixed-dim":"#a1d2ad"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"space-lg":"1.5rem","space-xl":"2.25rem","space-2xl":"3.5rem","gutter-tablet":"1.5rem","margin-desktop":"4rem","margin":"1.25rem","margin-tablet":"2.5rem","gutter":"1rem","space-sm":"0.5rem","space-xs":"0.25rem","space-md":"1rem"},"fontFamily":{"body-lg":["Hanken Grotesk"],"headline-lg":["Epilogue"],"display-lg-mobile":["Epilogue"],"headline-sm":["Epilogue"],"label-lg":["Hanken Grotesk"],"body-md":["Hanken Grotesk"],"headline-md":["Epilogue"],"headline-lg-mobile":["Epilogue"],"body-sm":["Hanken Grotesk"],"label-md":["Hanken Grotesk"],"label-sm":["Hanken Grotesk"],"display-lg":["Epilogue"]},"fontSize":{"body-lg":["17px",{"lineHeight":"26px","letterSpacing":"-0.01em","fontWeight":"400"}],"headline-lg":["32px",{"lineHeight":"38px","letterSpacing":"-0.02em","fontWeight":"600"}],"display-lg-mobile":["34px",{"lineHeight":"40px","letterSpacing":"-0.025em","fontWeight":"700"}],"headline-sm":["18px",{"lineHeight":"24px","letterSpacing":"0em","fontWeight":"600"}],"label-lg":["14px",{"lineHeight":"20px","letterSpacing":"0.02em","fontWeight":"600"}],"body-md":["15px",{"lineHeight":"22px","letterSpacing":"0em","fontWeight":"400"}],"headline-md":["22px",{"lineHeight":"28px","letterSpacing":"-0.01em","fontWeight":"600"}],"headline-lg-mobile":["26px",{"lineHeight":"32px","letterSpacing":"-0.015em","fontWeight":"600"}],"body-sm":["13px",{"lineHeight":"18px","letterSpacing":"0.01em","fontWeight":"400"}],"label-md":["12px",{"lineHeight":"16px","letterSpacing":"0.04em","fontWeight":"600"}],"label-sm":["10px",{"lineHeight":"14px","letterSpacing":"0.06em","fontWeight":"700"}],"display-lg":["44px",{"lineHeight":"52px","letterSpacing":"-0.03em","fontWeight":"700"}]}}}}</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface text-on-surface font-body-md text-body-md flex flex-col min-h-screen relative selection:bg-primary-fixed"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="h-24 px-margin flex flex-col justify-between py-space-xs"><div class="flex items-center justify-between h-6 text-on-surface-variant text-label-sm font-label-sm"><span class="tracking-tight font-semibold text-on-surface">09:41</span><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[15px]">wifi</span><span class="material-symbols-outlined text-[15px]">signal_cellular_alt</span><span class="material-symbols-outlined text-[15px]">battery_full</span></div></div><div class="flex items-center justify-between pb-space-xs"><div class="flex items-center gap-space-sm"><button aria-label="Go back" class="min-w-[44px] min-h-[44px] flex items-center justify-center text-on-surface rounded-full active:bg-surface-container" onclick="history.back()"><span class="material-symbols-outlined text-[20px]">arrow_back</span></button><div class="flex flex-col"><span class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant">Vaani</span><h1 class="font-headline-sm text-headline-sm tracking-tight text-on-surface">Speak Sandbox</h1></div></div><div class="flex items-center gap-space-xs"><div class="flex items-center gap-1.5 px-space-sm py-1 bg-surface-container rounded-full"><div class="w-1.5 h-1.5 rounded-full bg-primary"></div><div class="w-1.5 h-1.5 rounded-full bg-outline-variant"></div><div class="w-1.5 h-1.5 rounded-full bg-outline-variant"></div><div class="w-1.5 h-1.5 rounded-full bg-outline-variant"></div></div><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center ml-1"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></div></header><main class="flex flex-col relative w-full pt-24 pb-safe bg-surface px-margin"><div class="flex flex-col w-full pb-space-xl">
+<!-- Instruction Editorial Header -->
+<section class="flex flex-col pt-space-md pb-space-lg">
+<div class="flex items-center gap-space-xs mb-space-xs">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant">Gesture Mechanic 06</span>
+</div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface tracking-tight">
+      Here’s the entire instruction manual.
+    </h2>
+<!-- Typographic Ritual Flow Diagram -->
+<div class="mt-space-md p-space-md rounded-xl bg-surface-container flex flex-col gap-space-sm shadow-sm">
+<div class="flex items-center justify-between text-on-surface">
+<!-- Step 1 -->
+<div class="flex flex-col items-center">
+<div class="px-space-sm py-1 rounded bg-surface-container-high text-on-surface font-label-md text-label-md tracking-wider shadow-[0_1.5px_0_#d9dbd5]">
+            HOLD 220ms
+          </div>
+</div>
+<div class="flex items-center text-outline-variant flex-1 justify-center px-1">
+<span class="h-[1.5px] bg-outline-variant w-full"></span>
+<span class="material-symbols-outlined text-[14px] -ml-1">arrow_forward</span>
+</div>
+<!-- Step 2 -->
+<div class="flex flex-col items-center">
+<div class="px-space-sm py-1 rounded bg-surface-container-high text-on-surface font-label-md text-label-md tracking-wider shadow-[0_1.5px_0_#d9dbd5]">
+            TALK
+          </div>
+</div>
+<div class="flex items-center text-outline-variant flex-1 justify-center px-1">
+<span class="h-[1.5px] bg-outline-variant w-full"></span>
+<span class="material-symbols-outlined text-[14px] -ml-1">arrow_forward</span>
+</div>
+<!-- Step 3 -->
+<div class="flex flex-col items-center">
+<div class="px-space-sm py-1 rounded bg-surface-container-high text-on-surface font-label-md text-label-md tracking-wider shadow-[0_1.5px_0_#d9dbd5]">
+            RELEASE
+          </div>
+</div>
+</div>
+<div class="flex items-center justify-between pt-space-xs">
+<p class="font-body-sm text-body-sm text-on-surface-variant italic">
+          That’s it. It never auto-sends.
+        </p>
+<span class="font-label-sm text-label-sm text-secondary flex items-center gap-1 font-semibold">
+<span class="material-symbols-outlined text-[13px]">lock_reset</span>
+          Zero accidental dispatches
+        </span>
+</div>
+</div>
+</section>
+<!-- Interactive Sandbox Shell -->
+<section class="flex flex-col rounded-xl bg-surface-container-low shadow-md overflow-hidden relative">
+<!-- Editorial Stage Banner -->
+<div class="flex items-center justify-between px-space-md py-space-xs bg-surface-container-high text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="font-label-sm text-label-sm uppercase tracking-wider font-semibold">IME Practice Canvas</span>
+</div>
+<span class="font-label-sm text-label-sm">Try holding below</span>
+</div>
+<!-- Live Transcript Card Simulation -->
+<div class="p-space-md flex flex-col gap-space-xs bg-surface min-h-[110px] justify-center transition-colors duration-200" id="transcript-container">
+<div class="inline-flex items-center gap-1.5 px-space-sm py-0.5 rounded-full bg-surface-container self-start text-on-surface-variant transition-all duration-150" id="status-chip">
+<span class="w-2 h-2 rounded-full bg-outline-variant" id="listening-indicator"></span>
+<span class="font-label-sm text-label-sm" id="status-label">Awaiting long-press...</span>
+</div>
+<div class="relative min-h-[44px] flex items-center">
+<p class="font-body-lg text-body-lg text-on-surface-variant select-none transition-all duration-150 italic" id="live-text">
+          “I’m leaving the studio in ten minutes, see you at the cafe.”
+        </p>
+</div>
+<!-- Reactive Audio Bar Visualizer (active on hold) -->
+<div class="hidden items-center gap-1 h-3 pt-1" id="audio-levels">
+<div class="w-1 bg-secondary rounded-full h-2 animate-bounce" style="animation-delay: 0ms; animation-duration: 400ms;"></div>
+<div class="w-1 bg-secondary rounded-full h-3 animate-bounce" style="animation-delay: 150ms; animation-duration: 520ms;"></div>
+<div class="w-1 bg-secondary rounded-full h-1.5 animate-bounce" style="animation-delay: 75ms; animation-duration: 380ms;"></div>
+<div class="w-1 bg-secondary rounded-full h-3 animate-bounce" style="animation-delay: 200ms; animation-duration: 460ms;"></div>
+<span class="font-label-sm text-label-sm text-secondary font-semibold ml-2">Sampling voice waveform...</span>
+</div>
+</div>
+<!-- Tactile Android Virtual Keyboard Shell -->
+<div class="bg-surface-container p-space-sm flex flex-col gap-1.5 select-none relative shadow-inner">
+<!-- Pulsing Hint Tooltip -->
+<div class="absolute -top-10 right-4 z-20 flex items-center gap-1.5 bg-inverse-surface text-inverse-on-surface px-space-sm py-1 rounded shadow-lg pointer-events-none transition-transform duration-200 animate-bounce" id="action-tooltip">
+<span class="material-symbols-outlined text-[15px] text-secondary-fixed">touch_app</span>
+<span class="font-label-sm text-label-sm font-semibold tracking-tight">Press &amp; hold the Send key</span>
+<div class="absolute -bottom-1 right-5 w-2 h-2 bg-inverse-surface rotate-45"></div>
+</div>
+<!-- Key row 1 -->
+<div class="grid grid-cols-10 gap-1 text-center font-label-md text-label-md text-on-surface font-semibold">
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">Q</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">W</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">E</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">R</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">T</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">Y</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">U</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">I</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">O</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">P</div>
+</div>
+<!-- Key row 2 -->
+<div class="grid grid-cols-9 gap-1 px-3 text-center font-label-md text-label-md text-on-surface font-semibold">
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">A</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">S</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">D</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">F</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">G</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">H</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">J</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">K</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">L</div>
+</div>
+<!-- Key row 3 -->
+<div class="flex items-center gap-1">
+<div class="w-10 py-2.5 rounded bg-surface-container-high flex items-center justify-center text-on-surface shadow-[0_1.5px_0_#d9dbd5]">
+<span class="material-symbols-outlined text-[16px]">shift</span>
+</div>
+<div class="grid grid-cols-7 gap-1 flex-1 text-center font-label-md text-label-md text-on-surface font-semibold">
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">Z</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">X</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">C</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">V</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">B</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">N</div>
+<div class="py-2.5 rounded bg-surface shadow-[0_1.5px_0_#d9dbd5]">M</div>
+</div>
+<div class="w-10 py-2.5 rounded bg-surface-container-high flex items-center justify-center text-on-surface shadow-[0_1.5px_0_#d9dbd5]">
+<span class="material-symbols-outlined text-[16px]">backspace</span>
+</div>
+</div>
+<!-- Key row 4: Active Interactive Base Row -->
+<div class="flex items-center gap-1.5 pt-0.5">
+<!-- Drag-to-Cancel gesture target (Accessible 48dp min width) -->
+<div class="min-w-[48px] h-11 rounded bg-surface-container-high flex items-center justify-center text-on-surface-variant transition-all duration-150 select-none shadow-[0_1.5px_0_#d9dbd5]" id="cancel-target">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</div>
+<div class="px-2.5 h-11 rounded bg-surface-container-high flex items-center justify-center font-label-sm text-label-sm text-on-surface shadow-[0_1.5px_0_#d9dbd5]">
+          ?123
+        </div>
+<div class="px-2 h-11 rounded bg-surface-container-high flex items-center justify-center text-on-surface shadow-[0_1.5px_0_#d9dbd5]">
+<span class="material-symbols-outlined text-[18px]">language</span>
+</div>
+<!-- Spacebar key -->
+<div class="flex-1 h-11 rounded bg-surface flex items-center justify-center text-on-surface-variant font-label-sm text-label-sm tracking-wide shadow-[0_1.5px_0_#d9dbd5]">
+          English
+        </div>
+<div class="px-2.5 h-11 rounded bg-surface flex items-center justify-center font-label-md text-label-md text-on-surface shadow-[0_1.5px_0_#d9dbd5]">
+          .
+        </div>
+<!-- Primary Tactile Send / Dictation Key (Interactive Target) -->
+<button aria-label="Press and hold to dictate, release to preview" class="w-16 h-11 rounded bg-secondary text-on-secondary flex items-center justify-center transition-all duration-75 relative active:translate-y-0.5 active:shadow-none shadow-[0_2px_0_#6e3900] touch-none cursor-pointer" id="send-voice-key" type="button">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[20px] transition-transform duration-100" id="send-icon">send</span>
+<span class="material-symbols-outlined text-[15px] opacity-80" id="mic-badge">mic</span>
+</div>
+</button>
+</div>
+</div>
+</section>
+<!-- Editorial Note / Assurance -->
+<section class="flex flex-col gap-space-xs mt-space-lg px-space-xs">
+<div class="flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-primary text-[20px] mt-0.5">verified_user</span>
+<div class="flex flex-col">
+<p class="font-body-md text-body-md text-on-surface font-semibold">
+          Releasing the key inserts your words.
+        </p>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+          You always review and edit before sending. Nothing leaves your phone until you tap dispatch.
+        </p>
+</div>
+</div>
+<!-- Editorial Micro-Card -->
+<div class="mt-space-sm p-space-md rounded-xl bg-surface-container flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface font-semibold">Want to abort midway?</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Simply slide your thumb left into the [ ✕ ] target.</span>
+</div>
+<div class="w-9 h-9 rounded-full bg-surface-container-high flex items-center justify-center text-on-surface">
+<span class="material-symbols-outlined text-[18px]">swipe_left</span>
+</div>
+</div>
+</section>
+<!-- Final Onboarding Progression CTA -->
+<div class="mt-space-xl flex flex-col gap-space-xs">
+<button class="w-full h-12 rounded bg-primary text-on-primary font-label-lg text-label-lg flex items-center justify-center gap-2 shadow-[0_2px_0_#00210f] active:translate-y-0.5 active:shadow-none transition-transform" id="proceed-btn" type="button">
+<span>Let me try for real</span>
+<span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+</button>
+<div class="flex items-center justify-center gap-1.5 pt-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Step 6 of 6 in setup ritual</span>
+</div>
+</div>
+</div>
+<script>
+  (function() {
+    const sendKey = document.getElementById('send-voice-key');
+    const sendIcon = document.getElementById('send-icon');
+    const micBadge = document.getElementById('mic-badge');
+    const transcriptBox = document.getElementById('live-text');
+    const statusChip = document.getElementById('status-chip');
+    const statusLabel = document.getElementById('status-label');
+    const listeningDot = document.getElementById('listening-indicator');
+    const audioLevels = document.getElementById('audio-levels');
+    const cancelTarget = document.getElementById('cancel-target');
+    const tooltip = document.getElementById('action-tooltip');
+    const proceedBtn = document.getElementById('proceed-btn');
+
+    let holdTimer = null;
+    let isHolding = false;
+    let holdDuration = 0;
+    let holdInterval = null;
+
+    const phrases = [
+      "Let's move the afternoon sync to 3:30.",
+      "The layout feels warm, tactile, and human.",
+      "Got the files; reviewing them with tea right now.",
+      "Confirmed. Let's send the final proofs today."
+    ];
+    let phraseIdx = 0;
+
+    function startHold(e) {
+      e.preventDefault();
+      holdTimer = setTimeout(() => {
+        isHolding = true;
+
+        // Visual Key state: depressed amber
+        sendKey.classList.add('translate-y-0.5', 'bg-secondary-container');
+        sendKey.classList.remove('shadow-[0_2px_0_#6e3900]');
+        sendIcon.textContent = 'graphic_eq';
+
+        // Hide tooltip
+        if (tooltip) tooltip.classList.add('opacity-0');
+
+        // Status visual updates
+        statusChip.classList.remove('bg-surface-container', 'text-on-surface-variant');
+        statusChip.classList.add('bg-secondary-fixed', 'text-on-secondary-fixed');
+        statusLabel.textContent = 'Listening... release to insert';
+        listeningDot.classList.remove('bg-outline-variant');
+        listeningDot.classList.add('bg-secondary', 'animate-ping');
+
+        audioLevels.classList.remove('hidden');
+        audioLevels.classList.add('flex');
+
+        transcriptBox.textContent = phrases[phraseIdx % phrases.length];
+        transcriptBox.classList.remove('text-on-surface-variant', 'italic');
+        transcriptBox.classList.add('text-on-surface', 'font-medium');
+
+        cancelTarget.classList.add('bg-error-container', 'text-on-error-container');
+      }, 200);
+    }
+
+    function endHold(e) {
+      e.preventDefault();
+      clearTimeout(holdTimer);
+
+      if (isHolding) {
+        isHolding = false;
+        phraseIdx++;
+
+        // Reset keycap styling
+        sendKey.classList.remove('translate-y-0.5', 'bg-secondary-container');
+        sendKey.classList.add('shadow-[0_2px_0_#6e3900]');
+        sendIcon.textContent = 'send';
+
+        // Transcript finalized UI
+        statusChip.classList.remove('bg-secondary-fixed', 'text-on-secondary-fixed');
+        statusChip.classList.add('bg-primary-fixed', 'text-on-primary-fixed');
+        statusLabel.textContent = 'Text inserted (Ready to review)';
+        listeningDot.classList.remove('bg-secondary', 'animate-ping');
+        listeningDot.classList.add('bg-primary');
+
+        audioLevels.classList.remove('flex');
+        audioLevels.classList.add('hidden');
+
+        cancelTarget.classList.remove('bg-error-container', 'text-on-error-container');
+
+        // Highlight Proceed button
+        proceedBtn.classList.add('scale-[1.01]', 'shadow-lg');
+        setTimeout(() => proceedBtn.classList.remove('scale-[1.01]'), 200);
+      }
+    }
+
+    sendKey.addEventListener('pointerdown', startHold);
+    sendKey.addEventListener('pointerup', endHold);
+    sendKey.addEventListener('pointerleave', endHold);
+    sendKey.addEventListener('pointercancel', endHold);
+
+    proceedBtn.addEventListener('click', () => {
+      proceedBtn.innerHTML = '<span class="material-symbols-outlined text-[18px] animate-spin">progress_activity</span><span>Launching Keyboard...</span>';
+    });
+  })();
+</script></main><footer class="fixed bottom-0 w-full pointer-events-none z-50 pb-safe"><div class="h-5 flex items-center justify-center"><div class="w-32 h-1 bg-on-surface-variant/30 rounded-full"></div></div></footer></body></html>

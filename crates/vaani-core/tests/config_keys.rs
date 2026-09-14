@@ -11,6 +11,7 @@ fn whitelist_accepts_known_keys() {
     assert_eq!(c.set_key("audio.worker_threads", "8").unwrap(), "8");
     assert_eq!(c.set_key("cleanup.model_path", "/models/base-model").unwrap(), "/models/base-model");
     assert_eq!(c.set_key("cleanup.adapter_path", "/models/llm-v1").unwrap(), "/models/llm-v1");
+    assert_eq!(c.set_key("cleanup.word_threshold", "0").unwrap(), "0");
     assert_eq!(
         c.set_key("general.residency_profile", "balanced").unwrap(),
         "balanced"

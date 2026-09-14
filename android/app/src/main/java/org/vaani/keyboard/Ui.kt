@@ -30,6 +30,8 @@ data class Palette(
 class Ui(private val context: Context) {
     private val prefs = context.getSharedPreferences("vaani", 0)
     private val systemDark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+    val isDark = prefs.getString("theme", "system") == "dark" ||
+        (prefs.getString("theme", "system") == "system" && systemDark)
     val palette: Palette = paletteFor(prefs.getString("theme", "system") ?: "system", systemDark)
     val paper get() = palette.paper
     val ink get() = palette.ink

@@ -10,6 +10,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.Window
 import android.widget.FrameLayout
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Space
@@ -23,11 +24,12 @@ class MainActivity : Activity() {
     private var activeTab = 0
     private var scrollY = 0
     private var activeScroll: ScrollView? = null
+    private var onboardingView: OnboardingView? = null
+    private var hasResumedOnce = false
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         activeTab = state?.getInt("active_tab") ?: 0
-        configureWindow(window)
         if (!prefs.getBoolean("appearance_v3", false)) {
             prefs.edit().putBoolean("appearance_v3", true).putString("theme", "system").apply()
         }
@@ -41,7 +43,11 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (prefs.getBoolean("onboarding_v2", false)) render()
+        if (!hasResumedOnce) {
+            hasResumedOnce = true
+            return
+        }
+        if (prefs.getBoolean("onboarding_v2", false)) render() else onboardingView?.refreshExternalState()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
@@ -57,8 +63,9 @@ class MainActivity : Activity() {
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
         val controller = WindowCompat.getInsetsController(window, window.decorView)
-        controller.isAppearanceLightStatusBars = true
-        controller.isAppearanceLightNavigationBars = true
+        val lightBackground = !Ui(this).isDark
+        controller.isAppearanceLightStatusBars = lightBackground
+        controller.isAppearanceLightNavigationBars = lightBackground
     }
 
     private fun checkMic() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -73,27 +80,43 @@ class MainActivity : Activity() {
     private fun readiness() = AppReadiness(recognizerAvailable(), checkMic(), keyboardEnabled(), prefs.getBoolean("first_dictation_complete", false))
 
     private fun render() {
+        configureWindow(window)
         scrollY = activeScroll?.scrollY ?: scrollY
         if (!prefs.getBoolean("onboarding_v2", false)) {
-            val scroll = ScrollView(this).apply { clipToPadding = false }
-            scroll.addView(OnboardingView(this, ::openImeSettings, ::showKeyboardPicker, ::requestMic) {
+            val ui = Ui(this)
+            val scroll = ScrollView(this).apply {
+                clipToPadding = false
+                isFillViewport = true
+                setBackgroundColor(ui.paper)
+            }
+            onboardingView = OnboardingView(this, ::openImeSettings, ::showKeyboardPicker, ::requestMic) {
                 prefs.edit().putBoolean("onboarding_v2", true).apply()
                 render()
-            })
+            }
+            scroll.addView(onboardingView)
             installInsets(scroll)
             setContentView(scroll)
             return
         }
+        onboardingView = null
         val ui = Ui(this)
         val frame = FrameLayout(this).apply { setBackgroundColor(ui.paper) }
         val content = ScrollView(this).apply { clipToPadding = false }
         val page = if (activeTab == 0) home(ui) else settings(ui)
         content.addView(page)
+        val nav = bottomNav(ui)
         frame.addView(content, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = ui.dp(76) })
-        frame.addView(bottomNav(ui), FrameLayout.LayoutParams(-1, ui.dp(76), Gravity.BOTTOM))
+        frame.addView(nav, FrameLayout.LayoutParams(-1, ui.dp(76), Gravity.BOTTOM))
         ViewCompat.setOnApplyWindowInsetsListener(frame) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            content.setPadding(0, bars.top, 0, bars.bottom)
+            content.setPadding(0, bars.top, 0, 0)
+            content.layoutParams = (content.layoutParams as FrameLayout.LayoutParams).apply {
+                bottomMargin = ui.dp(76) + bars.bottom
+            }
+            nav.layoutParams = (nav.layoutParams as FrameLayout.LayoutParams).apply {
+                height = ui.dp(76) + bars.bottom
+            }
+            nav.setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8) + bars.bottom)
             view.setPadding(0, 0, 0, 0)
             insets
         }
@@ -129,8 +152,27 @@ class MainActivity : Activity() {
         val status = ui.surfaceCard()
         status.addView(ui.meta(if (ready.ready) "READY" else "SETUP"))
         status.addView(ui.label(if (ready.ready) "Ready to dictate" else blockerTitle(ready.nextBlocker), 22f).apply { typeface = android.graphics.Typeface.DEFAULT_BOLD })
-        status.addView(ui.label(if (ready.ready) "English · device speech · Vaani keyboard" else blockerBody(ready.nextBlocker), 14f, ui.palette.muted))
-        val action = if (ready.ready) ui.primaryButton("Start a test dictation") { showKeyboardPicker() } else ui.primaryButton(blockerAction(ready.nextBlocker)) { runBlocker(ready.nextBlocker) }
+        status.addView(ui.label(if (ready.ready) "${selectedLanguageName()} · device speech · Vaani keyboard" else blockerBody(ready.nextBlocker), 14f, ui.palette.muted))
+        val testField = if (ready.ready) EditText(this).apply {
+            hint = "Dictate something here"
+            textSize = 16f
+            setTextColor(ui.ink)
+            setHintTextColor(ui.palette.muted)
+            background = ui.shape(ui.palette.surfaceRaised, ui.palette.line, 16)
+            setPadding(ui.dp(14), ui.dp(10), ui.dp(14), ui.dp(10))
+            contentDescription = "Vaani test dictation field"
+        } else null
+        if (testField != null) {
+            status.addView(testField, LinearLayout.LayoutParams(-1, ui.dp(56)).apply { topMargin = ui.dp(12) })
+        }
+        val action = if (ready.ready) ui.primaryButton("Choose Vaani and dictate") {
+            testField?.let { field ->
+                field.requestFocus()
+                (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                    .showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                field.postDelayed({ showKeyboardPicker() }, 180)
+            }
+        } else ui.primaryButton(blockerAction(ready.nextBlocker)) { runBlocker(ready.nextBlocker) }
         status.addView(action, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(12) })
         root.addView(status, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(20) })
         val flow = ui.surfaceCard()
@@ -162,6 +204,7 @@ class MainActivity : Activity() {
         listOf("English (India)" to "en-IN", "हिन्दी" to "hi-IN", "বাংলা" to "bn-IN").forEach { (name, code) ->
             root.addView(ui.secondaryButton((if (prefs.getString("language", "en-IN") == code) "✓  " else "") + name) { prefs.edit().putString("language", code).apply(); render() }, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(6) })
         }
+        root.addView(ui.meta("Language availability is provided by Android's installed on-device speech service and may vary by device."))
         root.addView(ui.sectionTitle("Formatting"))
         root.addView(android.widget.Switch(this).apply {
             text = getString(R.string.settings_cleanup)
@@ -192,6 +235,12 @@ class MainActivity : Activity() {
         ReadinessBlocker.KEYBOARD -> "Enable the Vaani keyboard"
         ReadinessBlocker.TEST -> "Complete one test dictation"
         null -> "Ready"
+    }
+
+    private fun selectedLanguageName() = when (prefs.getString("language", "en-IN")) {
+        "hi-IN" -> "हिन्दी"
+        "bn-IN" -> "বাংলা"
+        else -> "English (India)"
     }
 
     private fun blockerBody(blocker: ReadinessBlocker?) = when (blocker) {

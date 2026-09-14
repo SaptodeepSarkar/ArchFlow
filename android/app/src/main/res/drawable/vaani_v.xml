@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- The V is the mark: pine green, with no colored tile or white backing. -->
+    <path
+        android:fillColor="#2D5A3D"
+        android:pathData="M18,17 L27,17 L32,40 L37,17 L46,17 L35,48 L29,48 Z" />
+</vector>

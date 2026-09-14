@@ -1,9 +1,9 @@
 # Vaani — local-first dictation for Hyprland/Wayland
 
-Vaani records only after activation, transcribes locally, and copies the final
-text to the Wayland clipboard by default. Automatic delivery is opt-in per app,
-is rechecked against the original focused window, and is never used for
-terminals, review sessions, or multiline shell-like text.
+Vaani records only after activation, transcribes locally, and types the final
+text into the original focused Wayland app by default. Delivery is rechecked
+against that window, and is never automatic for terminals, review sessions, or
+multiline shell-like text; those paths stay copy-only.
 
 No account, telemetry, cloud processing, persistent transcript history, or
 always-listening microphone is required. English, Hindi (`hi`), and Bengali
@@ -37,8 +37,9 @@ Run `vaani doctor` to inspect available capabilities. CUDA is optional; use
    utterance; long recordings use bounded overlapping segments.
 3. Raw transcription is the default. `cleanup.mode = "clean"` or `"stream"`
    explicitly enables cleanup.
-4. `SUPER+J` always copies final text. Other completions follow
-   copy-only/review/automatic policy after a final focus check.
+4. Automatic completions type into the original focused app after a final
+   focus check. `SUPER+J` is the explicit “save to clipboard” action; terminal
+   windows, review mode, and unsafe focus changes remain copy-only.
 
 `SUPER+ALT+SPACE` toggles regular dictation, `SUPER+ALT+ESC` cancels, and
 `SUPER+ALT+C` copies pending text.
@@ -63,14 +64,17 @@ an app-owned Hyprland include. It does not include model weights.
 
 ## Documentation
 
+- [Documentation index](docs/README.md)
 - [Installation](docs/INSTALL.md)
 - [Configuration](docs/configuration.md)
 - [Compatibility](docs/compatibility.md)
 - [Manual checks](docs/manual-checks.md)
 - [Environment ADR](docs/ADR-001-environment.md)
 
-The project has not claimed unmeasured laptop performance or universal Wayland
-insertion support. Unsupported environments stay copy-only.
+Automatic typing is the default for supported Wayland apps. Set
+`insertion.mode = "copy-only"` when clipboard-first behavior is preferred.
+The project has not claimed universal Wayland insertion support; unsupported
+environments stay copy-only.
 
 ## Android keyboard
 

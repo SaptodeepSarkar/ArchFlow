@@ -117,7 +117,8 @@ pub struct Cleanup {
     /// dpo-sft adapter next to model_path.
     #[serde(default)]
     pub adapter_path: String,
-    /// Word count threshold: skip LLM cleanup when transcript is shorter.
+    /// Word count threshold: skip LLM cleanup below this count. Zero runs it
+    /// for every non-empty transcript.
     #[serde(default = "default_word_threshold")]
     pub word_threshold: usize,
     /// Path to vaani_inject.py (optional: daemon falls back to builtin call).
@@ -166,10 +167,10 @@ fn default_device() -> String {
     "cpu".into()
 }
 fn default_insertion_mode() -> String {
-    // Copy-only default: transcription ends on the clipboard with a
-    // confirmation popup. Automatic paste stays available per app via
-    // insertion.mode = "automatic" (injection code is kept, not removed).
-    "copy-only".into()
+    // Automatic delivery was the original dictation behavior. Safety policy
+    // still forces terminals, review sessions, and failed focus checks to
+    // copy-only; users can opt out globally with insertion.mode = "copy-only".
+    "automatic".into()
 }
 fn default_clip_secs() -> u64 {
     30
@@ -184,7 +185,7 @@ fn default_cleanup_timeout() -> u64 {
     8
 }
 fn default_word_threshold() -> usize {
-    10
+    0
 }
 
 impl Default for General {
@@ -308,7 +309,7 @@ impl Config {
         }
         match self.insertion.mode.as_str() {
             "automatic" | "review" | "copy-only" => {}
-            _ => self.insertion.mode = "copy-only".into(),
+            _ => self.insertion.mode = "automatic".into(),
         }
         match self.cleanup.mode.as_str() {
             "raw" | "clean" | "stream" => {}
@@ -459,9 +460,9 @@ impl Config {
                 Ok(v.into())
             }
             "cleanup.word_threshold" => {
-                let n: usize = v.parse().map_err(|_| "must be 1..1000")?;
-                if !(1..=1000).contains(&n) {
-                    return Err("must be 1..1000".into());
+                let n: usize = v.parse().map_err(|_| "must be 0..1000")?;
+                if n > 1000 {
+                    return Err("must be 0..1000".into());
                 }
                 self.cleanup.word_threshold = n;
                 Ok(n.to_string())
@@ -548,6 +549,7 @@ mod tests {
         let c = Config::default();
         assert_eq!(c.general.residency_profile, "economy");
         assert_eq!(c.cleanup.mode, "raw");
+        assert_eq!(c.cleanup.word_threshold, 0);
         assert_eq!(c.effective_server_idle_secs(), 0);
         assert!(!c.privacy.save_history);
     }
@@ -555,19 +557,19 @@ mod tests {
     #[test]
     fn overrides_win() {
         let mut c = Config::default();
-        assert_eq!(c.insertion_mode_for("anything"), "copy-only");
+        assert_eq!(c.insertion_mode_for("anything"), "automatic");
         c.insertion
             .app_overrides
             .insert("foot".into(), "automatic".into());
         assert_eq!(c.insertion_mode_for("foot"), "automatic");
-        assert_eq!(c.insertion_mode_for("firefox"), "copy-only");
+        assert_eq!(c.insertion_mode_for("firefox"), "automatic");
     }
 
     #[test]
-    fn invalid_insertion_mode_falls_back_to_copy_only() {
+    fn invalid_insertion_mode_falls_back_to_automatic() {
         let mut c = Config::default();
         c.insertion.mode = "unsafe".into();
         c.normalise();
-        assert_eq!(c.insertion.mode, "copy-only");
+        assert_eq!(c.insertion.mode, "automatic");
     }
 }

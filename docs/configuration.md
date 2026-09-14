@@ -4,6 +4,10 @@ Copy `config.example.toml` to `~/.config/vaani/config.toml` (schema_version = 1)
 Live-edit via UI or CLI (`vaani config-get`, `vaani config-set <key> <value>`)
 with a strict key whitelist — see `Config::set_key`.
 
+New configs default to automatic typing. Existing V5-era configs that explicitly
+saved `copy-only` keep that choice; restore the typing behavior with
+`vaani config-set insertion.mode automatic`.
+
 | Key | Values | Tradeoff |
 |---|---|---|
 | general.residency_profile | economy (default) / balanced / ready | Economy always exits sidecars after an operation; Balanced/Ready may retain supported sidecars for the configured TTL. |
@@ -16,10 +20,11 @@ with a strict key whitelist — see `Config::set_key`.
 | recognition.language | en/hi/bn | Explicit — auto-detect fails on short utterances |
 | recognition.translate_to_en | bool | Opt-in translation; default preserves spoken language |
 | recognition.device | cpu/cuda | CUDA only with user GPU build; failure falls back to CPU visibly |
-| insertion.mode | automatic/review/copy-only | automatic replaces clipboard temporarily — needs setup consent |
+| insertion.mode | automatic/review/copy-only | automatic types after a final focus check; copy-only keeps text on the clipboard |
 | insertion.app_overrides | map | Terminals default copy-only (multiline can execute!) |
 | cleanup.mode | raw/clean/stream | raw is the default; clean/stream are explicit opt-ins. |
 | cleanup.model_path/cleanup.adapter_path | paths | Base Qwen3-0.6B dir plus explicit LoRA adapter dir for stream mode |
+| cleanup.word_threshold | 0–1000 (0) | Minimum words sent to the formatter; 0 formats every non-empty transcript |
 | cleanup.endpoint/timeout | URL / 2–30 s | No default server; timeout falls back to raw |
 | cleanup.vocabulary | comma list (append; empty clears) | Names/terms fed to the recognizer prompt; always-on local polish (fillers, false starts, duplicate phrases) needs no endpoint |
 

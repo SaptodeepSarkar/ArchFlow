@@ -23,7 +23,7 @@ from peft import PeftModel
 OUT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "output"))
 DEFAULT_MODEL = os.path.join(OUT, "base-model")
 DEFAULT_ADAPTER = os.path.join(OUT, "dpo-sft")
-DEFAULT_THRESHOLD = 10
+DEFAULT_THRESHOLD = 0
 
 SYSTEM = (
     "You are Vaani cleanup LLM v1, a source-grounded transcript formatter. "

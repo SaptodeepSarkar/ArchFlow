@@ -74,9 +74,8 @@ raw transcript if model startup or validation fails.
    into final text.
 7. In opt-in `stream` mode the local LLM cleans the final text.
 8. Focus is checked again. If it changed, the result is copied and not typed.
-9. Copy-only and review sessions offer final text on the clipboard.
-   Automatic mode performs one final focus check before a virtual-keyboard
-   action; terminals remain copy-only.
+9. Automatic mode types after one final focus check. Copy-only and review
+   sessions offer final text on the clipboard; terminals remain copy-only.
 10. The overlay closes and the daemon returns to `IDLE`.
 11. Economy exits helpers after each operation. Balanced/Ready may reap
    supported sidecars after `server_idle_secs`.
