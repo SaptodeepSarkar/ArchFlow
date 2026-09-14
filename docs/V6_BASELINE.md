@@ -350,3 +350,12 @@ in both endpoint and stream modes. Unknown text still follows the existing
 guarded model/raw fallback, and commands such as `open the browser` remain
 dictated data rather than actions. `cargo test -p vaanid` passed with 12 tests
 passing and one ignored.
+
+## Mobile measurement gate
+
+On 2026-09-14, a host-level `adb devices -l` probe completed successfully
+but returned an empty device list; no Android emulator binary is installed in
+the workspace environment. Therefore Android CPU latency, RAM, battery, and
+end-to-end speech-end-to-insertion measurements remain unmeasured. The
+successful offline Kotlin compile is a build check only and must not be
+reported as a mobile performance result.
