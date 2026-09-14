@@ -353,14 +353,20 @@ passing and one ignored.
 
 ## Mobile measurement gate
 
-On 2026-09-14, a host-level `adb devices -l` probe completed successfully
-but returned an empty device list; no Android emulator binary is installed in
-the workspace environment. Therefore Android CPU latency, RAM, battery, and
-end-to-end speech-end-to-insertion measurements remain unmeasured. The
-successful offline Kotlin compile is a build check only and must not be
-reported as a mobile performance result.
+On 2026-09-14, a host-level `adb devices -l` probe first returned an empty
+device list. A later stable `emulator-5554` session completed the guarded
+APK-install and launch/memory smoke harness successfully:
 
-An emulator briefly appeared as `emulator-5554` on a later probe, but became
-offline during APK installation and then disappeared. The harness returned a
-device-offline error and produced no launch, memory, latency, or WER result;
-this attempt is explicitly invalid and must not be used as a benchmark.
+| Android smoke metric | Result |
+|---|---:|
+| Device | `emulator-5554` (`sdk_gphone64_x86_64`) |
+| Activity launch | 64 ms |
+| Total PSS | 43,179 KB |
+| Total RSS | 174,492 KB |
+
+These are launch/memory smoke measurements only. Speech WER, CPU-only
+streaming RTF, battery, thermal stability, and end-to-end speech-end-to-
+insertion latency remain unmeasured because no audio utterance was run on the
+emulator. The successful offline Kotlin compile is a build check and must not
+be reported as a mobile performance result. An earlier emulator-offline
+attempt remains invalid and is not used here.
