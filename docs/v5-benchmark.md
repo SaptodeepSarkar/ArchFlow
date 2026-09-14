@@ -258,6 +258,11 @@ does not meet the mobile latency target. No TTS fine-tuning claim is made:
 that requires a separately licensed voice corpus and a defined target voice;
 the STT corpus must not be reused as TTS supervision.
 
+The same benchmark with Kokoro's public Indian-English `if_sara` voice
+produced 12.05 seconds of audio in 17.80 seconds: CPU RTF **1.48**, p50
+latency 3.64 s, and p95 latency 6.87 s. The voice choice improves the measured
+baseline but still does not meet real-time/mobile interaction requirements.
+
 ## Re-run commands
 
 Use the cleanup environment for the Python model tools:
