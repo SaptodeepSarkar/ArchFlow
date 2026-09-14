@@ -57,6 +57,29 @@ def load_rows(path: Path) -> list[dict]:
     return rows
 
 
+def read_wav(path: str):
+    import wave
+    import numpy as np
+    with wave.open(path, "rb") as handle:
+        rate = handle.getframerate()
+        channels = handle.getnchannels()
+        width = handle.getsampwidth()
+        raw = handle.readframes(handle.getnframes())
+    if width == 2:
+        audio = np.frombuffer(raw, dtype="<i2").astype("float32") / 32768.0
+    elif width == 4:
+        audio = np.frombuffer(raw, dtype="<i4").astype("float32") / 2147483648.0
+    else:
+        raise ValueError(f"unsupported PCM width {width}: {path}")
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1)
+    if rate != 16000:
+        target = max(1, round(len(audio) * 16000 / rate))
+        audio = np.interp(np.linspace(0, len(audio) - 1, target),
+                          np.arange(len(audio)), audio)
+    return audio.astype("float32")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", type=Path, required=True)
@@ -69,7 +92,6 @@ def main() -> None:
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
 
-    import librosa
     import torch
     from peft import PeftModel
     from transformers import WhisperForConditionalGeneration, WhisperProcessor
@@ -85,8 +107,7 @@ def main() -> None:
     v4 = PeftModel.from_pretrained(base, str(args.v4_model)).eval()
 
     def decode(model, batch):
-        features = [processor(librosa.load(row["audio_path"], sr=16000, mono=True)[0],
-                               sampling_rate=16000).input_features[0]
+        features = [processor(read_wav(row["audio_path"]), sampling_rate=16000).input_features[0]
                     for row in batch]
         with torch.inference_mode():
             ids = model.generate(torch.tensor(features, dtype=dtype, device=args.device),
