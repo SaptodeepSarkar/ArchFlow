@@ -32,7 +32,9 @@ def main() -> None:
     # fine-tune: the prompt is part of its measured accuracy recipe.
     prompt = ("Cozy assistant. Romanized Hindi words: aaj kaisa karo yaar "
               "accha theek thoda nahi bas arre.")
-    beam = 1
+    # Beam 5 is the measured V5 decoding improvement for the existing cozy
+    # checkpoint.  Callers can still pass --beam 1 for the lowest latency.
+    beam = 5
     device = "cuda"
     i = 3
     while i < len(args):

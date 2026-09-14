@@ -62,6 +62,18 @@ The evaluation uses 100 clips held out from the same 1,000-row feedback selectio
 | Moonshine Small V5 sequence-distilled, teacher weight 0.25, 150 steps | 21.22% | not recorded | 66.7% (4/6) | 0.12458 | reject |
 | Moonshine Small V5 logit-KD, teacher weight 0.25, 75 steps | 32.64% | not recorded | 83.3% (5/6) | 0.09297 | reject |
 
+### Safe decoder improvement
+
+The V5 model candidates were not promoted, but a decoding-only change was
+tested on the same 100 held-out clips. With the existing production `cozy`
+CT2 model and its current prompt, beam 5 measured **7.82% corpus-normalized
+WER** versus the documented **9.29% normalized control** (beam 1). CPU RTF was
+0.427 on the test host for 414.4 seconds of audio. The default beam was changed
+from 1 to 5 in `crates/vaani-worker/fw-transcribe.py` and
+`crates/vaani-worker/fw-server.py`; `--beam 1` remains an explicit low-latency
+override. This is a decoder improvement to v2/cozy, not evidence that the V5
+model passes the promotion gate.
+
 The first fine-tuned candidates were damaged by a decoder-target convention bug: Moonshine right-shifts labels and inserts BOS, while the original script passed tokenizer BOS too. The corrected BOS/EOS-aligned run removed empty/catastrophic outputs and reached near-control raw WER, but normalized WER remains worse than v2. The six-term subset is too small to override the WER result; no V5 candidate was wired into Vaani and Vaani was not reloaded to use one.
 
 The complete 1,000-row audit is summarized in `docs/v5-feedback-1000-summary.json`. It contains 9,002 reference words, 739 word-error events, total WER 10.23%, mean row WER 10.17%, mean reward 0.8953, and 83.78% protected-term accuracy. The 75-step experiment was also rejected: shortening the run did not preserve the holdout (24.73% raw WER), and it was slower on the host CPU than the aligned 300-step candidate.
@@ -79,6 +91,27 @@ an overall V5 replacement.
 The logit-KD run added token-distribution KL loss against a frozen untouched
 Moonshine Small teacher at temperature 2.0 and weight 0.25. It was rejected at
 32.64% raw WER (one empty output), despite 83.3% protected-term accuracy.
+
+A conservative 250-step LoRA continuation from the existing Indian-English
+Whisper v2 HF checkpoint was also tested. It used 900 confirmed rows for
+training, a 100-row holdout, low learning rate, waveform noise/gain
+augmentation, and reward/protected-term weighting. The adapter completed
+without instability, but scored 7.47% corpus-normalized WER on its HF beam-5
+evaluation versus 7.23% for the untouched v2/cozy CT2 beam-5 path; it is
+rejected. The adapter remains outside the repository at
+`/home/saptodeep/.local/share/vaani/models/v5-stt-whisper-v2-lora250/adapter`.
+
+A separate 500-step Qwen3-0.6B text-correction adapter was trained from the
+900 baseline-transcript/reference pairs. It raised normalized WER from 8.09%
+to 11.15% when applied to beam-5 output, and from 10.50% to 12.53% on the
+original baseline-hypothesis distribution. It is rejected: a formatter must
+not be used as an unconstrained acoustic repair model. The adapter remains
+outside the repository at
+`/home/saptodeep/.local/share/vaani/cleanup/v5-stt-correction-500`.
+
+The large-v3-turbo CTranslate2 model was sampled as a teacher on ten clips and
+scored 21.90% normalized WER with the tested prompt, worse than v2/cozy. It
+was not used for distillation.
 
 ## Footprint measurements
 
@@ -141,6 +174,12 @@ python tools/eval_v5_formatter.py \
   --adapter /home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-adapter \
   --data training/cleanup-llm/data/eval_contract_v4.jsonl \
   --out /tmp/v5-contract-eval.jsonl
+
+python tools/eval_v5_whisper_ct2.py \
+  --report /home/saptodeep/Projects/Cozy/stt-finetune/data/stt_feedback/feedback_train_1000.jsonl \
+  --model /home/saptodeep/.local/share/vaani/models/cozy \
+  --out /tmp/v5-cozy-beam5.jsonl --beam-size 5 \
+  --device cpu --compute-type int8
 
 python tools/train_v5_formatter_contract.py \
   --model /home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m \

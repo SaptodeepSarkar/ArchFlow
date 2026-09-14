@@ -32,7 +32,9 @@ def main() -> None:
         raise SystemExit(2)
     model_dir = args[0]
     device = "cuda"
-    beam = 1
+    # Beam 5 lowers held-out normalized WER for the production cozy prompt;
+    # the explicit --beam flag remains available for a lower-latency profile.
+    beam = 5
     i = 1
     while i < len(args):
         if args[i] == "--device":
