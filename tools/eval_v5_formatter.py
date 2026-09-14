@@ -41,6 +41,8 @@ def main() -> None:
     ap.add_argument("--max-new-tokens", type=int, default=180)
     ap.add_argument("--template", choices=["legacy", "contract-v2"], default="legacy")
     ap.add_argument("--guard", action="store_true", help="apply the conservative contract guard")
+    ap.add_argument("--aggregate-only", action="store_true",
+                    help="write only aggregate counts; never persist transcript text")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
 
@@ -70,11 +72,15 @@ def main() -> None:
                         "valid": validation.valid, "reason": validation.reason,
                         "exact": exact})
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text("\n".join(json.dumps(item, ensure_ascii=False) for item in results) + "\n")
     valid = sum(item["valid"] for item in results)
     exact = sum(item["exact"] for item in results)
-    print(json.dumps({"count": len(results), "valid": valid / len(results) if results else 0,
-                      "exact": exact / len(results) if results else 0, "output": str(args.out)}))
+    metrics = {"count": len(results), "valid": valid / len(results) if results else 0,
+               "exact": exact / len(results) if results else 0}
+    if args.aggregate_only:
+        args.out.write_text(json.dumps(metrics) + "\n")
+    else:
+        args.out.write_text("\n".join(json.dumps(item, ensure_ascii=False) for item in results) + "\n")
+    print(json.dumps({**metrics, "output": str(args.out)}))
 
 
 if __name__ == "__main__":

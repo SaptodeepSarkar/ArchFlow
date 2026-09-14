@@ -51,6 +51,7 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=60)
     ap.add_argument("--structure-n", type=int, default=100)
     ap.add_argument("--show-intent", action="store_true")
+    ap.add_argument("--out", default="", help="optional aggregate-only JSON metrics path")
     a = ap.parse_args()
 
     if a.adapter:
@@ -148,7 +149,12 @@ def main() -> None:
     print(f"[{a.tag}] intent exact: {i_hit}/{len(intent)}")
     print(f"[{a.tag}] intent list-format kept: {i_list}/{sum(bool(list_marker.search(r['output'])) for r in intent)}")
     print(f"[{a.tag}] contract valid: {c_valid}/{len(contract)} exact: {c_exact}/{len(contract)}")
-    print(json.dumps({"tag": a.tag, "grammar": [g_hit, len(grammar)], "speech": [s_hit, len(speech)], "structure": [v_hit, v_cases], "structure_lists": [v_list, v_list_cases], "grounded": [v_grounded, v_grounded_cases], "intent": [i_hit, len(intent)], "intent_lists": i_list, "contract_valid": [c_valid, len(contract)], "contract_exact": [c_exact, len(contract)]}))
+    metrics = {"tag": a.tag, "grammar": [g_hit, len(grammar)], "speech": [s_hit, len(speech)], "structure": [v_hit, v_cases], "structure_lists": [v_list, v_list_cases], "grounded": [v_grounded, v_grounded_cases], "intent": [i_hit, len(intent)], "intent_lists": i_list, "contract_valid": [c_valid, len(contract)], "contract_exact": [c_exact, len(contract)]}
+    if a.out:
+        with open(a.out, "w") as handle:
+            json.dump(metrics, handle)
+            handle.write("\n")
+    print(json.dumps(metrics))
 
 
 main()

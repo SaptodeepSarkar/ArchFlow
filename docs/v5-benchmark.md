@@ -217,6 +217,19 @@ Using the corrected native-template adapter plus `tools/v5_contract_guard.py`, t
 
 V5 formatter therefore remains an offline research adapter. The existing v4 formatter remains active. The next iteration should use a larger reviewed contract set, explicit list/emoji positives and negatives, token-level groundedness checks, and a stop-sequence-aware runtime.
 
+### Follow-up comparable LLM check
+
+The prior formatter results used different held-out slices, so the existing
+adapters were also compared on the same three-record `eval_contract_v4` set.
+Only aggregate metrics were saved. Qwen3-0.6B (`llm-v4-qwen`) achieved 2/3
+schema-valid records and 0/3 exact records; its broader intent slice was 0/8
+exact. SmolLM2-360M native contract adapter achieved 1/3 schema-valid and 0/3
+exact. Applying the deterministic contract guard to the SmolLM output made
+3/3 records schema-valid but still 0/3 exact. Thus the guard is necessary as a
+safety boundary, but neither small generative formatter has demonstrated
+reliable operation selection on this common holdout. This is an incomplete LLM
+gate, not a reason to promote or suspend the V5 work.
+
 ## Re-run commands
 
 Use the cleanup environment for the Python model tools:
