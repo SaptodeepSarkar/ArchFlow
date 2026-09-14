@@ -337,6 +337,15 @@ clips are not present in the local manifest; the available manifest contains
 | Base Whisper | 6.6285% | 2,210 | 45 | 38 | 0.9271 |
 | V4 adapter | 6.6169% | 2,206 | 45 | 38 | 0.9273 |
 
+### Reward-weighted V5 continuation (250 steps)
+
+The reward-weighted continuation trained from `hf_public_indian_v2` for 250
+streaming steps with bounded reward weighting and waveform augmentation. It
+completed successfully and produced a local adapter, but the frozen 100-clip
+holdout rejected it: **8.0513% corpus-normalized WER** (69/857 words). It is
+worse than the V3 mixed-400 candidate at 6.65% and is not activated or wired
+into Vaani. The adapter remains outside Git for further diagnosis.
+
 The corrected independent-model run found 11 improved rows, 3,966 ties, and
 10 worsened rows, for only a 4-error corpus improvement. This is measurable
 but far short of the required improvement and near-1–2% target, so V4 remains
