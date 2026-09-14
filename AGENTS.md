@@ -153,3 +153,17 @@ vaani doctor                   # capability probe on the laptop
 - Don't invent Quickshell/Hyprland/systemd APIs — check installed versions (`docs/ADR-001-environment.md`, local qmltypes, `hyprctl`, `man systemd.exec`).
 - Never report container numbers as laptop measurements. Missed targets reported honestly.
 - No `curl | sh`, no auto system upgrade, no edits to unrelated dotfiles in packaging.
+
+## Long-running V5 training handoff
+
+- The full public Indian-English corpus is local at
+  `/home/saptodeep/Projects/Cozy/stt-finetune/data/cv_indian_full/` (3,987
+  public clips; weights/audio/manifests stay out of Git).
+- For the expanded V5 manifest, use `tools/build_v5_mixed_manifest.py` with
+  the deterministic 100-row holdout excluded. The V5 Whisper trainer supports
+  `--streaming`; use it for the full corpus because eager mel-feature building
+  exhausts host memory. A one-step streaming smoke test passed on 2026-09-14.
+- The user has explicitly pre-authorized this final-only action: after the
+  genuine final WER brief, verify and terminate the exact `awake` mouse-motion
+  process, then suspend the laptop. Do not perform either action early or on
+  an intermediate benchmark; never target a similarly named process.

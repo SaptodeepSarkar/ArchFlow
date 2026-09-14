@@ -109,6 +109,31 @@ class Collator:
         return batch
 
 
+class StreamingRows(torch.utils.data.IterableDataset):
+    """Infinite shuffled feature stream for fixed-step training without caches."""
+    def __init__(self, rows, processor, augment: bool):
+        self.rows = rows
+        self.processor = processor
+        self.augment = augment
+
+    def __iter__(self):
+        order = list(range(len(self.rows)))
+        while True:
+            random.shuffle(order)
+            for index in order:
+                row = self.rows[index]
+                audio = read_audio(row["audio_path"], self.augment)
+                features = self.processor(audio, sampling_rate=SR).input_features[0]
+                labels = self.processor.tokenizer(row["text"], truncation=True, max_length=224).input_ids
+                if labels and labels[0] == self.processor.tokenizer.bos_token_id:
+                    labels = labels[1:]
+                reward = float(row.get("feedback_reward", 1.0))
+                protected = len(row.get("missing_protected_terms", []))
+                weight = min(2.0, max(0.85, 1.0 + 0.6 * (1.0 - reward) + 0.2 * protected))
+                yield {"input_features": np.asarray(features, dtype=np.float32),
+                       "labels": labels, "weight": weight}
+
+
 class WeightedTrainer(Seq2SeqTrainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         weights = inputs.pop("sample_weight").to(model.device)
@@ -131,6 +156,8 @@ def main():
     ap.add_argument("--batch-size", type=int, default=2)
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--learning-rate", type=float, default=1e-5)
+    ap.add_argument("--streaming", action="store_true",
+                    help="generate features per batch; requires a finite --steps")
     args = ap.parse_args()
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required for this training run")
@@ -139,8 +166,14 @@ def main():
     random.Random(SEED).shuffle(rows)
     train_rows, eval_rows = rows[:-100], rows[-100:]
     processor = WhisperProcessor.from_pretrained(str(args.model), language="english", task="transcribe")
-    train = make_dataset(train_rows, processor, True)
-    evaluation = make_dataset(eval_rows, processor, False)
+    if args.streaming:
+        if args.steps <= 0:
+            raise ValueError("--streaming requires a positive --steps")
+        train = StreamingRows(train_rows, processor, True)
+        evaluation = None
+    else:
+        train = make_dataset(train_rows, processor, True)
+        evaluation = make_dataset(eval_rows, processor, False)
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     model = WhisperForConditionalGeneration.from_pretrained(
         str(args.model), torch_dtype=dtype, low_cpu_mem_usage=True)
@@ -160,6 +193,9 @@ def main():
         fp16=dtype == torch.float16, tf32=True, gradient_checkpointing=True,
         eval_strategy="no", save_strategy="steps", save_steps=100,
         save_total_limit=2, logging_steps=10, report_to="none",
+        # Keep long unattended runs observable without emitting a high-rate
+        # progress-bar stream that can interfere with supervising terminals.
+        disable_tqdm=True,
         remove_unused_columns=False, label_names=["labels"], seed=SEED,
     )
     trainer = WeightedTrainer(model=model, args=training, train_dataset=train,

@@ -133,12 +133,17 @@ hard-example-mining run.
 The full approved public Indian-English source was decoded into a user-local
 corpus of 3,987 clips (not committed). The expanded leakage-safe manifest has
 3,146 rows after excluding holdout transcript matches and adding 177 hard
-examples. The V5 Whisper trainer now writes disk-backed Arrow features rather
-than retaining all mel spectrograms in a Python list, and adds speed, simple
-reverb, and codec-like augmentation. On this host the full-manifest smoke run
-still exited before its first checkpoint while only about 7 GiB RAM was
-available and swap was nearly exhausted; therefore no full-corpus WER claim is
-made. It needs a clean-memory run or a streaming shard trainer before use.
+examples. The V5 Whisper trainer now has an iterable `--streaming` mode, which
+generates augmented features per batch rather than retaining the full
+mel-feature corpus in memory. Its one-step smoke test passed. A full hard-mined
+run saved checkpoints at steps 100 and 200 before the supervising execution
+context ended it before the planned final save. The step-200 checkpoint was
+evaluated, rather than assumed to be better: beam 10 plus the technical prompt
+scored **6.88% corpus-normalized WER (59/857 words)** and **66.7% protected-term
+accuracy (4/6)**. It is worse than the established V3 mixed-400 candidate
+(6.65%, 57/857) with no protected-term improvement, so it is rejected and no
+Vaani configuration was changed. The saved checkpoint remains user-local at
+`/home/saptodeep/.local/share/vaani/models/v5-stt-whisper-v3-full-hard-300/checkpoint-200`.
 
 ## Footprint measurements
 
