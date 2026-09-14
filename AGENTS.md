@@ -169,12 +169,16 @@ vaani doctor                   # capability probe on the laptop
   Spotify, start playback, open the Speakers/device selector, and select the
   Echo Dot. This media action must not happen after an STT-only milestone and
   must not be claimed complete without verifying the selected device.
-- Verified Spotify/Echo Dot navigation on 2026-09-14: Spotify is tagged into
-  Hyprland's `special:music` workspace; toggle it with
-  `hyprctl repl 'hl.dispatch(hl.dsp.workspace.toggle_special("music"))'`.
-  Spotify exposes a local CDP endpoint on `127.0.0.1:9222`; click the button
-  with `aria-label="Play"`, then the button with
-  `aria-label="Connect to a device"`, then the first device-picker row whose
-  visible name is `Saptodeep's 2nd Echo Dot`. Verify the result by observing
-  an `aria-label="Pause"` control and Spotify's `Now playing:` status. Do not
-  infer success from process state alone.
+- ```sh
+  hyprctl repl 'hl.dispatch(hl.dsp.workspace.toggle_special("music"))'
+  ```
+- ```sh
+  node - <<'NODE'
+  const http=require('http');http.get('http://127.0.0.1:9222/json/list',res=>{let b='';res.on('data',x=>b+=x);res.on('end',()=>{let ws=new WebSocket(JSON.parse(b)[0].webSocketDebuggerUrl);ws.onopen=()=>ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:"document.querySelector('button[aria-label=\\\"Play\\\"]')?.click()",returnByValue:true}}));ws.onmessage=()=>ws.close()})})
+  NODE
+  ```
+- ```sh
+  node - <<'NODE'
+  const http=require('http');http.get('http://127.0.0.1:9222/json/list',res=>{let b='';res.on('data',x=>b+=x);res.on('end',()=>{let ws=new WebSocket(JSON.parse(b)[0].webSocketDebuggerUrl);ws.onopen=()=>ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:"document.querySelector('button[aria-label=\\\"Connect to a device\\\"]')?.click()",returnByValue:true}}));ws.onmessage=()=>setTimeout(()=>{ws.send(JSON.stringify({id:2,method:'Runtime.evaluate',params:{expression:"document.querySelector('[role=listitem] [role=button]')?.click()",returnByValue:true}}))},800)})})
+  NODE
+  ```
