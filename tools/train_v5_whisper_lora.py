@@ -45,23 +45,53 @@ def read_audio(path: str, augment: bool) -> np.ndarray:
             audio = audio * random.uniform(0.92, 1.08)
         if random.random() < 0.25:
             audio = audio + rng.normal(0.0, 0.0015, len(audio))
+        if random.random() < 0.20 and len(audio) > SR:
+            # Time-scale perturbation. Keep the resulting duration changed so
+            # the encoder sees natural fast/slow speaking variation.
+            factor = random.choice((0.92, 1.08))
+            output_len = max(1, round(len(audio) / factor))
+            audio = np.interp(np.linspace(0, len(audio) - 1, output_len),
+                              np.arange(len(audio)), audio).astype("float32")
+        if random.random() < 0.15:
+            # Small synthetic room impulse: direct path plus one decaying echo.
+            delay = random.randint(int(0.008 * SR), int(0.045 * SR))
+            impulse = np.zeros(delay + 1, dtype="float32")
+            impulse[0] = 1.0
+            impulse[-1] = random.uniform(0.05, 0.18)
+            audio = np.convolve(audio, impulse, mode="full")[:len(audio)]
+        if random.random() < 0.15:
+            # Cheap microphone/voice-message codec proxy without a system codec.
+            levels = random.choice((128.0, 256.0, 512.0))
+            audio = np.round(audio * levels) / levels
     return np.clip(audio, -1.0, 1.0).astype("float32")
 
 
-def make_rows(rows, processor, augment: bool):
-    result = []
-    for row in rows:
-        audio = read_audio(row["audio_path"], augment)
-        features = processor(audio, sampling_rate=SR).input_features[0]
-        labels = processor.tokenizer(row["text"], truncation=True, max_length=224).input_ids
-        if labels and labels[0] == processor.tokenizer.bos_token_id:
-            labels = labels[1:]
-        reward = float(row.get("feedback_reward", 1.0))
-        protected = len(row.get("missing_protected_terms", []))
-        weight = min(2.0, max(0.85, 1.0 + 0.6 * (1.0 - reward) + 0.2 * protected))
-        result.append({"input_features": np.asarray(features, dtype=np.float32),
-                       "labels": labels, "weight": weight})
-    return result
+def make_dataset(rows, processor, augment: bool):
+    """Build a disk-backed dataset instead of retaining every mel in RAM."""
+    import datasets as hfds
+    hfds.disable_progress_bars()
+
+    def generator():
+        for row in rows:
+            audio = read_audio(row["audio_path"], augment)
+            features = processor(audio, sampling_rate=SR).input_features[0]
+            labels = processor.tokenizer(row["text"], truncation=True, max_length=224).input_ids
+            if labels and labels[0] == processor.tokenizer.bos_token_id:
+                labels = labels[1:]
+            reward = float(row.get("feedback_reward", 1.0))
+            protected = len(row.get("missing_protected_terms", []))
+            weight = min(2.0, max(0.85, 1.0 + 0.6 * (1.0 - reward) + 0.2 * protected))
+            yield {"input_features": np.asarray(features, dtype=np.float32),
+                   "labels": labels, "weight": weight}
+
+    return hfds.Dataset.from_generator(
+        generator,
+        features=hfds.Features({
+            "input_features": hfds.Sequence(hfds.Sequence(hfds.Value("float32"))),
+            "labels": hfds.Sequence(hfds.Value("int32")),
+            "weight": hfds.Value("float32"),
+        }),
+    )
 
 
 class Collator:
@@ -109,8 +139,8 @@ def main():
     random.Random(SEED).shuffle(rows)
     train_rows, eval_rows = rows[:-100], rows[-100:]
     processor = WhisperProcessor.from_pretrained(str(args.model), language="english", task="transcribe")
-    train = make_rows(train_rows, processor, True)
-    evaluation = make_rows(eval_rows, processor, False)
+    train = make_dataset(train_rows, processor, True)
+    evaluation = make_dataset(eval_rows, processor, False)
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     model = WhisperForConditionalGeneration.from_pretrained(
         str(args.model), torch_dtype=dtype, low_cpu_mem_usage=True)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 from pathlib import Path
 
 
@@ -17,6 +18,10 @@ SEED = 20260914
 
 def load(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def text_key(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", text.lower())).strip()
 
 
 def main() -> None:
@@ -33,19 +38,25 @@ def main() -> None:
 
     feedback = load(args.feedback)
     random.Random(SEED).shuffle(feedback)
-    feedback_train = feedback[:-100]
+    feedback_train, feedback_holdout = feedback[:-100], feedback[-100:]
+    holdout_text = {text_key(row["text"]) for row in feedback_holdout}
     public = load(args.public)
     seen: set[str] = set()
+    seen_text: set[str] = set()
     merged: list[dict] = []
     extra_hard = 0
     # Prefer confirmed feedback metadata when the same public clip appears in
     # both sources; this preserves reward/protected-term fields for weighting.
     for row in feedback_train + public:
+        key = text_key(row["text"])
+        if row in public and key in holdout_text:
+            continue
         audio = Path(row["audio_path"])
         path = str((args.base_dir / audio).resolve() if not audio.is_absolute() else audio.resolve())
-        if path in seen:
+        if path in seen or key in seen_text:
             continue
         seen.add(path)
+        seen_text.add(key)
         normalized = {**row, "audio_path": path}
         merged.append(normalized)
         if args.hard_repeat and "feedback_reward" in row and row["feedback_reward"] <= args.hard_threshold:

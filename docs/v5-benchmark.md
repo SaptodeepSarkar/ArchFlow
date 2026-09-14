@@ -130,6 +130,16 @@ rejected. The mixed-manifest builder now prefers confirmed feedback rows when
 deduplicating against public rows, preserving reward metadata for a future
 hard-example-mining run.
 
+The full approved public Indian-English source was decoded into a user-local
+corpus of 3,987 clips (not committed). The expanded leakage-safe manifest has
+3,146 rows after excluding holdout transcript matches and adding 177 hard
+examples. The V5 Whisper trainer now writes disk-backed Arrow features rather
+than retaining all mel spectrograms in a Python list, and adds speed, simple
+reverb, and codec-like augmentation. On this host the full-manifest smoke run
+still exited before its first checkpoint while only about 7 GiB RAM was
+available and swap was nearly exhausted; therefore no full-corpus WER claim is
+made. It needs a clean-memory run or a streaming shard trainer before use.
+
 ## Footprint measurements
 
 ## Streaming Zipformer rejection
