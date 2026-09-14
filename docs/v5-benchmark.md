@@ -237,6 +237,23 @@ retained 0/9 list cases, versus the SFT Qwen control's 2/3 schema-valid and
 preference-data scale. The next safe experiment is expanded reviewed SFT data
 plus the deterministic guard, not further preference optimization.
 
+The expanded Qwen SFT micro-run was evaluated at both 200 and 300 steps. Both
+were 8/8 schema-valid, 2/8 exact, and 0/8 intent exact on the untouched
+eight-row expanded holdout. Since the additional 100 steps produced no
+held-out gain, checkpoint 200 is the selected research checkpoint for now:
+`training/cleanup-llm/output/llm-v5-qwen-expanded/checkpoint-200`. It is not
+activated. PPO was not run because this formatter has no trustworthy scalar
+reward model; existing DPO was measured and rejected.
+
+### TTS status
+
+The repository currently has no TTS training data, TTS model, TTS runtime, or
+playback feature. A repository and local-model audit on 2026-09-14 found no
+Piper, VITS, Coqui, Bark, Kokoro, or equivalent artifact. Therefore no TTS
+accuracy, latency, memory, or voice fine-tuning claim is made. Adding TTS
+requires a separately licensed voice corpus and a defined target; it must not
+be inferred from the STT corpus.
+
 ## Re-run commands
 
 Use the cleanup environment for the Python model tools:
