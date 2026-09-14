@@ -114,6 +114,22 @@ The large-v3-turbo CTranslate2 model was sampled as a teacher on ten clips and
 scored 21.90% normalized WER with the tested prompt, worse than v2/cozy. It
 was not used for distillation.
 
+The strongest completed Whisper adaptation is the user-local
+`/home/saptodeep/.local/share/vaani/models/v5-stt-whisper-v3-mixed-400`:
+400 low-learning-rate LoRA steps from `hf_public_indian_v2`, using 1,517
+deduplicated public Indian-English clips. With the technical prompt and beam
+10 it scored **6.65% corpus-normalized WER (57/857 words)** on the fixed 100
+clips. Its CT2 INT8 conversion is 235 MiB, peak host RSS after load is about
+921 MiB, and CPU RTF is 0.407 on this host. It improves the current 7.23%
+technical-prompt result, but does not meet the 1--2% target and has only 66.7%
+accuracy on the six protected terms in this small holdout. It remains offline.
+
+A separate reward-metadata-preserving run was stopped by the execution
+context after checkpoint 100; that checkpoint scored 6.77% WER and was
+rejected. The mixed-manifest builder now prefers confirmed feedback rows when
+deduplicating against public rows, preserving reward metadata for a future
+hard-example-mining run.
+
 ## Footprint measurements
 
 ## Streaming Zipformer rejection

@@ -8,6 +8,7 @@ apostrophe formatting does not masquerade as an acoustic improvement.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import re
@@ -30,6 +31,7 @@ def main() -> None:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--beam-size", type=int, default=1)
     ap.add_argument("--initial-prompt", default="")
+    ap.add_argument("--initial-prompt-file", type=Path)
     ap.add_argument("--hotwords-file", type=Path)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--compute-type", default="int8_float16")
@@ -43,6 +45,9 @@ def main() -> None:
     rows = rows[-min(100, max(1, args.limit)):]
     model = WhisperModel(str(args.model), device=args.device,
                          compute_type=args.compute_type)
+    prompt = args.initial_prompt
+    if args.initial_prompt_file:
+        prompt = args.initial_prompt_file.read_text()
     hotwords = None
     if args.hotwords_file:
         hotwords = ", ".join(x.strip() for x in args.hotwords_file.read_text().splitlines()
@@ -55,7 +60,7 @@ def main() -> None:
         segments, _ = model.transcribe(
             row["audio_path"], language="en", beam_size=args.beam_size,
             condition_on_previous_text=False,
-            initial_prompt=args.initial_prompt or None,
+            initial_prompt=prompt or None,
             hotwords=hotwords,
             vad_filter=False,
         )
@@ -64,14 +69,15 @@ def main() -> None:
         elapsed += seconds
         with __import__("wave").open(row["audio_path"], "rb") as wav:
             audio_seconds += wav.getnframes() / wav.getframerate()
-        literal = score(row["reference"], hypothesis)
-        normalized = score(normalize(row["reference"]), normalize(hypothesis))
+        reference = row.get("reference", row.get("text", ""))
+        literal = score(reference, hypothesis)
+        normalized = score(normalize(reference), normalize(hypothesis))
         results.append({
-            "audio_path": row["audio_path"],
-            "reference": row["reference"],
-            "hypothesis": hypothesis,
-            "literal": literal,
-            "normalized": normalized,
+            "row_id": hashlib.sha256(row["audio_path"].encode()).hexdigest()[:16],
+            "reference_words": len(normalize(reference).split()),
+            "literal_errors": len(literal["errors"]),
+            "normalized_errors": len(normalized["errors"]),
+            "normalized_wer": normalized["wer"],
             "seconds": seconds,
         })
         if (index + 1) % 10 == 0:
@@ -82,8 +88,9 @@ def main() -> None:
         return sum(r[key]["wer"] for r in results) / len(results)
     print(json.dumps({
         "clips": len(results), "beam_size": args.beam_size,
-        "literal_mean_row_wer": mean("literal"),
-        "normalized_mean_row_wer": mean("normalized"),
+        "literal_mean_row_wer": sum(r["literal_errors"] / max(r["reference_words"], 1) for r in results) / len(results),
+        "normalized_mean_row_wer": sum(r["normalized_wer"] for r in results) / len(results),
+        "corpus_normalized_wer": sum(r["normalized_errors"] for r in results) / max(sum(r["reference_words"] for r in results), 1),
         "audio_seconds": audio_seconds, "elapsed_seconds": elapsed,
         "real_time_factor": elapsed / max(audio_seconds, 1e-6),
         "out": str(args.out),
