@@ -150,6 +150,13 @@ adaptation with diverse acoustic data and contextual biasing; replacing the
 current model with a generic small streaming checkpoint would make WER much
 worse. The downloaded weights remain user-local and are not committed.
 
+AI4Bharat IndicConformer 600M was also assessed as the relevant hybrid
+CTC/RNNT research direction. It is gated and its documented language list is
+the 22 scheduled Indian languages, not English, so it is not a valid
+Indian-English benchmark candidate without separately obtaining access and
+verifying English support. It was not downloaded or represented as a tested
+result.
+
 These are host measurements, not Android claims. They used the same 100-clip
 STT holdout and the 12-case formatter set:
 
