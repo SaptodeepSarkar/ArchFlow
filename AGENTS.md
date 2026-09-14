@@ -137,7 +137,7 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ```sh
 cargo build --workspace        # debug; --release for measurements
-cargo test --workspace         # must stay green (currently 31)
+cargo test --workspace         # must stay green (currently 51; one hardware test ignored)
 qmllint ui/shell.qml ui/SettingsView.qml   # QML syntax
 ./install.sh                   # user-local install only (never sudo, never system upgrade)
 vaani doctor                   # capability probe on the laptop
@@ -177,6 +177,31 @@ vaani doctor                   # capability probe on the laptop
   const http=require('http');http.get('http://127.0.0.1:9222/json/list',res=>{let b='';res.on('data',x=>b+=x);res.on('end',()=>{let ws=new WebSocket(JSON.parse(b)[0].webSocketDebuggerUrl);ws.onopen=()=>ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:"document.querySelector('button[aria-label=\\\"Play\\\"]')?.click()",returnByValue:true}}));ws.onmessage=()=>ws.close()})})
   NODE
   ```
+
+## V6 formatter handoff (2026-09-14)
+
+- The V5 free-form formatter is archived as a control. Do not keep repeating
+  SFT/DPO/GRPO on the narrow V5 corpus; V6 uses source-grounded edit/tag
+  prediction plus deterministic rendering.
+- The frozen STT control is the V5 Whisper-derived CT2 path. Full-corpus
+  normalized WER is 5.49244%; the 100-clip CPU slice is 5.549% WER at CPU
+  RTF 0.4107. These are host measurements, not Android claims.
+- The validated synthetic V6 bootstrap shard has 10,000 unique sources, but
+  is not human ground truth. The mixed learned tagger reached only 3/18 exact
+  on the independent challenge; it is not promoted. The learned model plus
+  narrow closed fallbacks rendered 18/18 on that small challenge, which must
+  not be reported as learned accuracy.
+- The runtime cleanup guard rejects invented, deleted, substituted, or
+  reordered content. Explicit emoji/list cues are deterministic; dictated
+  commands remain data and never authorize actions. Keep snippets, URLs,
+  replacements, and safety authorization outside model output.
+- The host previously suffered an OOM during weighted formatter training.
+  Use the guarded trainer defaults (one thread, zero loader workers, bounded
+  batch/RSS/available-memory checks) and run a smoke test before any larger
+  experiment. Never start an unbounded GPU or weighted-loss run.
+- Benchmark/report artifacts: `docs/V6_BASELINE.md` and
+  `docs/v6-formatter-benchmark.html`. Do not commit weights, audio, generated
+  datasets, or caches.
 - ```sh
   node - <<'NODE'
   const http=require('http');http.get('http://127.0.0.1:9222/json/list',res=>{let b='';res.on('data',x=>b+=x);res.on('end',()=>{let ws=new WebSocket(JSON.parse(b)[0].webSocketDebuggerUrl);ws.onopen=()=>ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:"document.querySelector('button[aria-label=\\\"Connect to a device\\\"]')?.click()",returnByValue:true}}));ws.onmessage=()=>setTimeout(()=>{ws.send(JSON.stringify({id:2,method:'Runtime.evaluate',params:{expression:"document.querySelector('[role=listitem] [role=button]')?.click()",returnByValue:true}}))},800)})})
