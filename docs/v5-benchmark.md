@@ -247,12 +247,16 @@ reward model; existing DPO was measured and rejected.
 
 ### TTS status
 
-The repository currently has no TTS training data, TTS model, TTS runtime, or
-playback feature. A repository and local-model audit on 2026-09-14 found no
-Piper, VITS, Coqui, Bark, Kokoro, or equivalent artifact. Therefore no TTS
-accuracy, latency, memory, or voice fine-tuning claim is made. Adding TTS
-requires a separately licensed voice corpus and a defined target; it must not
-be inferred from the STT corpus.
+The repository has no TTS training data, playback feature, or Android TTS
+integration. A public Kokoro-82M ONNX artifact was downloaded user-locally for
+an inference baseline at
+`/home/saptodeep/.local/share/vaani/models/v5-tts-kokoro-82m/onnx/model_quantized.onnx`.
+On this host, the 92,360,543-byte quantized model synthesized 13.46 seconds
+of audio in 22.82 seconds across four technical/dictation cases: CPU RTF
+**1.70**, p50 case latency 4.51 s, p95 8.79 s. This is a baseline only and
+does not meet the mobile latency target. No TTS fine-tuning claim is made:
+that requires a separately licensed voice corpus and a defined target voice;
+the STT corpus must not be reused as TTS supervision.
 
 ## Re-run commands
 
