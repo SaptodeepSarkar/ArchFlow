@@ -51,11 +51,13 @@ def main():
     ap.add_argument("--batch-size", type=int, default=2)
     ap.add_argument("--initial-prompt", default="")
     ap.add_argument("--initial-prompt-file", type=Path)
-    ap.add_argument("--limit", type=int, default=100)
+    ap.add_argument("--limit", type=int, default=100,
+                    help="number of deterministic holdout rows; 0 evaluates every row")
     args = ap.parse_args()
     rows = [json.loads(x) for x in args.report.read_text().splitlines() if x.strip()]
     random.Random(SEED).shuffle(rows)
-    rows = rows[-min(100, max(1, args.limit)):]
+    if args.limit > 0:
+        rows = rows[-min(len(rows), args.limit):]
     processor = WhisperProcessor.from_pretrained(str(args.model), language="english", task="transcribe")
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     model = WhisperForConditionalGeneration.from_pretrained(str(args.model), torch_dtype=dtype).to("cuda")

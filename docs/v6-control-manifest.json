@@ -1,0 +1,67 @@
+{
+  "schema": "vaani.v6.control-manifest/1",
+  "created": "2026-09-14",
+  "production_controls": {
+    "stt": {
+      "name": "v2/cozy CT2",
+      "path": "/home/saptodeep/.local/share/vaani/models/v5-stt-whisper-v5-supervised-200-ct2",
+      "status": "frozen-control",
+      "notes": "Do not replace during V6 formatter work; use fair paired benchmark metrics."
+    },
+    "formatter": {
+      "name": "v4 cleanup plus deterministic guard",
+      "source": "crates/vaanid/src/cleanup.rs",
+      "status": "production-control",
+      "notes": "Guarded regression control; raw generative accuracy is not inferred from guard results."
+    }
+  },
+  "v5_archived_controls": [
+    {"name": "SmolLM2-360M contract/SFT variants", "path": "/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m*", "status": "control-only"},
+    {"name": "SmolLM2-360M DPO variants", "path": "/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-dpo-*", "status": "rejected-control"},
+    {"name": "SmolLM2-360M GRPO variants", "path": "/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-grpo-*", "status": "rejected-control"},
+    {"name": "hashed edit classifier", "path": "/home/saptodeep/.local/share/vaani/cleanup/v5-edit-classifier-500", "status": "research-control"}
+  ],
+  "v6_artifacts": {
+    "schema": "docs/v6-dataset-schema.md",
+    "generator": "tools/build_v6_formatter_dataset.py",
+    "validator": "tools/validate_v6_formatter_dataset.py",
+    "splitter": "tools/split_v6_formatter_dataset.py",
+    "dataset_root": "/home/saptodeep/.local/share/vaani/formatter-v6",
+    "dataset_rows": 10000,
+    "split_seed": "v6-split-2026-09-14",
+    "split_counts": {"train": 8046, "dev": 983, "test": 971},
+    "renderer": "tools/render_v6_edit_plan.py",
+    "renderer_test_exact": "971/971",
+    "grounded_importer": "tools/import_v6_grounded_corpus.py",
+    "reviewed_candidate_rows": 1019,
+    "reviewed_split_counts": {"train": 793, "dev": 133, "test": 93},
+    "reviewed_renderer_exact": "944/1019",
+    "reviewed_tagger": {"exact_plan": "13/93", "token_label_accuracy": 0.9906103286, "token_label_exact": "80/93", "punctuation_exact": "21/93"},
+    "augmentation": "tools/augment_v6_grounded_rows.py",
+    "augmented_rows": 9141,
+    "augmented_base_rows": 1019,
+    "augmented_grouped_split_counts": {"train": 7112, "dev": 1194, "test": 835},
+    "augmented_grouped_tagger": {"exact_plan": "166/835", "token_label_accuracy": 0.9667991909, "token_label_exact": "510/835", "punctuation_exact": "289/835"},
+    "mixed_tagger": {"exact_plan": "25/101", "token_label_accuracy": 0.9896171317, "token_label_exact": "87/101", "punctuation_exact": "30/101"},
+    "dev_selected_hashed_tagger": {"best_epoch": 19, "dev_exact_plan": "226/1194", "dev_token_label_accuracy": 0.9679877295, "test_exact_plan": "144/835", "test_token_label_accuracy": 0.9658924461, "test_token_label_exact": "530/835", "test_punctuation_exact": "279/835", "renderer_exact": "155/835"},
+    "causal_conv_candidate": {"best_epoch": 9, "dev_exact_plan": "206/1194", "dev_token_label_accuracy": 0.9681361635, "test_exact_plan": "155/835", "test_token_label_accuracy": 0.9624049662, "test_token_label_exact": "482/835", "test_punctuation_exact": "269/835", "renderer_exact": "172/835"},
+    "contextual_bigru_probe": {"one_epoch_test_exact_plan": "102/835", "one_epoch_test_token_label_accuracy": 0.9601032294, "status": "too-slow-probe"},
+    "preservation_audit": {"hashed_protected_digits_negation": "835/835", "conv_protected_digits_negation": "835/835", "status": "corpus-only-not-independent-challenge"},
+    "tagger_cpu_proxy_batch1": {"hashed_params": 208539, "hashed_p50_ms": 0.0618, "hashed_p95_ms": 0.0790, "conv_params": 291579, "conv_p50_ms": 0.2552, "conv_p95_ms": 0.3257, "scope": "warm-forward-only-laptop-not-android"},
+    "draft_challenge": {"generator": "tools/build_v6_independent_challenge.py", "rows": 18, "schema_errors": 0, "gold_renderer_exact": "18/18", "status": "evaluation-only-not-human-reviewed"},
+    "draft_challenge_model_eval": {"hashed_exact": "0/18", "hashed_token_label_accuracy": 0.8953488372, "conv_exact": "0/18", "conv_token_label_accuracy": 0.8720930233, "status": "generalization-failure-not-for-tuning"},
+    "clean_import_control": {"rejected_single_line_list_prose": 5, "reviewed_bases": 1014, "augmented_rows": 9096, "grouped_split": {"train": 7078, "dev": 1193, "test": 825}, "best_epoch": 8, "test_exact_plan": "150/825", "test_token_label_accuracy": 0.9712905060, "renderer_exact": "164/825", "challenge_exact": "0/18", "status": "not-promoted"},
+    "semantic_cue_control": {"accepted_cues": 6, "rejected_contract_rows": 22, "bases": 1020, "augmented_rows": 9150, "grouped_split": {"train": 7123, "dev": 1193, "test": 834}, "best_epoch": 7, "test_exact_plan": "175/834", "test_token_label_accuracy": 0.9690977390, "challenge_exact": "0/18", "challenge_token_label_accuracy": 0.8681318681, "status": "not-promoted"},
+    "semantic_rich_control": {"cue_variants": 24, "bases": 1044, "augmented_rows": 9351, "grouped_split": {"train": 7273, "dev": 1235, "test": 843}, "best_epoch": 15, "test_exact_plan": "184/843", "test_token_label_accuracy": 0.9692883366, "challenge_exact": "0/18", "challenge_token_label_accuracy": 0.8681318681, "status": "not-promoted-hybrid-fallback-needed"},
+    "semantic_fallback": {"implementation": "tools/v6_semantic_fallback.py", "challenge_structure_emoji_exact": "18/18", "scope": "closed-cue-only-no-text-generation"},
+    "hybrid_challenge": {"semantic_rich_model": "semantic-rich", "fallback_heads": "18/18", "rendered_exact": "4/18", "status": "token-edit-and-punctuation-gap"},
+    "closed_edit_fallback": {"implementation": "tools/v6_edit_fallback.py", "draft_challenge_rendered_exact": "18/18", "scope": "high-confidence-source-grounded-rules"},
+    "status": "bootstrap-only-needs-review"
+  },
+  "policy": [
+    "No model weights or generated corpus files in Git.",
+    "V5 artifacts are controls, not V6 initialization weights.",
+    "Do not run preference optimization before evaluating the supervised V6 baseline.",
+    "Do not claim the generated bootstrap rows are human-reviewed ground truth."
+  ]
+}

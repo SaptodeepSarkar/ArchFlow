@@ -19,4 +19,22 @@ Launch **Vaani Keyboard**, enable it in system keyboard settings, then select it
 
 Cleanup is intentionally conservative and local: whitespace and sentence capitalization only, with raw STT as the fallback. It does not guess content or send transcripts to a cloud endpoint. A future bundled quantized editor can implement a `CleanupEngine` beside `ConservativeCleanup`; model weights are not checked into this repository.
 
+## V5 handoff status
+
+The V5 desktop STT candidate is a user-local CTranslate2 directory, not an
+Android asset:
+
+`~/.local/share/vaani/models/v5-stt-whisper-v5-supervised-200-ct2`
+
+It is approximately 245 MB (`int8_float16`), measured at 5.492% corpus WER
+and about 516 MiB VRAM during desktop CUDA inference. It has not been bundled
+into this APK and has no Android latency, RAM, battery, or thermal result yet.
+The Android implementation must add a native offline `PcmSttEngine` (for
+example through an ONNX/ggml-compatible export) and benchmark it on a physical
+device before this artifact can replace `OnDeviceSttEngine`.
+
 The Android IME cannot connect to the Linux daemon's Unix socket across OS boundaries. The two clients therefore share the privacy and model contract, not a live desktop socket. No transcript is placed in logs, intents, or command arguments.
+
+## UI/UX implementation status
+
+The approved IME-first V1 redesign is documented in [`docs/ui-ux/PHASE_2_REPORT.md`](docs/ui-ux/PHASE_2_REPORT.md). The app now has a readiness-led Home/Settings shell, verified four-step onboarding, inset-aware system bars, semantic tokens, explicit dictation states, and insertion-failure recovery. The future coexisting overlay remains intentionally unimplemented until its Android integration and privacy contract are approved.

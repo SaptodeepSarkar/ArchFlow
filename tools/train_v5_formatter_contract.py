@@ -23,7 +23,7 @@ def load(name: str):
 def canonical(row: dict) -> dict:
     source = row["input"]
     result = row["output"]
-    if row.get("source") == "reviewed:contract-v4":
+    if row.get("source") in {"reviewed:contract-v4", "synthetic:contract-v5-expanded"}:
         try:
             return json.loads(result)
         except json.JSONDecodeError:
@@ -52,6 +52,9 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=Path("/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-adapter"))
     ap.add_argument("--steps", type=int, default=500)
     ap.add_argument("--resume-from-checkpoint", type=Path, default=None)
+    ap.add_argument("--correction-file", type=Path, default=None,
+                    help="verified broken->correct contract rows to replay")
+    ap.add_argument("--correction-repeat", type=int, default=4)
     ap.add_argument(
         "--contract-only",
         action="store_true",
@@ -65,10 +68,18 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     contract_rows = load("sft_contract_v4.jsonl")
+    expanded_rows = load("sft_contract_v5_expanded.jsonl")
     other_rows = [row for name in files[:-1] for row in load(name)]
     # Put safety-contract examples first and repeat them so a short run sees
     # the exact JSON/list/emoji/protected-term behavior before broad prose.
-    source_rows = contract_rows * 200 if args.contract_only else contract_rows * 200 + other_rows
+    # Reviewed V5 cases teach operation selection (lists, emoji, URLs) that
+    # broad prose examples do not. Keep the frozen eval file separate.
+    source_rows = (contract_rows * 160 + expanded_rows * 40
+                   if args.contract_only else contract_rows * 160 + expanded_rows * 40 + other_rows)
+    if args.correction_file:
+        corrections = [json.loads(line) for line in args.correction_file.read_text().splitlines()
+                       if line.strip()]
+        source_rows.extend(corrections * max(1, args.correction_repeat))
     rows = []
     for row in source_rows:
         target = json.dumps(canonical(row), ensure_ascii=False, separators=(",", ":"))

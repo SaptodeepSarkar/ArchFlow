@@ -55,10 +55,11 @@ def main() -> None:
 
     from faster_whisper import WhisperModel
 
+    compute_type = "int8_float16" if device == "cuda" else "int8"
     try:
         model = WhisperModel(
             model_dir, device=device, device_index=0,
-            compute_type="int8_float16",
+            compute_type=compute_type,
         )
     except Exception:
         if device == "cpu":

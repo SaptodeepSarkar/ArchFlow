@@ -288,8 +288,20 @@ pub fn llm_cleanup(text: &str, cfg: &Config) -> String {
     if cfg.cleanup.mode != "stream" {
         return text.to_string();
     }
+    // Explicit lists and emoji are handled deterministically before invoking
+    // the generative sidecar; dictated commands remain plain text.
+    if let Some(special) = crate::cleanup::closed_special(text) {
+        return special;
+    }
     match llm_server_cleanup(text, cfg) {
-        Ok(s) if !s.is_empty() => s,
-        _ => llm_oneshot(text, cfg),
+        Ok(s) if !s.is_empty() && crate::cleanup::semantic_ok(text, &s) => s,
+        _ => {
+            let fallback = llm_oneshot(text, cfg);
+            if crate::cleanup::semantic_ok(text, &fallback) {
+                fallback
+            } else {
+                text.to_string()
+            }
+        }
     }
 }

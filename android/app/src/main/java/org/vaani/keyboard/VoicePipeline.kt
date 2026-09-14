@@ -25,7 +25,7 @@ interface CleanupEngine { fun clean(raw: String): String }
 class OnDeviceSttEngine(private val context: Context, private val languageTag: String = Locale.getDefault().toLanguageTag(), private val level: (Float) -> Unit = {}, private val ready: () -> Unit = {}) : SttEngine {
     private var recognizer: SpeechRecognizer? = null
     override fun start(onText: (String) -> Unit, onError: (String) -> Unit) {
-        if (android.os.Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) { onError("On-device speech unavailable. Install an offline speech service/model in Android settings."); return }
+        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) { onError("On-device speech is unavailable on this device. Check Android speech settings."); return }
         try {
         recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context).also { r ->
             r.setRecognitionListener(object : RecognitionListener {
@@ -52,10 +52,44 @@ class OnDeviceSttEngine(private val context: Context, private val languageTag: S
 /** Minimal-edit cleanup: punctuation/capitalization only; meaning and numbers survive. */
 object ConservativeCleanup {
     fun apply(raw: String, enabled: Boolean): String {
-        val text = raw.trim().replace(Regex("\\s+"), " ")
+        var text = raw.trim().replace(Regex("\\s+"), " ")
         if (!enabled || text.isEmpty()) return text
+
+        // Closed cue: never let a generative model invent an emoji.
+        val emoji = Regex("(?i)^(?:(?:please|can you) )?(?:(?:add|insert|use|put|include) )?(laughing|laugh|thumbs up|heart|celebration|smiley) emoji$")
+            .matchEntire(text)?.groupValues?.getOrNull(1)?.lowercase()
+        if (emoji != null) return when (emoji) {
+            "laughing", "laugh" -> "😂"
+            "thumbs up" -> "👍"
+            "heart" -> "❤️"
+            "celebration" -> "🎉"
+            else -> "🙂"
+        }
+
+        // Explicit spoken order is safe to render from source spans.
+        val order = Regex("(?i)\\b(first|second|third|fourth|fifth)\\b")
+        val markers = order.findAll(text).toList()
+        if (markers.size >= 2) {
+            val items = markers.mapIndexedNotNull { index, marker ->
+                val start = marker.range.last + 1
+                val end = if (index + 1 < markers.size) markers[index + 1].range.first else text.length
+                text.substring(start, end).trim().trim(',', '.', ';', ':')
+            }.filter(String::isNotBlank)
+            if (items.size == markers.size) {
+                return items.mapIndexed { index, item ->
+                    "${index + 1}. ${item.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }}"
+                }.joinToString("\n")
+            }
+        }
+
+        text = text.replace(Regex("(?i)\\b(uh|um|erm|hmm|mmm)\\b\\s*"), "")
+        text = text.replace(Regex("(?i)\\b(to|the|a|an|is|are|of)\\s+\\1\\b"), "\$1")
+            .replace(Regex("\\s+"), " ").trim()
+        if (text.isEmpty()) return text
         val capitalized = text.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-        return if (capitalized.last() in ".!?।") capitalized else "$capitalized."
+        if (capitalized.last() in ".!?।") return capitalized
+        val first = capitalized.substringBefore(' ').lowercase()
+        return if (first in setOf("who", "what", "where", "when", "why", "how", "which")) "$capitalized?" else "$capitalized."
     }
 }
 

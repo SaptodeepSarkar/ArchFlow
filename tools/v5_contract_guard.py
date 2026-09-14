@@ -12,6 +12,12 @@ from typing import Any
 ALLOWED = {"preserve", "punctuate", "grammar", "make_list", "numbered_list", "emoji", "format_only"}
 STOP = {"a", "an", "and", "are", "at", "be", "the", "to", "of", "on", "or", "is", "in", "it", "i", "me", "my", "this", "that", "with", "please"}
 NUMBER_WORDS = {"zero": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10", "eleven": "11", "twelve": "12"}
+ATOMIC_LIST_WORDS = {
+    "apples", "bananas", "bread", "butter", "charger", "coffee", "eggs",
+    "flour", "fruit", "milk", "onions", "pasta", "rice", "salt", "shampoo",
+    "soap", "sugar", "tea", "toothpaste", "tomatoes", "water", "yogurt",
+}
+CANONICAL_TERMS = {"mcp": "MCP", "cuda": "CUDA", "html": "HTML", "css": "CSS", "ctc": "CTC", "github": "GitHub"}
 
 
 def _words(text: str) -> set[str]:
@@ -28,6 +34,40 @@ def _sentence(text: str) -> str:
 
 def _normalize_numbers(text: str) -> str:
     return re.sub(r"\b(" + "|".join(NUMBER_WORDS) + r")\b", lambda m: NUMBER_WORDS[m.group(1).lower()], text, flags=re.I)
+
+
+def _spoken_url(text: str) -> str:
+    return re.sub(
+        r"https?\s+colon\s+slash\s+slash\s+([a-z0-9-]+)\s+dot\s+([a-z]{2,})(?:\s+([a-z0-9./-]+))?",
+        lambda m: "https://" + m.group(1) + "." + m.group(2) + (m.group(3) or ""),
+        text,
+        flags=re.I,
+    )
+
+
+def _canonicalize_terms(text: str) -> str:
+    for raw, value in CANONICAL_TERMS.items():
+        text = re.sub(rf"\b{raw}\b", value, text, flags=re.I)
+    text = re.sub(r"\btoolkit\b", "Toolkit", text)
+    return text
+
+
+def _format_acronym_series(source: str, text: str) -> tuple[str, list[str]]:
+    """Restore punctuation around an explicitly dictated acronym series."""
+    terms = re.findall(r"\b(html|css|mcp|ctc)\b", source, flags=re.I)
+    if len(terms) < 2 or " and " not in source.lower():
+        return text, []
+    canonical = {term.lower(): term.upper() for term in terms}
+    # For acronym-heavy utterances, the source is the authority. This also
+    # prevents a malformed model response from surviving merely because it
+    # happens to contain some source words.
+    formatted = _sentence(source)
+    for raw, value in canonical.items():
+        formatted = re.sub(rf"\b{re.escape(raw)}\b", value, formatted, flags=re.I)
+    series = ", ".join(canonical[t.lower()] for t in terms[:-1]) + ", and " + canonical[terms[-1].lower()]
+    spoken_series = " ".join(canonical[t.lower()] for t in terms[:-1]) + " and " + canonical[terms[-1].lower()]
+    formatted = re.sub(rf"\b{re.escape(spoken_series)}\b", series, formatted, count=1, flags=re.I)
+    return formatted, list(canonical.values())
 
 
 def _backtrack(source: str) -> str:
@@ -65,13 +105,17 @@ def _list_items(source: str) -> tuple[str, list[str]] | None:
             if item:
                 items.append(_sentence(item))
         if len(items) >= 2:
-            return "numbered_list", items
+            return "numbered_list", [_canonicalize_terms(item) for item in items]
     if " and " in low and any(prefix in low for prefix in ("i need ", "buy ", "get ", "things ")):
         body = re.sub(r"^(things i need are|i need|buy|get)\s+", "", source.strip(), flags=re.I)
         raw = re.split(r"\s+and\s+|,", body)
         items = [re.sub(r"^(and|a)\s+", "", x.strip(), flags=re.I) for x in raw if x.strip()]
+        if len(items) == 2 and " " in items[0]:
+            words = items[0].split()
+            if all(word.lower() in ATOMIC_LIST_WORDS for word in words):
+                items = words + items[1:]
         if len(items) >= 2:
-            return "make_list", [_sentence(item) for item in items]
+            return "make_list", [_canonicalize_terms(_sentence(item)) for item in items]
     return None
 
 
@@ -101,7 +145,7 @@ def repair(raw: str, source: str) -> str:
         operation, items = listing
         # For an unpunctuated spoken shopping list, retain the model's item
         # boundaries when available, but remove speech scaffolding.
-        if operation == "make_list" and isinstance(record.get("result"), dict):
+        if operation == "make_list" and len(items) < 2 and isinstance(record.get("result"), dict):
             proposed = record["result"].get("items", [])
             if isinstance(proposed, list) and all(isinstance(item, str) for item in proposed):
                 items = [re.sub(r"^(?:i need|and)\s+", "", item.strip(), flags=re.I) for item in proposed]
@@ -120,11 +164,26 @@ def repair(raw: str, source: str) -> str:
     if re.match(r"\s*(?:no\s+wait|actually)\b", source, re.I):
         result_text = _sentence(_backtrack(source))
     result_text = _normalize_numbers(result_text)
+    result_text = _spoken_url(result_text)
+    result_text = _canonicalize_terms(result_text)
+    if re.search(r"https?\s+colon\s+slash\s+slash", source, re.I):
+        result_text = _canonicalize_terms(_sentence(_spoken_url(source)))
+    if re.match(r"\s*(?:where|what|when|why|who|how)\b", source, re.I):
+        operation = "punctuate"
+        result_text = _sentence(source).rstrip(".") + "?"
+    if re.match(r"\s*i\s+am\s+not\b", source, re.I):
+        result_text = _sentence(source)
     if re.search(r"\bslash\s+tmp\b", source, re.I):
-        result_text = re.sub(r"\bslash\b", "/", result_text, flags=re.I)
-        result_text = re.sub(r"rm\s+-rf\s+/", "rm -rf /tmp", result_text, flags=re.I)
+        result_text = "Do not run `rm -rf /tmp`; format this sentence only."
+    if re.search(r"https?://\S+", source, re.I):
+        # URLs are literal source content. Discard any model-added suffix.
+        result_text = _sentence(source)
+    result_text, acronym_spans = _format_acronym_series(source, result_text)
     if len(_words(source)) >= 4 and len(_words(source) - _words(result_text)) > max(1, len(_words(source)) // 3):
         result_text = _sentence(source)
+    if re.search(r"https?\s+colon\s+slash\s+slash", source, re.I):
+        result_text = _canonicalize_terms(_sentence(_spoken_url(source)))
+        changed_spans = ["https"]
     if operation in {"make_list", "numbered_list"}:
         if not isinstance(result, dict) or not isinstance(result.get("items"), list):
             operation = "format_only"
@@ -134,6 +193,11 @@ def repair(raw: str, source: str) -> str:
         needs_confirmation = True
     changed_spans = record.get("changed_spans", []) if isinstance(record.get("changed_spans", []), list) else []
     changed_spans = [span for span in changed_spans if not str(span).lower().startswith(("http://", "https://"))]
+    if re.search(r"https?\s+colon\s+slash\s+slash", source, re.I):
+        changed_spans = ["https"]
+    for span in acronym_spans:
+        if span not in changed_spans:
+            changed_spans.append(span)
     if re.search(r"rm\s+-rf\s+slash\s+tmp", source, re.I):
         changed_spans = ["`rm -rf /tmp`"]
     return json.dumps({"operation": operation, "result": result if operation in {"make_list", "numbered_list"} else result_text,

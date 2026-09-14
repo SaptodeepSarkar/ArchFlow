@@ -30,19 +30,25 @@ def main() -> None:
     ap.add_argument("--model", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--beam-size", type=int, default=1)
+    ap.add_argument("--temperature", type=float, default=0.0,
+                    help="decoder temperature; 0 keeps deterministic greedy/beam decoding")
     ap.add_argument("--initial-prompt", default="")
     ap.add_argument("--initial-prompt-file", type=Path)
     ap.add_argument("--hotwords-file", type=Path)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--compute-type", default="int8_float16")
-    ap.add_argument("--limit", type=int, default=100)
+    ap.add_argument("--limit", type=int, default=100,
+                    help="number of deterministic holdout rows; 0 evaluates every row")
+    ap.add_argument("--include-text", action="store_true",
+                    help="include local audio path, reference, and hypothesis in the audit output")
     args = ap.parse_args()
 
     from faster_whisper import WhisperModel
 
     rows = [json.loads(line) for line in args.report.read_text().splitlines() if line.strip()]
     random.Random(20260914).shuffle(rows)
-    rows = rows[-min(100, max(1, args.limit)):]
+    if args.limit > 0:
+        rows = rows[-min(len(rows), args.limit):]
     model = WhisperModel(str(args.model), device=args.device,
                          compute_type=args.compute_type)
     prompt = args.initial_prompt
@@ -62,6 +68,7 @@ def main() -> None:
             condition_on_previous_text=False,
             initial_prompt=prompt or None,
             hotwords=hotwords,
+            temperature=args.temperature,
             vad_filter=False,
         )
         hypothesis = " ".join(s.text.strip() for s in segments).strip()
@@ -72,16 +79,20 @@ def main() -> None:
         reference = row.get("reference", row.get("text", ""))
         literal = score(reference, hypothesis)
         normalized = score(normalize(reference), normalize(hypothesis))
-        results.append({
+        result = {
             "row_id": hashlib.sha256(row["audio_path"].encode()).hexdigest()[:16],
             "reference_words": len(normalize(reference).split()),
             "literal_errors": len(literal["errors"]),
             "normalized_errors": len(normalized["errors"]),
             "normalized_wer": normalized["wer"],
             "seconds": seconds,
-        })
+        }
+        if args.include_text:
+            result.update({"audio_path": row["audio_path"], "reference": reference,
+                           "hypothesis": hypothesis, "errors": normalized["errors"]})
+        results.append(result)
         if (index + 1) % 10 == 0:
-            print(f"{index + 1}/100", flush=True)
+            print(f"{index + 1}/{len(rows)}", flush=True)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in results))
     def mean(key: str) -> float:

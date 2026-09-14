@@ -1,101 +1,164 @@
 package org.vaani.keyboard
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Typeface
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.BitmapFactory
-import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
-import android.widget.*
+import android.view.Gravity
+import android.view.View
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 
-data class Palette(val paper: Int, val surface: Int, val ink: Int, val muted: Int, val line: Int, val accent: Int, val accentText: Int)
+data class Palette(
+    val paper: Int,
+    val surface: Int,
+    val surfaceRaised: Int,
+    val ink: Int,
+    val muted: Int,
+    val line: Int,
+    val accent: Int,
+    val accentText: Int,
+    val ready: Int,
+    val warning: Int,
+    val error: Int,
+    val onError: Int,
+)
 
-private class GrainLayout(context: Context, private val palette: Palette) : LinearLayout(context) {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.ink; alpha = 9 }
-    init { setWillNotDraw(false) }
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        val step = (resources.displayMetrics.density * 9).toInt().coerceAtLeast(6)
-        for (y in 3 until height step step) for (x in 3 until width step step) {
-            val seed = (x * 37 + y * 19) % 17
-            if (seed < 5) canvas.drawCircle(x.toFloat(), y.toFloat(), if (seed == 0) 1.2f else .65f, paint)
-        }
-    }
-}
-
-/** The illustration is deliberately subtle: it is a personal theme backdrop, not content. */
-private class ImageLayout(context: Context, private val palette: Palette) : LinearLayout(context) {
-    private val bitmap = BitmapFactory.decodeResource(resources, R.drawable.vaani_hero)
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    init { setWillNotDraw(false) }
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        val scale = maxOf(width.toFloat() / bitmap.width, height.toFloat() / bitmap.height)
-        val drawWidth = (bitmap.width * scale).toInt()
-        val drawHeight = (bitmap.height * scale).toInt()
-        val left = (width - drawWidth) / 2
-        val top = (height - drawHeight) / 2
-        canvas.drawBitmap(bitmap, null, Rect(left, top, left + drawWidth, top + drawHeight), paint)
-        paint.color = palette.paper
-        paint.alpha = if (palette.paper == Ui.brandPaper) 190 else 210
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
-        paint.alpha = 255
-    }
-}
-
+/** Small semantic Views design system shared by the app and keyboard. */
 class Ui(private val context: Context) {
     private val prefs = context.getSharedPreferences("vaani", 0)
-    val palette: Palette = paletteFor(prefs.getString("theme", "light") ?: "light", prefs.getInt("accent", 0))
+    private val systemDark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+    val palette: Palette = paletteFor(prefs.getString("theme", "system") ?: "system", systemDark)
     val paper get() = palette.paper
     val ink get() = palette.ink
     val accent get() = palette.accent
-    fun dp(n: Int) = (n * context.resources.displayMetrics.density).toInt()
-    fun column(): LinearLayout {
-        val background = prefs.getString("background", "image")
-        val layout: LinearLayout = when (background) {
-            "image" -> ImageLayout(context, palette)
-            "grain" -> GrainLayout(context, palette)
-            else -> LinearLayout(context)
-        }
-        return layout.apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(28), dp(24), dp(28))
-            setBackgroundColor(palette.paper)
-        }
+
+    fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
+
+    fun screenColumn() = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(20), dp(16), dp(20), dp(32))
+        setBackgroundColor(palette.paper)
     }
+
+    fun column() = screenColumn()
+
     fun keyboardColumn() = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setBackgroundColor(palette.paper)
     }
-    fun label(value: String, size: Float = 16f) = TextView(context).apply { text = value; textSize = size; setTextColor(palette.ink); setPadding(0, dp(8), 0, dp(12)) }
-    fun title(value: String, size: Float = 32f) = label(value, size).apply { typeface = Typeface.create("serif", Typeface.NORMAL); setPadding(0, dp(22), 0, dp(8)) }
-    fun button(value: String, click: () -> Unit) = Button(context).apply {
-        text = value; textSize = 16f; isAllCaps = false; setTextColor(palette.accentText); minHeight = dp(52); minimumHeight = dp(52); setPadding(dp(12), dp(10), dp(12), dp(10))
-        background = shape(palette.accent, palette.accent, 16); layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8); bottomMargin = dp(4) }; setOnClickListener { click() }
+
+    fun label(value: CharSequence, size: Float = 16f, color: Int = palette.ink) = TextView(context).apply {
+        text = value
+        textSize = size
+        setTextColor(color)
+        includeFontPadding = false
+        setLineSpacing(0f, 1.12f)
+        setPadding(0, dp(4), 0, dp(4))
     }
+
+    fun title(value: CharSequence, size: Float = 30f) = label(value, size).apply {
+        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        setLineSpacing(0f, 1.02f)
+        setPadding(0, dp(12), 0, dp(8))
+    }
+
+    fun sectionTitle(value: CharSequence) = label(value, 19f).apply {
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        setPadding(0, dp(24), 0, dp(6))
+    }
+
+    fun meta(value: CharSequence) = label(value, 13f, palette.muted)
+
+    fun primaryButton(value: CharSequence, click: () -> Unit) = baseButton(value, click).apply {
+        setTextColor(palette.accentText)
+        background = shape(palette.accent, palette.accent, 16)
+    }
+
+    fun secondaryButton(value: CharSequence, click: () -> Unit) = baseButton(value, click).apply {
+        setTextColor(palette.ink)
+        background = shape(palette.surface, palette.line, 16)
+    }
+
+    fun button(value: String, click: () -> Unit) = primaryButton(value, click)
+
+    private fun baseButton(value: CharSequence, click: () -> Unit) = Button(context).apply {
+        text = value
+        textSize = 15f
+        isAllCaps = false
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        minHeight = dp(52)
+        minimumHeight = dp(52)
+        setPadding(dp(16), dp(10), dp(16), dp(10))
+        stateListAnimator = null
+        setOnClickListener { click() }
+    }
+
     fun key(value: String, click: () -> Unit) = Button(context).apply {
-        text = value; textSize = 15f; isAllCaps = false; setTextColor(palette.ink); minWidth = 0; minimumWidth = 0; minHeight = dp(48); minimumHeight = dp(48); setPadding(0, dp(7), 0, dp(7))
-        background = shape(palette.surface, palette.line, 12); setOnClickListener { click() }
+        text = value
+        textSize = 16f
+        isAllCaps = false
+        setTextColor(palette.ink)
+        minWidth = 0
+        minimumWidth = 0
+        minHeight = dp(48)
+        minimumHeight = dp(48)
+        setPadding(0, dp(6), 0, dp(6))
+        stateListAnimator = null
+        background = shape(palette.surface, palette.line, 12)
+        setOnClickListener { click() }
     }
+
     fun controlKey(value: String, click: () -> Unit) = key(value, click).apply {
-        background = shape(palette.line, palette.line, 12)
+        background = shape(palette.surfaceRaised, palette.line, 12)
     }
+
     fun sendKey(value: String, click: () -> Unit) = key(value, click).apply {
         setTextColor(palette.accentText)
         background = shape(palette.accent, palette.accent, 14)
+        compoundDrawableTintList = ColorStateList.valueOf(palette.accentText)
     }
-    fun shape(color: Int, line: Int, radius: Int) = GradientDrawable().apply { setColor(color); setStroke(dp(1), line); cornerRadius = dp(radius).toFloat() }
+
+    fun surfaceCard() = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(14), dp(16), dp(14))
+        background = shape(palette.surface, palette.line, 20)
+    }
+
+    fun divider(): View = View(context).apply { setBackgroundColor(palette.line) }
+
+    fun shape(color: Int, line: Int = color, radius: Int = 16) = GradientDrawable().apply {
+        setColor(color)
+        setStroke(dp(1), line)
+        cornerRadius = dp(radius).toFloat()
+    }
+
+    fun pill(color: Int, contentColor: Int, value: String) = label(value, 12f, contentColor).apply {
+        gravity = Gravity.CENTER
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        setPadding(dp(12), dp(6), dp(12), dp(6))
+        background = shape(color, color, 99)
+    }
+
     companion object {
-        val brandInk = 0xff20251f.toInt(); val brandPaper = 0xfff7f6ef.toInt(); val brandLime = 0xffd7f36f.toInt()
-        fun paletteFor(theme: String, savedAccent: Int): Palette {
-            val base = when (theme) {
-                "dark" -> Palette(0xff111311.toInt(), 0xff20251f.toInt(), 0xfff4f6ef.toInt(), 0xffb8beb1.toInt(), 0xff3b4339.toInt(), brandLime, brandInk)
-                "forest" -> Palette(0xff18231c.toInt(), 0xff25352a.toInt(), 0xfff3f5ed.toInt(), 0xffc1cbbd.toInt(), 0xff435646.toInt(), 0xffe6cff9.toInt(), brandInk)
-                "blush" -> Palette(0xfffff7f4.toInt(), 0xffffffff.toInt(), brandInk, 0xff6d655f.toInt(), 0xffeadbd4.toInt(), 0xffe9bbb6.toInt(), brandInk)
-                else -> Palette(brandPaper, 0xffffffff.toInt(), brandInk, 0xff657063.toInt(), 0xffd9d9cf.toInt(), brandLime, brandInk)
+        const val BRAND_FOREST: Int = 0xff18352f.toInt()
+        const val BRAND_CREAM: Int = 0xfffff9e8.toInt()
+        const val BRAND_AMBER: Int = 0xffe7a43b.toInt()
+        const val BRAND_SAGE: Int = 0xffb8c8ae.toInt()
+        const val BRAND_CORAL: Int = 0xffcf705c.toInt()
+        val brandInk = BRAND_FOREST
+        val brandPaper = BRAND_CREAM
+        val brandLime = BRAND_AMBER
+
+        fun paletteFor(theme: String, systemDark: Boolean = false): Palette {
+            val dark = theme == "dark" || (theme == "system" && systemDark)
+            return if (dark) {
+                Palette(0xff111816.toInt(), 0xff1b2522.toInt(), 0xff26312e.toInt(), 0xfff5f1e5.toInt(), 0xffb7c1bb.toInt(), 0xff3a4743.toInt(), 0xfff0b85f.toInt(), 0xff1b241f.toInt(), 0xff9bc6a8.toInt(), 0xfff0b85f.toInt(), 0xffffb4a5.toInt(), 0xff3f1008.toInt())
+            } else {
+                Palette(BRAND_CREAM, 0xfffffdf7.toInt(), 0xfff2eee2.toInt(), BRAND_FOREST, 0xff63736e.toInt(), 0xffd9ddd3.toInt(), BRAND_AMBER, 0xff2a2114.toInt(), 0xff397254.toInt(), 0xff8a5a13.toInt(), 0xffa64032.toInt(), 0xffffffff.toInt())
             }
-            return if (savedAccent == 0) base else base.copy(accent = savedAccent, accentText = brandInk)
         }
     }
 }

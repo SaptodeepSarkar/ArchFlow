@@ -71,13 +71,6 @@ def main() -> None:
     if prompt:
         kwargs["initial_prompt"] = prompt
 
-    try:
-        model = WhisperModel(
-            model_dir, device=device, device_index=0,
-            compute_type="int8_float16",
-        )
-    except Exception:
-        model = WhisperModel(model_dir, device="cpu", compute_type="int8")
     segments, _info = model.transcribe(wav_path, **kwargs)
     kept = [
         s.text.strip()

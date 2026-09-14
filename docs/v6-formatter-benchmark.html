@@ -1,0 +1,236 @@
+<!doctype html><meta charset='utf-8'><title>Vaani V6 benchmark</title><style>body{font:14px system-ui;margin:2rem;background:#f5f6f8;color:#17202a}section{background:#fff;padding:1rem;margin:1rem 0;border-radius:10px;box-shadow:0 1px 4px #ccd}table{border-collapse:collapse;width:100%}td,th{border:1px solid #d9dee5;padding:.5rem;text-align:left;vertical-align:top}pre{white-space:pre-wrap;margin:0}.bad{background:#fff1f1}.good{background:#effff1}.mono{font-family:ui-monospace,monospace}</style><h1>Vaani V6 STT + formatter benchmark</h1><p>This report separates learned-plan accuracy from the deterministic hybrid renderer. It does not claim the closed fallback is learned accuracy.</p><section><h2>STT control</h2><table><tr><th>Metric</th><th>Measured value</th></tr><tr><td>model</td><td>V5 Whisper-derived CT2</td></tr><tr><td>full_corpus_normalized_wer</td><td>5.49244%</td></tr><tr><td>cpu_100_clip_wer</td><td>5.549%</td></tr><tr><td>cpu_rtf</td><td>0.4107</td></tr><tr><td>ct2_disk</td><td>245 MB</td></tr><tr><td>development_vram</td><td>516 MiB</td></tr><tr><td>mobile_measurement</td><td>not measured</td></tr></table></section><section><h2>Formatter summary</h2><p>Learned plan exact: 3/18. Hybrid rendered exact: 18/18. Hybrid protected-span failures: 0.</p></section><section><h2>Challenge cases</h2><table><tr><th>Category</th><th>Raw source</th><th>Expected</th><th>Learned plan</th><th>Hybrid output</th><th>Status</th></tr><tr class='good'><td>technical, protected</td><td><pre>uh where is the MCP spec</pre></td><td><pre>Where is the MCP spec?</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;DELETE_FILLER&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;QUESTION&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>Where is the MCP spec?</pre></td><td>PASS</td></tr><tr class='good'><td>negation</td><td><pre>no i did not delete the file</pre></td><td><pre>No, I did not delete the file.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {
+    &quot;6&quot;: &quot;PERIOD&quot;
+  },
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>No, I did not delete the file.</pre></td><td>PASS</td></tr><tr class='good'><td>technical, number</td><td><pre>um install CUDA Toolkit version 13.3</pre></td><td><pre>Install CUDA Toolkit version 13.3.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;DELETE_FILLER&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;COMMAND_AS_DATA&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>Install CUDA Toolkit version 13.3.</pre></td><td>PASS</td></tr><tr class='good'><td>url, protected</td><td><pre>send it to https://example.com/a_b</pre></td><td><pre>Send it to https://example.com/a_b.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>Send it to https://example.com/a_b.</pre></td><td>PASS</td></tr><tr class='good'><td>path, protected</td><td><pre>open /home/saptodeep/Projects/ArchFlow</pre></td><td><pre>Open /home/saptodeep/Projects/ArchFlow.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>Open /home/saptodeep/Projects/ArchFlow.</pre></td><td>PASS</td></tr><tr class='good'><td>ordered_list</td><td><pre>first launch VSCode second inspect logs third save</pre></td><td><pre>1. Launch VSCode
+2. Inspect logs
+3. Save</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>1. Launch VSCode
+2. Inspect logs
+3. Save</pre></td><td>PASS</td></tr><tr class='good'><td>filler, unordered_list</td><td><pre>uh i need milk eggs and bread</pre></td><td><pre>I need:
+- Milk
+- Eggs
+- Bread</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;DELETE_FILLER&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;UNORDERED_LIST&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>I need:
+- Milk
+- Eggs
+- Bread</pre></td><td>PASS</td></tr><tr class='good'><td>false_start, name</td><td><pre>i want to to call Maya</pre></td><td><pre>I want to call Maya.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>I want to call Maya.</pre></td><td>PASS</td></tr><tr class='good'><td>technical, acronym</td><td><pre>html css and MCP</pre></td><td><pre>HTML, CSS, and MCP.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>HTML, CSS, and MCP.</pre></td><td>PASS</td></tr><tr class='good'><td>emoji</td><td><pre>please add a laughing emoji</pre></td><td><pre>😂</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>😂</pre></td><td>PASS</td></tr><tr class='good'><td>emoji</td><td><pre>insert a thumbs up emoji</pre></td><td><pre>👍</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>👍</pre></td><td>PASS</td></tr><tr class='good'><td>backtracking</td><td><pre>deploy on Tuesday actually Wednesday</pre></td><td><pre>Deploy on Wednesday.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;DELETE_RETRACTED&quot;,
+    &quot;DELETE_RETRACTED&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {
+    &quot;4&quot;: &quot;PERIOD&quot;
+  },
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>Deploy on Wednesday.</pre></td><td>PASS</td></tr><tr class='good'><td>name, number</td><td><pre>call Dr. Aditi Rao at 5 PM</pre></td><td><pre>Call Dr. Aditi Rao at 5 PM.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>Call Dr. Aditi Rao at 5 PM.</pre></td><td>PASS</td></tr><tr class='good'><td>technical, acronym</td><td><pre>what is CTC and RNNT</pre></td><td><pre>What is CTC and RNNT?</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;QUESTION&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>What is CTC and RNNT?</pre></td><td>PASS</td></tr><tr class='good'><td>negation</td><td><pre>i am not sure</pre></td><td><pre>I am not sure.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>I am not sure.</pre></td><td>PASS</td></tr><tr class='good'><td>command_as_data</td><td><pre>open the browser</pre></td><td><pre>Open the browser.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {
+    &quot;2&quot;: &quot;PERIOD&quot;
+  },
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;COMMAND_AS_DATA&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>Open the browser.</pre></td><td>PASS</td></tr><tr class='good'><td>punctuation</td><td><pre>very very good</pre></td><td><pre>Very, very good.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {},
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>Very, very good.</pre></td><td>PASS</td></tr><tr class='good'><td>path, protected</td><td><pre>the repo is /tmp/v6</pre></td><td><pre>The repo is /tmp/v6.</pre></td><td><pre>{
+  &quot;token_labels&quot;: [
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;,
+    &quot;KEEP&quot;
+  ],
+  &quot;punctuation_after&quot;: {
+    &quot;3&quot;: &quot;PERIOD&quot;
+  },
+  &quot;structure&quot;: &quot;PROSE&quot;,
+  &quot;speech_act&quot;: &quot;STATEMENT&quot;,
+  &quot;emoji_intent&quot;: &quot;NONE&quot;
+}</pre></td><td><pre>The repo is /tmp/v6.</pre></td><td>PASS</td></tr></table></section>

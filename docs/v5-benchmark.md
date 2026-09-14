@@ -61,6 +61,7 @@ The evaluation uses 100 clips held out from the same 1,000-row feedback selectio
 | Moonshine Small V5 decoder-only, encoder frozen, 150 steps | 21.20% | not recorded | 66.7% (4/6) | 0.09893 | reject |
 | Moonshine Small V5 sequence-distilled, teacher weight 0.25, 150 steps | 21.22% | not recorded | 66.7% (4/6) | 0.12458 | reject |
 | Moonshine Small V5 logit-KD, teacher weight 0.25, 75 steps | 32.64% | not recorded | 83.3% (5/6) | 0.09297 | reject |
+| Zipformer CTC, 64M parameters, Indian-English corpus, 10 epochs | 95.50% | not recorded | not recorded | not recorded | reject |
 
 ### Safe decoder improvement
 
@@ -82,6 +83,18 @@ The complete 1,000-row audit is summarized in `docs/v5-feedback-1000-summary.jso
 An encoder-frozen decoder-only run was also rejected at 21.20% raw WER. Freezing the acoustic encoder protects general speech features, but decoder adaptation alone did not recover the base model's holdout accuracy.
 
 The sequence-distillation run used confirmed references as the primary target and the recorded v2 hypothesis as a 0.25-weight auxiliary target. It was rejected at 21.22% raw WER; the technique is implemented for future larger/cleaner teacher data, but did not beat v2 here.
+
+The first isolated Zipformer CTC experiment used the local 3,987-clip
+Indian-English corpus and a 30-character vocabulary. It trained for ten epochs
+with the native CTC objective and reached validation CTC loss 1.522, but greedy
+decoding produced 95.50% WER on both the 100-row dev and test manifests, with
+2,654 deletions out of 3,266 reference words. Epoch 1 was 98.44% WER, and
+blank-penalty decoding from 0.5 to 2.0 did not change the result. This rules out
+the decoder blank penalty as the primary failure; the from-scratch student did
+not converge and is rejected. It must not be compared to V4 as a quality win or
+exported for mobile use. The next Zipformer experiment should start from a
+validated pretrained/teacher-initialized checkpoint or use stronger sequence
+distillation before further quantization work.
 
 `tools/stt_context_bias.py` applies the repository vocabulary packs as a
 conservative fuzzy rescoring layer. On the same holdout it corrected `ifsi` to
@@ -225,7 +238,20 @@ The longer 800-step contract SFT was completed from the reviewed contract set wi
 
 A contract-only 500-step follow-up was also completed at `/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-only-500`. It scored **6/12 schema-valid** and **0/12 exact**, so simply increasing the contract-data ratio is not sufficient; the adapter is rejected.
 
-Using the corrected native-template adapter plus `tools/v5_contract_guard.py`, the same held-out set now scores **12/12 schema-valid** and **12/12 exact**. The guard prevents action-like operation names, handles explicit lists/emojis/backtracking/path normalization, and keeps unsafe or weakly grounded output as formatted transcript data. This passes the formatter contract gate, but V5 remains offline because the STT and Android-device gates still fail.
+Using the corrected native-template adapter plus `tools/v5_contract_guard.py`,
+the current rerun scores **12/12 schema-valid** and **12/12 exact**. The guard
+deterministically preserves literal URLs, formats explicit acronym series,
+handles emojis/backtracking/path normalization, and keeps unsafe or weakly
+grounded output as formatted transcript data, including conservative splitting
+of verified atomic spoken-list items. The formatter still requires a larger
+held-out set before integration, but it now passes this 12-case contract gate.
+
+On the separate eight-row expanded frozen set
+(`training/cleanup-llm/data/eval_contract_v5_expanded.jsonl`), the same
+guarded adapter scored **8/8 schema-valid** and **8/8 exact**. This is a
+guarded contract result, not evidence that the underlying generative model is
+reliable without the deterministic safety layer; broader untouched evaluation
+is still required before promotion.
 
 V5 formatter therefore remains an offline research adapter. The existing v4 formatter remains active. The next iteration should use a larger reviewed contract set, explicit list/emoji positives and negatives, token-level groundedness checks, and a stop-sequence-aware runtime.
 
@@ -257,6 +283,91 @@ held-out gain, checkpoint 200 is the selected research checkpoint for now:
 activated. PPO was not run because this formatter has no trustworthy scalar
 reward model; existing DPO was measured and rejected.
 
+### Expanded-contract SFT continuation
+
+The contract trainer was corrected to include the reviewed V5 expanded
+examples (`sft_contract_v5_expanded.jsonl`) and a fresh 300-step SmolLM2 LoRA
+run completed at
+`/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-contract-v5-expanded-300`.
+It scored **12/12 schema-valid, 11/12 exact** on the original frozen
+12-record set and **8/8 schema-valid, 7/8 exact** on the separate expanded
+eight-record set. The previously guarded native adapter scored 12/12 and 8/8
+on those respective sets, so this continuation is rejected and remains
+offline. This is evidence that adding a small repeated contract subset can
+overfit or disturb the broader operation distribution; the next LLM stage
+must use a held-out-balanced dataset and a structured edit-plan objective.
+
+### V5 conservative DPO
+
+The generic paraphrase preferences were excluded. `tools/build_v5_dpo_contract.py`
+created 37 source-grounded V5 pairs in which rejected outputs mutate a
+technical term, invent a list item, select unsafe content, or add an
+unsupported sentence. A 100-step DPO run completed at
+`/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-dpo-contract-100`.
+It scored **12/12 schema-valid, 11/12 exact** on the original frozen set and
+**8/8 schema-valid, 7/8 exact** on the expanded set, matching the rejected
+expanded SFT and underperforming the guarded control. DPO is rejected for
+this preference set. ORPO/RLVR will require a better calibrated reward and
+balanced held-out pairs; PPO is not promoted merely because it can reduce
+training loss.
+
+A larger **1,000-pair** version of the same conservative preference set was
+also trained for 100 DPO steps at
+`/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-dpo-contract-1000-100`.
+It again scored **11/12 exact** on the original frozen set and **7/8 exact**
+on the expanded set, with 100% schema validity. More DPO volume therefore
+did not improve the model. The next LLM experiment must change the output
+interface to a structured edit plan; more preference repetition is rejected.
+
+### Structured edit-plan experiment
+
+The corrected edit-plan SFT used a five-field schema (`operation`,
+`speech_act`, `structure`, `protected_terms`, and `needs_confirmation`) and
+completed 200 steps at
+`/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-edit-plan-200-v2`.
+On a 20-record operation/intent evaluation assembled from V5 contract cases,
+it produced **100% schema-valid** plans and **60% exact field matches**. This
+confirms that the interface is trainable, but 60% exactness is not sufficient
+for promotion; the guarded deterministic renderer remains the active control.
+
+A 300-step continuation was then run from the same base model and the same
+37-row reviewed training set using the portable local-torch dataset
+implementation in `tools/train_v5_edit_plan.py` (the host did not have the
+optional `datasets` package installed). Its output is
+`/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-edit-plan-300-portable`.
+On the identical frozen 20-case evaluation it again produced **100% schema
+validity and 60% exactness**. The unchanged result indicates that additional
+steps on this small dataset are memorization, not a measured quality gain;
+this checkpoint is rejected and not activated.
+
+### Bounded RLVR/GRPO experiment
+
+TRL 1.13 exposes `GRPOTrainer` but not `PPOTrainer` or `ORPOTrainer`, so a
+20-step GRPO smoke experiment was added in `tools/train_v5_grpo_contract.py`.
+The first run was invalid because it paired the five-field edit-plan labels
+with the four-field formatter reward; that checkpoint is discarded. After
+correcting the dataset schema and using the native SmolLM2 chat template, the
+run completed at
+`/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-grpo-20-v2`.
+
+The raw checkpoint produced **0/12 valid** contract outputs. With the
+deterministic guard it reached **9/12 valid and 8/12 exact** on the original
+set, and **6/8 valid and 6/8 exact** on the expanded set. The guarded control
+remains **12/12 and 8/8**, so this GRPO checkpoint is rejected. Training logs
+also showed zero reward variance for most groups and clipped completions;
+running PPO/GRPO further without a better reward signal and output protocol
+would not be evidence-based.
+
+A follow-up 20-step run started from the best contract-SFT adapter rather than
+the base model, and used the corrected contract parser plus native chat
+template. Its checkpoint is
+`/home/saptodeep/.local/share/vaani/cleanup/v5-formatter-smollm2-360m-grpo-from-sft-20`.
+This time reward variance was nonzero and gradients were observed. The raw
+model reached **12/12 schema-valid but 2/12 exact**; the deterministic guard
+produced **12/12 exact** on the original set and **8/8 exact** on the expanded
+set. That ties the existing guarded control without improving the underlying
+model, so it also remains offline.
+
 ### TTS status
 
 The repository has no TTS training data, playback feature, or Android TTS
@@ -269,6 +380,30 @@ of audio in 22.82 seconds across four technical/dictation cases: CPU RTF
 does not meet the mobile latency target. No TTS fine-tuning claim is made:
 that requires a separately licensed voice corpus and a defined target voice;
 the STT corpus must not be reused as TTS supervision.
+
+### Detailed STT + LLM audit artifact
+
+The reproducible local HTML audit is generated by
+`tools/build_v5_html_report.py` and is currently available at:
+
+`/home/saptodeep/.local/share/vaani/reports/v5-stt-llm-audit.html`
+
+It contains the 100-clip CPU CT2 STT audit with the source audio path, reference
+transcript, raw hypothesis, row WER, and alignment errors, plus the frozen LLM
+cases with input, expected structured output, generated output, schema validity,
+and exact-match status. The STT rows were run with the V5 CT2 artifact using
+CPU `int8`, beam 1, and `--include-text`; the aggregate result is 5.5493% WER
+on 434.568 seconds of audio. The LLM section includes both the 20-case edit-plan
+evaluation and the guarded formatter comparison. This artifact is a local
+report, not a claim of Android performance or of raw-model LLM reliability.
+
+### Resident LLM safety guard
+
+The resident cleanup-server path now applies the same semantic preservation
+checks as the one-shot cleanup path before accepting model output. Both paths
+fall back to the raw transcript if negation is dropped, digit sequences change,
+or the model returns an invalid/empty result. This is a runtime safety fix, not
+an accuracy claim and does not promote the V5 formatter.
 
 The public corpus was also prepared as a user-local TTS manifest at
 `/home/saptodeep/.local/share/vaani/data/tts_v5_indian_clip_split/`: 3,176
@@ -325,6 +460,18 @@ python tools/train_v5_formatter_contract.py \
 
 The next useful V5 iteration is not “make it larger”: first expand the reviewed contract set, add groundedness and operation-accuracy gates, and require 100% valid contract output on a held-out safety set before any DPO or integration. For STT, retain a stronger teacher, freeze more of the tiny acoustic encoder initially, add contextual biasing for protected terms, and use hard-example mining rather than promoting this candidate.
 
+### Formatter contract smoke benchmark (2026-09-14)
+
+The existing 360M contract adapter (`v5-formatter-smollm2-360m-contract-800`)
+was evaluated on the three-row held-out contract smoke set. It produced **0/3
+exact outputs** and **2/3 valid outputs** without the runtime guard. The
+conservative guard made all 3 outputs parseable, but exact accuracy remained
+0/3. The adapter is therefore not promoted: schema validity is not sufficient
+when operation, intent, and grounded word preservation are wrong. The next
+formatter run must measure exact operation/intent accuracy, groundedness,
+technical-term preservation, list/backtracking behavior, and unsafe-action
+rejection on a larger frozen set.
+
 ## Paired base/V4 reward audit (3,987 public clips)
 
 Completed 2026-09-14 using the local Indian-English manifest. This is a
@@ -355,3 +502,104 @@ branch; that bug is fixed in `tools/build_stt_reward_dataset.py`. The full
 row-level report and aggregate summary remain user-local under
 `/home/saptodeep/.local/share/vaani/data/` and are intentionally excluded
 from Git.
+
+### Wider-beam follow-up
+
+Two additional decoding-only tests used the same frozen 100-clip holdout. Beam
+8 without a prompt scored **6.6511%** normalized corpus WER at CPU RTF 0.426.
+Beam 12 with the production technical prompt scored **6.4177%** at CPU RTF
+0.498. This is closer, but still does not satisfy the required `<6%` gate and
+was not made the default because the extra latency is not justified by a
+promotion-level result. No STT model or configuration is promoted from these
+tests.
+
+A broad hotword pass using all Indian-English, engineering, medical, and
+acronym vocabulary packs with beam 8 did not help: corpus WER remained
+**6.6511%**, mean row WER worsened from 8.83% to 10.11%, and CPU RTF rose to
+0.596. This configuration is rejected. Vocabulary bias must be scoped to
+active application/user context; globally boosting every term causes false
+insertions and does not lower WER.
+
+### Supervised Whisper continuation (200 steps)
+
+The first conservative continuation from the validated `hf_public_indian_v2`
+checkpoint used confirmed references, the non-holdout portion of the 3,987-clip
+Indian-English corpus, streaming feature generation, LR `5e-6`, and 200 steps.
+At beam 5 it scored **6.3011% normalized WER (54/857 words)** on the frozen
+100-clip holdout, improving over the V4 control's 6.6169%; protected-term
+accuracy was **66.7% (4/6)**. A beam-12 run with the technical prompt regressed
+to **6.5344%**, so beam 5 is retained for comparison. The adapter is not yet
+promoted because it remains above the required `<6%` gate and needs validation
+on the full 3,987-clip corpus.
+
+Full-corpus validation then completed successfully: the adapter scored
+**5.13399% normalized WER (1,776/34,593 words)** across all **3,987 clips**
+with beam 5. The aggregate protected-term set contained one term and it was
+recognized (**100% in this audit**). Decode time was 1,083 seconds on the
+development host. This passes the WER gate and is the first V5 STT candidate
+to beat V4 on the complete public corpus; it still requires mobile
+quantization/latency validation and conversion to the deployed CT2 format
+before wiring it into Vaani.
+
+### Deployable CT2 validation
+
+The merged `int8_float16` CTranslate2 export was evaluated on the complete
+3,987-clip corpus with beam 5. It scored **5.49244% normalized WER
+(1,900/34,593 words)**. The 245 MB CT2 model measured about 516 MiB resident
+VRAM during inference and 0.0463 CPU/GPU real-time factor on the development
+host for the 100-clip timing run. Quantization is therefore still below the
+required `<6%` corpus gate and is eligible for V5 integration, subject to
+Android/mobile benchmarking and the formatter safety gate.
+
+A CPU-only smoke benchmark of the same CT2 artifact (100 deterministic corpus
+rows, beam 1, `int8`) took **178.46 seconds** for **434.57 seconds of audio**
+(RTF **0.4107**) and measured **5.549% corpus WER** on that slice. This is a
+development-host CPU result, not an Android claim; a physical-device run is
+still required for mobile latency, memory, battery, and thermal promotion.
+
+The artifact also passed a Vaani-worker integration smoke test using one
+public Indian-English clip: the worker reported backend `fw-ct2`,
+`is_silence=false`, and completed in **3,871 ms** on a cold desktop sidecar
+invocation. This confirms the worker path can load and execute the V5 CT2
+directory; it is not a streaming or Android latency result.
+
+The one-shot sidecar was also corrected to avoid constructing
+`WhisperModel` twice. A post-fix worker smoke test still reported `fw-ct2` and
+completed the same clip successfully in **3,205 ms**.
+
+The persistent CPU sidecar initially exposed a deployment bug: it requested
+`int8_float16`, which CTranslate2 rejects on CPU. The sidecar now selects
+`int8` for CPU and was verified with the V5 model: cold resident load **0.507 s**
+followed by two warm jobs of **1.703 s** and **1.315 s** on the development
+host. These are whole-clip timings, not per-frame Android measurements, but
+they verify that the resident CPU path no longer dies at model load.
+
+### Contextual initial-prompt sweep
+
+The same 100-clip CPU audit was decoded with beam 1 and the deployed CT2
+artifact using the worker's broad technical initial prompt (`HTML`, `CSS`,
+`MCP`, `CUDA`, medical terms, and related vocabulary). It scored **5.8890%
+corpus WER** at CPU RTF **0.4086**, compared with **5.5493%** for the no-prompt
+beam-1 baseline. The broad prompt is therefore a measured regression and is
+rejected. Personal or application-scoped vocabulary must be evaluated as a
+separate, targeted biasing feature; global technical prompting is not a safe
+accuracy improvement.
+
+### Decoder-temperature sweep
+
+The evaluator now exposes an explicit `--temperature` setting. On the same
+100-clip CPU beam-1 audit, temperature **0.2** scored **5.4360% corpus WER**
+(RTF **0.4732**), improving over the deterministic temperature-0 baseline of
+**5.5493%** (RTF **0.4107**). Temperature **0.4** scored **5.5493%** (RTF
+**0.4731**) and was rejected. Temperature 0.2 is therefore the best current
+research decoding candidate, but it is **not promoted**: full-corpus GPU
+validation could not start because the installed CTranslate2 runtime requires
+`libcublas.so.12` while this host exposes CUDA 13's `libcublas.so.13`. No CUDA
+or PyTorch installation was changed, and no full-corpus temperature result is
+claimed.
+
+The required same-sample follow-up then decoded **300 identical clips** at
+both temperatures. Temperature 0.2 scored **5.5259%** corpus WER (RTF
+**0.5692**), exactly matching temperature 0 at **5.5259%** (RTF **0.4386**).
+The 100-clip improvement therefore did not generalize; temperature 0 remains
+the selected decoder setting and temperature 0.2 is rejected.
