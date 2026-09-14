@@ -23,6 +23,7 @@ def main() -> None:
     ap.add_argument("--hybrid", type=Path, required=True)
     ap.add_argument("--stt-summary", default="", help="JSON object with measured STT control metrics")
     ap.add_argument("--stt-cases", type=Path, help="JSONL with per-audio STT reference/hypothesis rows")
+    ap.add_argument("--formatter-cases", type=Path, help="JSONL with prior formatter audit rows")
     ap.add_argument("--android-summary", default="", help="JSON object with measured Android smoke metrics")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
@@ -31,6 +32,7 @@ def main() -> None:
     hybrid = json.loads(args.hybrid.read_text())
     stt = json.loads(args.stt_summary) if args.stt_summary else {}
     stt_cases = rows(args.stt_cases) if args.stt_cases else []
+    formatter_cases = rows(args.formatter_cases) if args.formatter_cases else []
     android = json.loads(args.android_summary) if args.android_summary else {}
 
     exact = sum(bool(r["exact"]) for r in learned.values())
@@ -46,6 +48,11 @@ def main() -> None:
         audio_cell = f"<audio controls src='{esc('file://' + audio if audio.startswith('/') else audio)}'></audio><br><span class='mono'>{esc(audio)}</span>"
         cls = "good" if not row.get("wer", 1) else "bad"
         body.append(f"<tr class='{cls}'><td>{esc(row.get('run'))}</td><td>{audio_cell}</td><td><pre>{esc(row.get('reference'))}</pre></td><td><pre>{esc(row.get('hypothesis'))}</pre></td><td>{esc(row.get('wer'))}</td><td><pre>{esc(json.dumps(row.get('errors', []), ensure_ascii=False))}</pre></td></tr>")
+    body.append("</table></section>")
+    body.append("<section><h2>Prior formatter audit</h2><p>These transcript-only formatter cases are retained as historical evidence. They are separate from the V6 source-grounded challenge above and are not treated as a mobile benchmark.</p><table><tr><th>Run</th><th>Input</th><th>Expected plan</th><th>Generated plan</th><th>Exact</th><th>Valid</th></tr>")
+    for row in formatter_cases:
+        cls = "good" if row.get("exact") == "True" and row.get("valid") == "True" else "bad"
+        body.append(f"<tr class='{cls}'><td>{esc(row.get('run'))}</td><td><pre>{esc(row.get('input'))}</pre></td><td><pre>{esc(row.get('expected'))}</pre></td><td><pre>{esc(row.get('generated'))}</pre></td><td>{esc(row.get('exact'))}</td><td>{esc(row.get('valid'))}</td></tr>")
     body.append("</table></section>")
     body.append(f"<section><h2>Formatter summary</h2><p>Learned plan exact: {exact}/{len(learned)}. Hybrid rendered exact: {hybrid.get('rendered_exact', 0)}/{hybrid.get('rows', 0)}. Hybrid protected-span failures: {hybrid.get('protected_failures', 0)}.</p></section>")
     body.append("<section><h2>Challenge cases</h2><table><tr><th>Category</th><th>Raw source</th><th>Expected</th><th>Learned plan</th><th>Hybrid output</th><th>Status</th></tr>")
