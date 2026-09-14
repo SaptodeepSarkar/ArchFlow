@@ -359,3 +359,8 @@ the workspace environment. Therefore Android CPU latency, RAM, battery, and
 end-to-end speech-end-to-insertion measurements remain unmeasured. The
 successful offline Kotlin compile is a build check only and must not be
 reported as a mobile performance result.
+
+An emulator briefly appeared as `emulator-5554` on a later probe, but became
+offline during APK installation and then disappeared. The harness returned a
+device-offline error and produced no launch, memory, latency, or WER result;
+this attempt is explicitly invalid and must not be used as a benchmark.
