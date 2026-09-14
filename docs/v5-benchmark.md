@@ -324,3 +324,23 @@ python tools/train_v5_formatter_contract.py \
 ```
 
 The next useful V5 iteration is not “make it larger”: first expand the reviewed contract set, add groundedness and operation-accuracy gates, and require 100% valid contract output on a held-out safety set before any DPO or integration. For STT, retain a stronger teacher, freeze more of the tiny acoustic encoder initially, add contextual biasing for protected terms, and use hard-example mining rather than promoting this candidate.
+
+## Paired base/V4 reward audit (3,987 public clips)
+
+Completed 2026-09-14 using the local Indian-English manifest. This is a
+diagnostic reward dataset, not a promotion benchmark. The requested 15,403
+clips are not present in the local manifest; the available manifest contains
+3,987 clips and 34,593 reference words.
+
+| System | Corpus WER | Substitutions | Deletions | Insertions | Mean reward |
+|---|---:|---:|---:|---:|---:|
+| Base Whisper | 6.6169% | 2,206 | 45 | 38 | 0.9273 |
+| V4 adapter | 6.6169% | 2,206 | 45 | 38 | 0.9273 |
+
+The decoded hypotheses were identical for all 3,987 rows: 0 improved, 3,987
+tied, 0 worsened. The adapter file contains nonzero LoRA tensors, but this
+run produced no measurable decoding change. Therefore V4 is not evidence of
+an improvement and must not be promoted. The full row-level report and
+aggregate summary remain user-local under
+`/home/saptodeep/.local/share/vaani/data/` and are intentionally excluded
+from Git.
