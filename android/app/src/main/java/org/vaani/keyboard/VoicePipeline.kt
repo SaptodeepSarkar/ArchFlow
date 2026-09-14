@@ -56,7 +56,7 @@ object ConservativeCleanup {
         if (!enabled || text.isEmpty()) return text
 
         // Closed cue: never let a generative model invent an emoji.
-        val emoji = Regex("(?i)^(?:(?:please|can you) )?(?:(?:add|insert|use|put|include) )?(laughing|laugh|thumbs up|heart|celebration|smiley) emoji$")
+        val emoji = Regex("(?i)^(?:(?:please|can you) )?(?:(?:add|insert|use|put|include) )?(?:a )?(laughing|laugh|thumbs up|heart|celebration|smiley) emoji$")
             .matchEntire(text)?.groupValues?.getOrNull(1)?.lowercase()
         if (emoji != null) return when (emoji) {
             "laughing", "laugh" -> "😂"
