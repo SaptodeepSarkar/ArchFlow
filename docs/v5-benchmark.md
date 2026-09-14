@@ -230,6 +230,13 @@ safety boundary, but neither small generative formatter has demonstrated
 reliable operation selection on this common holdout. This is an incomplete LLM
 gate, not a reason to promote or suspend the V5 work.
 
+The existing Qwen DPO adapter (`dpo-sft`) was measured on the same aggregate
+suite. It scored 0/3 schema-valid, 0/3 exact, 1/16 structure exact, and
+retained 0/9 list cases, versus the SFT Qwen control's 2/3 schema-valid and
+14/16 structure exact. DPO is rejected for this formatter at the current
+preference-data scale. The next safe experiment is expanded reviewed SFT data
+plus the deterministic guard, not further preference optimization.
+
 ## Re-run commands
 
 Use the cleanup environment for the Python model tools:
