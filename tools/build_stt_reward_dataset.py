@@ -104,7 +104,12 @@ def main() -> None:
     dtype = torch.float16 if args.device.startswith("cuda") else torch.float32
     base = WhisperForConditionalGeneration.from_pretrained(
         str(args.base_model), torch_dtype=dtype).to(args.device).eval()
-    v4 = PeftModel.from_pretrained(base, str(args.v4_model)).eval()
+    # PEFT attaches LoRA hooks to the wrapped module.  Do not wrap ``base``
+    # itself: keeping that reference would make the supposed base decode use
+    # the adapter as well and produce a false zero-delta comparison.
+    v4_base = WhisperForConditionalGeneration.from_pretrained(
+        str(args.base_model), torch_dtype=dtype).to(args.device).eval()
+    v4 = PeftModel.from_pretrained(v4_base, str(args.v4_model)).eval()
 
     def decode(model, batch):
         features = [processor(read_wav(row["audio_path"]), sampling_rate=16000).input_features[0]

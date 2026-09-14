@@ -334,13 +334,15 @@ clips are not present in the local manifest; the available manifest contains
 
 | System | Corpus WER | Substitutions | Deletions | Insertions | Mean reward |
 |---|---:|---:|---:|---:|---:|
-| Base Whisper | 6.6169% | 2,206 | 45 | 38 | 0.9273 |
+| Base Whisper | 6.6285% | 2,210 | 45 | 38 | 0.9271 |
 | V4 adapter | 6.6169% | 2,206 | 45 | 38 | 0.9273 |
 
-The decoded hypotheses were identical for all 3,987 rows: 0 improved, 3,987
-tied, 0 worsened. The adapter file contains nonzero LoRA tensors, but this
-run produced no measurable decoding change. Therefore V4 is not evidence of
-an improvement and must not be promoted. The full row-level report and
-aggregate summary remain user-local under
+The corrected independent-model run found 11 improved rows, 3,966 ties, and
+10 worsened rows, for only a 4-error corpus improvement. This is measurable
+but far short of the required improvement and near-1–2% target, so V4 remains
+rejected and must not be promoted. An earlier comparison was invalid because
+the script wrapped the same base object before decoding its supposed base
+branch; that bug is fixed in `tools/build_stt_reward_dataset.py`. The full
+row-level report and aggregate summary remain user-local under
 `/home/saptodeep/.local/share/vaani/data/` and are intentionally excluded
 from Git.
