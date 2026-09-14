@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vaani model training status</title>
+<style>
+:root{color-scheme:light;--ink:#17202a;--muted:#5b6773;--line:#d8dee6;--card:#fff;--bg:#f4f6f8;--green:#176b3a;--amber:#8a5a00;--red:#a52b2b;--blue:#1f5d91}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:1180px;margin:0 auto;padding:2rem 1rem 4rem}h1{margin:.2rem 0 .4rem;font-size:2rem}h2{margin-top:0;font-size:1.25rem}h3{font-size:1rem;margin-bottom:.35rem}p{margin:.45rem 0}small,.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem;margin:1.25rem 0}.card,section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1rem;box-shadow:0 2px 8px #17202a0a}section{margin:1rem 0}.status{font-size:1.15rem;font-weight:700}.yes{color:var(--green)}.partial{color:var(--amber)}.no{color:var(--red)}.info{color:var(--blue)}table{border-collapse:collapse;width:100%;margin:.75rem 0}th,td{border:1px solid var(--line);padding:.55rem;text-align:left;vertical-align:top}th{background:#eef1f4}code{background:#eef1f4;padding:.1rem .25rem;border-radius:4px}ul{margin:.4rem 0 .2rem;padding-left:1.3rem}.note{border-left:4px solid var(--amber);padding:.6rem .8rem;background:#fff8e8}.good{color:var(--green)}.bad{color:var(--red)}a{color:var(--blue)}
+</style>
+</head>
+<body><main>
+<h1>Vaani model training status</h1>
+<p class="muted">Evidence snapshot: 14 September 2026. This page distinguishes completed training runs from promoted production models.</p>
+
+<div class="grid">
+  <div class="card"><h2>STT</h2><div class="status yes">Trained and selected control</div><p>Existing V2/Cozy Whisper-derived model is the active tested STT path.</p><p><strong>Measured normalized WER:</strong> 5.49244% on the full corpus control; 5.549% on the 100-clip CPU slice.</p></div>
+  <div class="card"><h2>LLM / formatter</h2><div class="status partial">Training runs completed; no new model promoted</div><p>V5 SFT/DPO/GRPO and V6 tagger experiments were evaluated and rejected as replacements.</p><p>The production-safe behavior currently comes from the existing formatter control plus deterministic guards.</p></div>
+  <div class="card"><h2>Mobile speech benchmark</h2><div class="status partial">Partially measured</div><p>Android launch and memory smoke test passed. Speech WER, CPU streaming RTF, battery, and speech-to-insertion latency are not measured.</p></div>
+</div>
+
+<section><h2>Direct answer</h2>
+<table><tr><th>Question</th><th>Answer</th></tr>
+<tr><td>Is the STT training done?</td><td><strong>Yes, for the current V2/Cozy control.</strong> The Whisper-derived fine-tuned path exists, is converted to CT2, and has been benchmarked. Later V5 alternatives did not beat it and were not promoted.</td></tr>
+<tr><td>Is the LLM training done?</td><td><strong>Experiments are done, but a new production formatter is not.</strong> SFT/DPO/GRPO runs and V6 source-grounded tagger runs completed; none passed the promotion gate. The V6 learned tagger is research-only.</td></tr>
+<tr><td>Is the final system near 1–2% WER?</td><td><strong>No.</strong> The current measured control is about 5.49% normalized WER on the reported full-corpus control. The 1–2% goal has not been achieved or verified.</td></tr>
+<tr><td>Can we claim mobile speech speed?</td><td><strong>No.</strong> Android launch/memory was measured, but no Android audio utterance was run, so speech WER and speech-to-insertion latency remain unknown.</td></tr>
+</table></section>
+
+<section><h2>Current STT quality</h2>
+<table><tr><th>Metric</th><th>Result</th><th>Interpretation</th></tr>
+<tr><td>Full-corpus normalized WER</td><td><strong>5.49244%</strong></td><td>Current reported Whisper-derived CT2 control; host measurement, not an Android measurement.</td></tr>
+<tr><td>100-clip CPU WER</td><td><strong>5.549%</strong></td><td>CPU slice used for the documented speed/accuracy control.</td></tr>
+<tr><td>CPU real-time factor</td><td><strong>0.4107</strong></td><td>Host CPU measurement; lower is faster than real time.</td></tr>
+<tr><td>CT2 disk size</td><td><strong>~245 MB</strong></td><td>Local converted model artifact; weights are not committed to Git.</td></tr>
+<tr><td>Development VRAM</td><td><strong>516 MiB</strong></td><td>Recorded development-side model residency, not a mobile RAM claim.</td></tr>
+<tr><td>Technical/name robustness</td><td>Not established at the 1–2% target</td><td>Context vocabulary and hard-term experiments exist, but no evidence supports universal recognition of every technical term.</td></tr>
+</table>
+<p class="note">The repository contains several historical paired evaluations with different corpus scopes. This page uses the current AGENTS.md control values and does not merge incompatible test sets into one claim.</p>
+</section>
+
+<section><h2>STT experiments and decisions</h2>
+<table><tr><th>Experiment</th><th>Outcome</th><th>Decision</th></tr>
+<tr><td>V2/Cozy Whisper-derived LoRA → CT2</td><td>Best selected control; 5.49244% reported full-corpus normalized WER.</td><td class="good"><strong>Kept as current STT.</strong></td></tr>
+<tr><td>Moonshine Tiny/Small baselines and fine-tunes</td><td>Smallest untouched model was fast, but accuracy and fine-tuned variants failed the held-out gate.</td><td class="bad"><strong>Rejected.</strong></td></tr>
+<tr><td>Zipformer CTC from scratch</td><td>About 95.50% WER in the isolated experiment; failed to converge.</td><td class="bad"><strong>Rejected; not exported.</strong></td></tr>
+<tr><td>Reward-weighted / hard-example STT training</td><td>Evaluated as weighted supervised learning and mining, not PPO. It did not produce a promoted replacement.</td><td class="bad"><strong>Not promoted.</strong></td></tr>
+<tr><td>RNN-T/ONNX/mobile speech gate</td><td>No verified promoted RNN-T/Zipformer mobile model or Android speech benchmark exists yet.</td><td class="partial"><strong>Unfinished.</strong></td></tr>
+</table></section>
+
+<section><h2>Formatter / LLM quality</h2>
+<table><tr><th>System</th><th>Measured result</th><th>What it means</th></tr>
+<tr><td>V5 SmolLM2 generative formatter</td><td>Best raw runs remained below the contract gate; GRPO-from-SFT was 2/12 exact raw and 12/12 only after guarding.</td><td>The guard, not the model alone, supplied safety.</td></tr>
+<tr><td>V6 learned source-grounded tagger</td><td><strong>3/18 exact</strong> on the independent challenge.</td><td>Not good enough to promote. It does not reliably decide edits and punctuation on unseen cases.</td></tr>
+<tr><td>V6 learned tagger + closed deterministic fallbacks</td><td><strong>18/18 rendered exact</strong> on the small challenge; protected-span failures 0/18.</td><td>This is hybrid deterministic coverage, not learned-model accuracy. The challenge is too small for a broad quality claim.</td></tr>
+<tr><td>Existing v4 formatter control + guard</td><td>12/12 original and 8/8 expanded exact after guarded rendering.</td><td>Current conservative runtime control; not raw unrestricted LLM accuracy.</td></tr>
+</table>
+<p><strong>Current LLM verdict:</strong> the model is not yet a dependable autonomous cleanup writer. The safe system limits it to source-grounded decisions and lets deterministic code handle emoji cues, lists, replacements, snippets, and safety boundaries.</p>
+</section>
+
+<section><h2>Mobile evidence</h2>
+<table><tr><th>Android smoke metric</th><th>Measured value</th></tr>
+<tr><td>Device</td><td><code>emulator-5554</code> / <code>sdk_gphone64_x86_64</code></td></tr>
+<tr><td>Activity launch</td><td><strong>64 ms</strong></td></tr>
+<tr><td>Total PSS</td><td><strong>43,179 KB</strong></td></tr>
+<tr><td>Total RSS</td><td><strong>174,492 KB</strong></td></tr>
+<tr><td>Speech WER, streaming RTF, battery, thermal behavior</td><td class="partial"><strong>Not measured</strong></td></tr>
+<tr><td>Speech-end → insertion latency</td><td class="partial"><strong>Not measured</strong></td></tr>
+</table></section>
+
+<section><h2>What is finished versus unfinished</h2>
+<div class="grid">
+<div><h3 class="good">Finished / evidenced</h3><ul><li>V2/Cozy STT fine-tuning and CT2 conversion.</li><li>Held-out STT evaluations and WER report.</li><li>V5 formatter training experiments and rejection decisions.</li><li>V6 source-grounded tagger prototype and deterministic renderer.</li><li>Hallucination/content-preservation guards.</li><li>Android build plus launch/memory smoke measurement.</li><li>Detailed case-level benchmark HTML.</li></ul></div>
+<div><h3 class="partial">Not finished / not proven</h3><ul><li>1–2% WER.</li><li>Promoted V6 formatter/LLM.</li><li>Verified RNN-T/Zipformer mobile STT.</li><li>Android speech WER and speech-to-insertion latency.</li><li>Universal technical-term/name recognition.</li><li>Evidence that PPO/DPO/RLHF improves this constrained formatter beyond the rejected runs.</li></ul></div>
+</div></section>
+
+<section><h2>Source documents</h2>
+<ul><li><a href="V6_BASELINE.md">V6 baseline and experiment log</a></li><li><a href="v5-benchmark.md">V5 STT and formatter benchmark</a></li><li><a href="v6-formatter-benchmark.html">Detailed case-level benchmark HTML</a></li><li><a href="../AGENTS.md">AGENTS.md handoff and current controls</a></li></ul>
+<p class="muted">No training process was running when this status page was generated. Model weights, audio, and generated datasets remain outside Git.</p></section>
+</main></body></html>
