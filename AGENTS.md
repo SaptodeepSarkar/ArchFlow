@@ -163,9 +163,9 @@ vaani doctor                   # capability probe on the laptop
   the deterministic 100-row holdout excluded. The V5 Whisper trainer supports
   `--streaming`; use it for the full corpus because eager mel-feature building
   exhausts host memory. A one-step streaming smoke test passed on 2026-09-14.
-- Do not kill `awake` or suspend the laptop after an STT-only milestone. The
-  user requires the entire V5 scope to be complete first: STT **and** LLM
-  alternatives/techniques must be benchmarked against the contract and the
-  end-to-end promotion decision documented. Only after that full final report
-  and a fresh explicit confirmation may an exact verified `awake` process be
-  terminated and the laptop suspended. Never target a similarly named process.
+- Do not suspend the laptop or kill `awake` at any stage. After the complete
+  STT and LLM training/evaluation scope (including any active TTS experiment)
+  is genuinely finished and the final benchmark brief is delivered, open
+  Spotify, start playback, open the Speakers/device selector, and select the
+  Echo Dot. This media action must not happen after an STT-only milestone and
+  must not be claimed complete without verifying the selected device.
