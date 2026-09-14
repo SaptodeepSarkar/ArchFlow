@@ -116,6 +116,24 @@ was not used for distillation.
 
 ## Footprint measurements
 
+## Streaming Zipformer rejection
+
+The official sherpa-onnx English streaming Zipformer candidates were tested
+with `tools/eval_v5_zipformer.py` on the same deterministic 100-clip holdout.
+They are useful latency references, but are trained on LibriSpeech rather than
+Indian English and technical vocabulary:
+
+| Model | INT8 disk | Corpus WER | CPU RTF |
+|---|---:|---:|---:|
+| Zipformer streaming English | ~70 MiB | 38.39% | 0.04196 |
+| Zipformer streaming English 20M | ~43 MiB | 68.61% | 0.02952 |
+
+Both are rejected for Vaani despite excellent CPU speed. The result confirms
+that the near-1--2% target requires an Indian-English-trained student or
+adaptation with diverse acoustic data and contextual biasing; replacing the
+current model with a generic small streaming checkpoint would make WER much
+worse. The downloaded weights remain user-local and are not committed.
+
 These are host measurements, not Android claims. They used the same 100-clip
 STT holdout and the 12-case formatter set:
 
