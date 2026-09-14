@@ -145,6 +145,18 @@ accuracy (4/6)**. It is worse than the established V3 mixed-400 candidate
 Vaani configuration was changed. The saved checkpoint remains user-local at
 `/home/saptodeep/.local/share/vaani/models/v5-stt-whisper-v3-full-hard-300/checkpoint-200`.
 
+The next reward-weighted hard-mining continuation used the normalized
+`v5-mixed-hard-300.jsonl` manifest (1,134 rows: 907 base rows plus 227 bounded
+repeats of low-reward confirmed examples), waveform augmentation, and the
+same 300-step streaming Whisper LoRA recipe. The final adapter is user-local
+at `/home/saptodeep/.local/share/vaani/models/v5-stt-whisper-v4-hard-300/adapter`.
+On the exact same 100-clip holdout, beam 10 plus the technical prompt scored
+**8.52% corpus-normalized WER (73/857 words)** and **66.7% protected-term
+accuracy (4/6)**. This is worse than V3 mixed-400 (6.65%, 57/857), so the
+reward-weighted hard-mining candidate is rejected and was not wired into
+Vaani. `tools/build_v5_mixed_manifest.py` now accepts both `text`/`reward`
+feedback schemas and normalized `text`/`feedback_reward` schemas.
+
 ## Footprint measurements
 
 ## Streaming Zipformer rejection

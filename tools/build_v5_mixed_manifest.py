@@ -17,7 +17,20 @@ SEED = 20260914
 
 
 def load(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    rows = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        # Feedback manifests use reference/reward; public training manifests
+        # use text. Normalize both at the boundary so the trainer receives one
+        # stable schema and retains reward metadata for hard-example weighting.
+        if "text" not in row and "reference" in row:
+            row["text"] = row["reference"]
+        if "feedback_reward" not in row and "reward" in row:
+            row["feedback_reward"] = row["reward"]
+        rows.append(row)
+    return rows
 
 
 def text_key(text: str) -> str:
