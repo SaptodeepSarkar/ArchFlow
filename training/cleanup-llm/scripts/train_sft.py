@@ -46,6 +46,7 @@ def main() -> None:
     ap.add_argument("--intent-repeat", type=int, default=0, help="Repeat v3 intent rows per epoch")
     ap.add_argument("--intent-only", action="store_true", help="Focused correction pass using only v3 intent rows")
     ap.add_argument("--contract-repeat", type=int, default=0, help="Repeat v4 JSON contract rows per epoch")
+    ap.add_argument("--contract-path", default="", help="explicit JSONL contract training set")
     ap.add_argument("--batch-size", type=int, default=2)
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--max-length", type=int, default=1024)
@@ -79,7 +80,7 @@ def main() -> None:
             raise SystemExit("sft_intent.jsonl missing: run build_intent_data.py first")
         intent = load_pairs(intent_path)
     contract = []
-    contract_path = os.path.join(DATA, "sft_contract_v4.jsonl")
+    contract_path = a.contract_path or os.path.join(DATA, "sft_contract_v4.jsonl")
     if a.contract_repeat > 0:
         if not os.path.exists(contract_path):
             raise SystemExit("sft_contract_v4.jsonl missing: run build_v4_contract_data.py first")

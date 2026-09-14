@@ -52,6 +52,7 @@ def main() -> None:
     ap.add_argument("--structure-n", type=int, default=100)
     ap.add_argument("--show-intent", action="store_true")
     ap.add_argument("--out", default="", help="optional aggregate-only JSON metrics path")
+    ap.add_argument("--contract-data", default="", help="explicit JSONL contract holdout")
     a = ap.parse_args()
 
     if a.adapter:
@@ -81,7 +82,7 @@ def main() -> None:
     if os.path.exists(intent_path):
         intent = load_pairs(intent_path, 100)
     contract = []
-    contract_path = os.path.join(DATA, "eval_contract_v4.jsonl")
+    contract_path = a.contract_data or os.path.join(DATA, "eval_contract_v4.jsonl")
     if os.path.exists(contract_path):
         contract = load_pairs(contract_path, 100)
     g_hit = sum(
