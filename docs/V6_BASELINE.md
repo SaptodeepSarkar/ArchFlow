@@ -10,7 +10,7 @@ tests, protected-span checks, safety checks, and mobile measurements.
 
 | Component | Control | Evidence | Decision |
 |---|---|---|---|
-| STT | Existing v2/cozy Whisper-derived CT2 path | Fair 300-clip CPU audit: 5.5259% corpus WER at temperature 0; the larger corpus control in the benchmark is 6.6285% | Freeze while V6 formatter is built |
+| STT | Existing v2/cozy Whisper-derived CT2 path | Current frozen control: 5.49244% normalized WER on all 3,987 clips; the separate 100-clip CPU slice is 5.549% at CPU RTF 0.4107 | Freeze while V6 formatter is built |
 | Formatter | Existing v4 cleanup path plus deterministic guard | Guarded control: 12/12 original and 8/8 expanded exact; this is not raw model accuracy | Keep as runtime control |
 | V5 generative formatter | SmolLM2 360M SFT/DPO/GRPO variants | Best raw runs remained materially below the contract gate; GRPO-from-SFT was 2/12 exact raw and 12/12 only after guarding | Archive/evaluate only |
 | V5 edit classifier | Hashed 0.5M-parameter multi-head baseline | 13/20 exact (65%); useful direction, not promotion quality | Use as implementation probe |
@@ -20,6 +20,15 @@ tests, protected-span checks, safety checks, and mobile measurements.
 | V6 grouped augmentation tagger | 9,141 controlled variants from 1,019 reviewed bases; all variants grouped by base before splitting | Frozen base-held-out test: 166/835 full-plan exact, 96.68% token-label accuracy, 510/835 token-label exact, 289/835 punctuation exact, 835/835 structure, 799/835 speech-act, 835/835 emoji | Honest augmentation baseline; not promoted |
 
 ## Frozen formatter gates
+
+### STT scope note
+
+Earlier sections of this historical log contain 300-clip and alternate-corpus
+audits (including 5.5259% and 6.6285%). Those values are retained for
+reproducibility, but they are not interchangeable with the current frozen
+control. Promotion and status reporting use the all-3,987-clip normalized
+result of 5.49244%; the CPU speed/accuracy check uses its separately defined
+100-clip slice at 5.549% WER and 0.4107 CPU RTF.
 
 The existing 12-case and 8-case suites remain regression tests only. They are
 too small to establish general quality. V6 promotion additionally requires a
