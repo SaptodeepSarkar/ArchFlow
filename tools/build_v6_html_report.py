@@ -22,6 +22,7 @@ def main() -> None:
     ap.add_argument("--learned", type=Path, required=True)
     ap.add_argument("--hybrid", type=Path, required=True)
     ap.add_argument("--stt-summary", default="", help="JSON object with measured STT control metrics")
+    ap.add_argument("--stt-cases", type=Path, help="JSONL with per-audio STT reference/hypothesis rows")
     ap.add_argument("--android-summary", default="", help="JSON object with measured Android smoke metrics")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
@@ -29,6 +30,7 @@ def main() -> None:
     learned = {r["id"]: r for r in rows(args.learned)}
     hybrid = json.loads(args.hybrid.read_text())
     stt = json.loads(args.stt_summary) if args.stt_summary else {}
+    stt_cases = rows(args.stt_cases) if args.stt_cases else []
     android = json.loads(args.android_summary) if args.android_summary else {}
 
     exact = sum(bool(r["exact"]) for r in learned.values())
@@ -38,6 +40,13 @@ def main() -> None:
             "<p>This report separates learned-plan accuracy from the deterministic hybrid renderer. It does not claim the closed fallback is learned accuracy.</p>"]
     body.append("<section><h2>STT control</h2><table><tr><th>Metric</th><th>Measured value</th></tr>" + "".join(f"<tr><td>{esc(k)}</td><td>{esc(v)}</td></tr>" for k, v in stt.items()) + "</table></section>")
     body.append("<section><h2>Android smoke benchmark</h2><p>This is a launch/memory smoke test only. It does not measure speech WER, transcription quality, or speech-end to insertion latency.</p><table><tr><th>Metric</th><th>Measured value</th></tr>" + "".join(f"<tr><td>{esc(k)}</td><td>{esc(v)}</td></tr>" for k, v in android.items()) + "</table></section>")
+    body.append("<section><h2>Per-audio STT cases</h2><p>These are the recorded control rows used for the STT audit. The reference is the verified transcript; raw STT is shown before formatter cleanup. Audio remains local and is not copied into this repository.</p><table><tr><th>Run</th><th>Audio</th><th>Reference</th><th>Raw STT</th><th>WER</th><th>Errors</th></tr>")
+    for row in stt_cases:
+        audio = row.get("audio_path", "")
+        audio_cell = f"<audio controls src='{esc('file://' + audio if audio.startswith('/') else audio)}'></audio><br><span class='mono'>{esc(audio)}</span>"
+        cls = "good" if not row.get("wer", 1) else "bad"
+        body.append(f"<tr class='{cls}'><td>{esc(row.get('run'))}</td><td>{audio_cell}</td><td><pre>{esc(row.get('reference'))}</pre></td><td><pre>{esc(row.get('hypothesis'))}</pre></td><td>{esc(row.get('wer'))}</td><td><pre>{esc(json.dumps(row.get('errors', []), ensure_ascii=False))}</pre></td></tr>")
+    body.append("</table></section>")
     body.append(f"<section><h2>Formatter summary</h2><p>Learned plan exact: {exact}/{len(learned)}. Hybrid rendered exact: {hybrid.get('rendered_exact', 0)}/{hybrid.get('rows', 0)}. Hybrid protected-span failures: {hybrid.get('protected_failures', 0)}.</p></section>")
     body.append("<section><h2>Challenge cases</h2><table><tr><th>Category</th><th>Raw source</th><th>Expected</th><th>Learned plan</th><th>Hybrid output</th><th>Status</th></tr>")
     hybrid_rows = {r["id"]: r for r in hybrid.get("rows_detail", [])}
