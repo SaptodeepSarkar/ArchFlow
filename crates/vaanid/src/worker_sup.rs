@@ -530,6 +530,14 @@ fn write_wav_mono16(path: &std::path::Path, samples: &[f32]) -> std::io::Result<
 /// fine-tuned CTranslate2 dir for faster-whisper). Falls back to the .bin
 /// string so failures stay visible (worker reports cpu-stub, never invents).
 pub fn model_path_for(model: &str) -> String {
+    // V5 is an explicit selectable alias for the locally converted Whisper
+    // candidate. Keep this mapping in the resolver so configuration remains
+    // portable and does not put an absolute model path in the TOML file.
+    let model = if model == "v5" {
+        "v5-stt-whisper-v5-supervised-200-ct2"
+    } else {
+        model
+    };
     let lookup = |dir: &str| {
         let file = format!("{dir}/{model}.bin");
         if std::path::Path::new(&file).is_file() {

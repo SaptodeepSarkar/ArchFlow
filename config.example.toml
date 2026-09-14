@@ -23,10 +23,11 @@ worker_threads = 4
 max_secs = 120
 
 [recognition]
-# tiny | base | base.en | small | cozy — multilingual base default; base.en English-only;
+# tiny | base | base.en | small | cozy | v5 — multilingual base default; base.en English-only;
 # small accuracy-focused; cozy = local fine-tuned faster-whisper CT2 dir
 # (~/.local/share/vaani/models/cozy, from Cozy stt-finetune), best for your
-# voice + Indian English. cozy needs the faster-whisper sidecar python.
+# voice + Indian English. cozy and v5 need the faster-whisper sidecar python;
+# v5 resolves to the local v5-stt-whisper-v5-supervised-200-ct2 directory.
 model = "base"
 # fast model for the live preview ticks (keep a whisper.cpp one here: the
 # fine-tuned CT2 one-shot loads ~1-2 s per call; resident server answers in ~0.3 s)

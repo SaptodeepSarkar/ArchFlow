@@ -11,15 +11,16 @@
 </head>
 <body><main>
 <h1>Vaani model training status</h1>
-<p class="muted">Evidence snapshot: 14 September 2026. This page distinguishes completed training runs from promoted production models.</p>
+<p class="muted">Evidence snapshot: 14 September 2026. This page distinguishes completed training runs, explicit local test wiring, and promoted production models.</p>
 
 <div class="grid">
-  <div class="card"><h2>STT</h2><div class="status yes">Trained and selected control</div><p>Existing V2/Cozy Whisper-derived model is the active tested STT path.</p><p><strong>Measured normalized WER:</strong> 5.49244% on the full corpus control; 5.549% on the 100-clip CPU slice.</p></div>
+  <div class="card"><h2>STT</h2><div class="status partial">V5 enabled for local testing</div><p>The V5 Whisper-derived CT2 candidate is wired to the local Super+H path; V2/Cozy remains the benchmark control.</p><p><strong>Control WER:</strong> 5.49244% on the full corpus; V5 is not promoted.</p></div>
   <div class="card"><h2>LLM / formatter</h2><div class="status partial">Training runs completed; no new model promoted</div><p>V5 SFT/DPO/GRPO and V6 tagger experiments were evaluated and rejected as replacements.</p><p>The production-safe behavior currently comes from the existing formatter control plus deterministic guards.</p></div>
   <div class="card"><h2>Mobile speech benchmark</h2><div class="status partial">Partially measured</div><p>Android launch and memory smoke test passed. Speech WER, CPU streaming RTF, battery, and speech-to-insertion latency are not measured.</p></div>
 </div>
 
 <section><h2>Direct answer</h2>
+<p class="note"><strong>Current test wiring:</strong> local configuration selects STT alias <code>v5</code> and the V5 SmolLM2 formatter base/adapter. Restarted Vaani successfully; this is an opt-in experiment, not a quality or safety promotion.</p>
 <table><tr><th>Question</th><th>Answer</th></tr>
 <tr><td>Is the STT training done?</td><td><strong>Yes, for the current V2/Cozy control.</strong> The Whisper-derived fine-tuned path exists, is converted to CT2, and has been benchmarked. Later V5 alternatives did not beat it and were not promoted.</td></tr>
 <tr><td>Is the LLM training done?</td><td><strong>Experiments are done, but a new production formatter is not.</strong> SFT/DPO/GRPO runs and V6 source-grounded tagger runs completed; none passed the promotion gate. The V6 learned tagger is research-only.</td></tr>

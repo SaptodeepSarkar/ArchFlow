@@ -5,6 +5,8 @@ fn whitelist_accepts_known_keys() {
     let mut c = Config::default();
     assert_eq!(c.set_key("recognition.model", "small").unwrap(), "small");
     assert_eq!(c.set_key("recognition.model", "cozy").unwrap(), "cozy");
+    assert_eq!(c.set_key("recognition.model", "v5").unwrap(), "v5");
+    assert_eq!(c.set_key("recognition.live_model", "v5").unwrap(), "v5");
     assert_eq!(c.set_key("recognition.language", "hi").unwrap(), "hi");
     assert_eq!(c.set_key("audio.worker_threads", "8").unwrap(), "8");
     assert_eq!(c.set_key("cleanup.model_path", "/models/base-model").unwrap(), "/models/base-model");

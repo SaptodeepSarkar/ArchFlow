@@ -4,11 +4,21 @@ Date: 2026-09-14
 
 ## Decision
 
-V5 is **not activated**. Vaani remains on the tested v2/cozy STT and v4 formatter configuration. The V5 candidates did not pass the promotion gate:
+V5 is now **explicitly enabled as a local opt-in test configuration** in the
+developer's `~/.config/vaani/config.toml`. It is not promoted as the default
+or certified production path: the V5 candidates did not pass the promotion gate.
+The previous v2/cozy configuration remains the documented control:
 
 - STT must beat the existing recognizer on the same held-out audio and preserve technical/proper terms.
 - Formatter must emit the exact conservative contract and never turn transcript data into an action.
 - A faster model is not a successful replacement if word accuracy falls.
+
+The test wiring uses `recognition.model = "v5"` and `recognition.live_model =
+"v5"`; the alias resolves to the local V5 Whisper-derived CT2 directory. The
+formatter uses the local SmolLM2 360M base and V5 LoRA adapter through the
+resident `llm-server.py` sidecar. Use the existing `Super+H` binding to test
+it. This wiring does not change the benchmark verdict or claim that V5 is safe
+to promote.
 
 ## Downloads
 

@@ -388,18 +388,18 @@ impl Config {
                 Ok(n.to_string())
             }
             "recognition.model" => match v {
-                "tiny" | "base" | "base.en" | "small" | "cozy" => {
+                "tiny" | "base" | "base.en" | "small" | "cozy" | "v5" => {
                     self.recognition.model = v.into();
                     Ok(v.into())
                 }
-                _ => Err("must be tiny|base|base.en|small|cozy".into()),
+                _ => Err("must be tiny|base|base.en|small|cozy|v5".into()),
             },
             "recognition.live_model" => match v {
-                "tiny" | "base" | "base.en" | "small" | "cozy" => {
+                "tiny" | "base" | "base.en" | "small" | "cozy" | "v5" => {
                     self.recognition.live_model = v.into();
                     Ok(v.into())
                 }
-                _ => Err("must be tiny|base|base.en|small|cozy".into()),
+                _ => Err("must be tiny|base|base.en|small|cozy|v5".into()),
             },
             "recognition.server_idle_secs" => {
                 let n: u64 = v.parse().map_err(|_| "must be 0..600")?;
