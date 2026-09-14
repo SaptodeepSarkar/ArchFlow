@@ -271,6 +271,11 @@ produced 12.05 seconds of audio in 17.80 seconds: CPU RTF **1.48**, p50
 latency 3.64 s, and p95 latency 6.87 s. The voice choice improves the measured
 baseline but still does not meet real-time/mobile interaction requirements.
 
+CPU thread tuning on the same Indian-English case set measured RTF 1.57 at 2
+threads, **1.10 at 4 threads**, 1.13 at 8 threads, and 1.13 at 16 threads.
+Four threads is the selected host setting; this remains a host benchmark, not
+an Android measurement or a claim of guaranteed real-time playback.
+
 ## Re-run commands
 
 Use the cleanup environment for the Python model tools:
