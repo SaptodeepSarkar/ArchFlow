@@ -258,6 +258,14 @@ does not meet the mobile latency target. No TTS fine-tuning claim is made:
 that requires a separately licensed voice corpus and a defined target voice;
 the STT corpus must not be reused as TTS supervision.
 
+The public corpus was also prepared as a user-local TTS manifest at
+`/home/saptodeep/.local/share/vaani/data/tts_v5_indian_clip_split/`: 3,176
+train, 387 validation, and 424 test clips. The source exposes only one usable
+speaker identifier, so this is explicitly a **clip-disjoint**, not
+speaker-disjoint, split (`speaker_disjoint: false`). It is suitable for a
+pipeline smoke test, not for claiming speaker generalization or for training
+a personalized voice.
+
 The same benchmark with Kokoro's public Indian-English `if_sara` voice
 produced 12.05 seconds of audio in 17.80 seconds: CPU RTF **1.48**, p50
 latency 3.64 s, and p95 latency 6.87 s. The voice choice improves the measured
