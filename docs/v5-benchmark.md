@@ -266,6 +266,14 @@ speaker-disjoint, split (`speaker_disjoint: false`). It is suitable for a
 pipeline smoke test, not for claiming speaker generalization or for training
 a personalized voice.
 
+Piper-compatible CSVs were generated alongside those manifests with
+`tools/prepare_v5_piper_csv.py`. They are user-local at
+`/home/saptodeep/.local/share/vaani/data/tts_v5_indian_clip_split/`. The
+official Piper training flow requires a pretrained checkpoint and a
+pipe-delimited corpus; its documented training hardware is substantially
+larger than the mobile deployment target, so no unattended full TTS fine-tune
+was started from this single-speaker-identifier corpus.
+
 The same benchmark with Kokoro's public Indian-English `if_sara` voice
 produced 12.05 seconds of audio in 17.80 seconds: CPU RTF **1.48**, p50
 latency 3.64 s, and p95 latency 6.87 s. The voice choice improves the measured
