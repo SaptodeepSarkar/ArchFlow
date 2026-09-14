@@ -59,7 +59,28 @@ pub fn insert_automatic(
     if configured_mode == "automatic" {
         return match inject_stream(text) {
             Ok(()) => InsertOutcome::DispatchAttempted(format!("typed via keyboard into {}", current.app_id)),
-            Err(e) => copy_ready(text, &format!("typing failed ({e})")),
+            Err(e) => {
+                // Some Wayland clients/compositor states reject literal
+                // virtual-keyboard text while still accepting a virtual
+                // Ctrl+V/Shift+Insert. Keep the automatic contract by
+                // retrying through the same virtual keyboard before giving
+                // up and leaving a copy-ready result.
+                if let Err(copy_err) = clipboard::offer_text(text) {
+                    return InsertOutcome::Failed(format!(
+                        "typing failed ({e}); clipboard fallback failed ({copy_err})"
+                    ));
+                }
+                if clipboard::still_ours(text) {
+                    let chord = paste_chord_for(&current.app_id);
+                    if dispatch_paste(&chord).is_ok() {
+                        return InsertOutcome::DispatchAttempted(format!(
+                            "typed via keyboard paste fallback ({chord}) into {}",
+                            current.app_id
+                        ));
+                    }
+                }
+                copy_ready(text, &format!("typing failed ({e}); text on clipboard"))
+            }
         };
     }
     // Offer on clipboard, then dispatch the app's paste chord.
@@ -166,9 +187,11 @@ pub fn inject_stream(text: &str) -> anyhow::Result<()> {
         return Ok(());
     }
     let wtype = find_wtype().ok_or_else(|| anyhow::anyhow!("wtype not found"))?;
-    let res = std::process::Command::new(&wtype)
-        .arg(text)
-        .output();
+    let mut cmd = std::process::Command::new(&wtype);
+    cmd.arg(text);
+    // Never allow a virtual-keyboard helper to hold the daemon in INSERTING.
+    // The caller can then use the bounded clipboard/paste fallback.
+    let res = clipboard::run_timeout(cmd, None, 5, true);
     match res {
         Ok(out) if out.status.success() => Ok(()),
         Ok(out) => anyhow::bail!(
