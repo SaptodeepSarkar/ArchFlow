@@ -16,6 +16,14 @@ class DictationControllerTest {
     }
 
     @Test
+    fun permanentlyDeniedMicrophoneRoutesToAppSettings() {
+        assertTrue(MicrophonePermissionPolicy.requiresAppSettings(true, false, false))
+        assertTrue(!MicrophonePermissionPolicy.requiresAppSettings(false, false, false))
+        assertTrue(!MicrophonePermissionPolicy.requiresAppSettings(true, false, true))
+        assertTrue(!MicrophonePermissionPolicy.requiresAppSettings(true, true, false))
+    }
+
+    @Test
     fun staleResultCannotMutateNewSession() {
         val controller = DictationController()
         val old = controller.start()!!

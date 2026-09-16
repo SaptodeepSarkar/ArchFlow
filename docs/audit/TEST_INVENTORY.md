@@ -10,11 +10,11 @@ Coverage includes state transitions, protocol limits, reconciliation, VAD, confi
 
 ## Android coverage added in this slice
 
-Added pure reducer and input-policy tests in `android/app/src/test/.../DictationControllerTest.kt` covering stale callbacks, endpointing/finalization, insertion-failure text retention, retry token freshness, and password-field blocking. Gradle 8.9 executed all 5 tests successfully on 2026-09-16.
+Added pure reducer and input-policy tests in `android/app/src/test/.../DictationControllerTest.kt` covering stale callbacks, endpointing/finalization, insertion-failure text retention, retry token freshness, password-field blocking, and permanent-denial routing. Gradle 8.9 executed all 6 tests successfully on 2026-09-16.
 
 ## Android runtime verification
 
-Gradle unit tests executed all 5 Android policy/reducer tests successfully on 2026-09-16. Connected instrumentation executed all 3 Android tests successfully on `emulator-5554` on 2026-09-16. Manual ADB smoke testing also confirmed the installed APK reaches onboarding, the Vaani IME can be enabled and selected, and the rehearsal field displays the Vaani keyboard even when the emulator advertises a hardware keyboard.
+Gradle unit tests executed all 6 Android policy/reducer tests successfully on 2026-09-16. Connected instrumentation executed all 3 Android tests successfully on `emulator-5554` on 2026-09-16. Manual ADB smoke testing also confirmed the installed APK reaches onboarding, the Vaani IME can be enabled and selected, and the rehearsal field displays the Vaani keyboard even when the emulator advertises a hardware keyboard.
 
 ## Missing coverage
 

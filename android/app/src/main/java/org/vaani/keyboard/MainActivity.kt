@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
+import android.net.Uri
 import android.view.Gravity
 import android.view.View
 import android.view.Window
@@ -351,7 +352,7 @@ class MainActivity : Activity() {
 
     private fun blockerAction(blocker: ReadinessBlocker?) = when (blocker) {
         ReadinessBlocker.RECOGNIZER -> "Check speech settings"
-        ReadinessBlocker.MICROPHONE -> "Allow microphone"
+        ReadinessBlocker.MICROPHONE -> if (microphoneNeedsSettings()) "Open app settings" else "Allow microphone"
         ReadinessBlocker.KEYBOARD -> "Enable keyboard"
         ReadinessBlocker.TEST -> "Choose Vaani keyboard"
         null -> "Continue"
@@ -369,7 +370,23 @@ class MainActivity : Activity() {
 
     private fun showKeyboardPicker() = (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showInputMethodPicker()
 
-    private fun requestMic() = requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MIC)
+    private fun microphoneNeedsSettings() = MicrophonePermissionPolicy.requiresAppSettings(
+        prefs.getBoolean("microphone_requested", false),
+        checkMic(),
+        shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO),
+    )
+
+    private fun requestMic() {
+        if (checkMic()) {
+            render()
+        } else if (microphoneNeedsSettings()) {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+            })
+        } else {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MIC)
+        }
+    }
 
     companion object { private const val REQUEST_MIC = 42 }
 }

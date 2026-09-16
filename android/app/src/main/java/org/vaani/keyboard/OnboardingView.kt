@@ -214,6 +214,12 @@ class OnboardingView(
 
     private fun hasMic() = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
+    private fun microphoneNeedsSettings() = MicrophonePermissionPolicy.requiresAppSettings(
+        prefs.getBoolean("microphone_requested", false),
+        hasMic(),
+        (context as? android.app.Activity)?.shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) == true,
+    )
+
     private fun keyboardEnabled(): Boolean {
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
         return imm.enabledInputMethodList.any {
@@ -339,7 +345,7 @@ class OnboardingView(
             page == 3 && !ime -> "Enable Vaani keyboard"
             page == 3 && !selected -> "Choose Vaani keyboard"
             page == 3 -> "Show Vaani keyboard"
-            page == 1 && !mic -> "Allow microphone"
+            page == 1 && !mic -> if (microphoneNeedsSettings()) "Open app settings" else "Allow microphone"
             page == 2 && !ime -> "Enable Vaani keyboard"
             else -> context.getString(R.string.onboarding_continue)
         }
