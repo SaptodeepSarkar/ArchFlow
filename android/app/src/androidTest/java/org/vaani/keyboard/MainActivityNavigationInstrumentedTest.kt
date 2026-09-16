@@ -42,6 +42,35 @@ class MainActivityNavigationInstrumentedTest {
         }
     }
 
+    @Test
+    fun finalOnboardingPageHasARecoveryPathWithoutDictation() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val prefs = context.getSharedPreferences("vaani", Context.MODE_PRIVATE)
+        val wasOnboardingComplete = prefs.getBoolean("onboarding_v2", false)
+        val previousStep = prefs.getInt("onboarding_step", 0)
+        val wasDictationComplete = prefs.getBoolean("first_dictation_complete", false)
+        prefs.edit()
+            .putBoolean("onboarding_v2", false)
+            .putInt("onboarding_step", 3)
+            .putBoolean("first_dictation_complete", false)
+            .commit()
+        val activity = instrumentation.startActivitySync(
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        try {
+            instrumentation.waitForIdleSync()
+            assertTrue(buttons(activity.window.decorView).any { it.text.toString() == "Skip rehearsal for now" })
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+            prefs.edit()
+                .putBoolean("onboarding_v2", wasOnboardingComplete)
+                .putInt("onboarding_step", previousStep)
+                .putBoolean("first_dictation_complete", wasDictationComplete)
+                .commit()
+        }
+    }
+
     private fun buttons(view: View): List<Button> = collect(view).filterIsInstance<Button>()
 
     private fun textViews(view: View): List<TextView> = collect(view).filterIsInstance<TextView>()

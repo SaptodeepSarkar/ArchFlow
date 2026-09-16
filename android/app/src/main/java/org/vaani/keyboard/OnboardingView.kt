@@ -341,6 +341,11 @@ class OnboardingView(
                     if (!prefs.getBoolean("first_dictation_complete", false)) openKeyboardForTest()
                 }
                 visualHost.addView(testAction, LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(8) })
+                if (!tested) {
+                    visualHost.addView(ui.secondaryButton("Skip rehearsal for now") {
+                        done()
+                    }, LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
+                }
                 if (selected && !tested) post { showRehearsalKeyboardIfReady() }
             }
         }
