@@ -14,7 +14,7 @@ Add portable contracts for STT, formatting, context, personalization, determinis
 
 ## Phase 2 — local personalization
 
-Implement vocabulary, snippets, replacements, ordering/boundary rules, migrations, and privacy-safe local persistence. Wire Android first and expose the same domain API to desktop. **In progress:** deterministic rules, bounded Android SQLite local store/UI with legacy preference migration, Linux JSONL import/render, and desktop local repository writes are wired; Android DataStore preference migration tests and desktop settings UI remain.
+Implement vocabulary, snippets, replacements, ordering/boundary rules, migrations, and privacy-safe local persistence. Wire Android first and expose the same domain API to desktop. **Complete for the current local-first slice:** deterministic rules, bounded Android SQLite local store/UI with legacy preference migration, Linux JSONL import/render, and desktop local repository writes are wired. Broader desktop control-center UX remains.
 
 ## Phase 3 — model registry and V5
 
@@ -22,7 +22,7 @@ Add manifest discovery/checksum/capability validation and benchmark registration
 
 ## Phase 4 — Android product completion
 
-Refactor the IME around the explicit dictation state machine, preserve recoverable text on insertion failure, complete keyboard behavior, and connect onboarding/home/personalization/settings. Validate through ADB on a real emulator when the host permits it.
+Refactor the IME around the explicit dictation state machine, preserve recoverable text on insertion failure, complete keyboard behavior, and connect onboarding/home/personalization/settings. **Current slice verified:** onboarding progression, IME visibility/selection, password guard, permission recovery, personalization UI/migration, editor actions, haptics, and emulator smoke coverage. Full live speech/insertion and broader lifecycle/accessibility coverage remain.
 
 ## Phase 5 — optional local-first sync
 
@@ -30,7 +30,7 @@ Add optional authentication, Firestore rules, background synchronization, tombst
 
 ## Phase 6 — desktop ecosystem
 
-Define a shared desktop domain layer, then implement Linux overlay/tray/insertion and a separate Windows shell/insertion adapter. Use clipboard recovery whenever direct insertion is unavailable. **In progress:** portable lifecycle/fallback logic, Linux Hyprland/Wayland adapters, and Windows User32 hotkey plus clipboard/paste insertion are implemented; full shells, tray, audio/STT wiring, and focused-editor integration remain.
+Define a shared desktop domain layer, then implement Linux overlay/tray/insertion and a separate Windows shell/insertion adapter. Use clipboard recovery whenever direct insertion is unavailable. **Current foundation:** portable lifecycle/fallback logic, Linux Hyprland/Wayland adapters, Windows User32 hotkey plus clipboard/paste insertion, local personalization CLI, secure session storage, and optional sync bridge are implemented; full shells, tray, audio/STT wiring, and focused-editor integration remain.
 
 ## Phase 7 — performance and release
 

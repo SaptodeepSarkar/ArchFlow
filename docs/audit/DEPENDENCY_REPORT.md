@@ -6,11 +6,11 @@ Date: 2026-09-16
 
 The workspace contains four crates: `vaani-core`, `vaanid`, `vaani-cli`, and `vaani-worker`. The direct shared dependencies are Tokio, Serde/Serde JSON, TOML, Clap, Anyhow, Thiserror, Tracing/Tracing Subscriber, and UUID.
 
-The dependency tree contains no database, Firebase, HTTP client, arbitrary plugin loader, or heavyweight inference runtime. That is consistent with the current Linux economy-first design, but it also explains why personalization, sync, and cross-platform shells are not implemented.
+The dependency tree keeps the Linux economy-first design: the shared workspace has no heavyweight database, arbitrary plugin loader, or inference runtime. The portable desktop crate adds bounded HTTP and credential-store dependencies for optional Firebase sync/auth, while Android uses its existing SQLite/WorkManager/Firebase bridge without coupling those details into `vaani-core`.
 
 ## Android
 
-The Android app directly declares only `androidx.core:core-ktx:1.15.0`; it uses platform UI and `SpeechRecognizer`. There is no Room/DataStore, Firebase Auth/Firestore, Compose, or instrumentation dependency today.
+The Android app uses platform UI and `SpeechRecognizer`, with AndroidX core, WorkManager, Firebase Auth/Firestore, and instrumentation dependencies for the implemented local-first personalization and optional sync paths. It deliberately does not use Compose or Room; the bounded SQLite repository remains behind the app-local store boundary.
 
 ## Decisions
 
