@@ -41,3 +41,10 @@ dictation do not depend on this client being signed in.
 store through keyring (Secret Service on Linux, Windows Credential Manager on
 Windows). The shared crate never writes refresh tokens to config, JSONL, or
 logs; a shell must explicitly opt into saving and restoring a session.
+
+The `vaani-desktop` binary is a minimal cross-platform integration entry point:
+`login` reads credentials interactively, `sync` restores the keyring session and
+runs one bounded cycle, `status` reports local counts only, and `sign-out` clears
+the keyring. It reads `VAANI_FIREBASE_PROJECT` and
+`VAANI_FIREBASE_API_KEY` from the environment; passwords and tokens are never
+command-line arguments.

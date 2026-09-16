@@ -15,3 +15,8 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 ureq = { version = "3.4.2", default-features = false, features = ["json", "native-tls"] }
 keyring = "4.2.0"
+rpassword = "7.5.4"
+
+[[bin]]
+name = "vaani-desktop"
+path = "src/bin/vaani-desktop.rs"
