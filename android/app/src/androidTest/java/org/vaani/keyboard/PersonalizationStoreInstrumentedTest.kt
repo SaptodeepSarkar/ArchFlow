@@ -1,6 +1,7 @@
 package org.vaani.keyboard
 
 import android.content.Context
+import android.util.Base64
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.WorkInfo
@@ -51,5 +52,25 @@ class PersonalizationStoreInstrumentedTest {
             .get(5, TimeUnit.SECONDS)
         assertEquals(1, work.size)
         assertEquals(WorkInfo.State.ENQUEUED, work.single().state)
+    }
+
+    @Test
+    fun legacyPreferencesMigrateOnceIntoSqlite() {
+        context.deleteDatabase("vaani_personalization.db")
+        val legacy = context.getSharedPreferences("vaani_personalization", Context.MODE_PRIVATE)
+        legacy.edit().clear().commit()
+        fun encoded(value: String) = Base64.encodeToString(value.toByteArray(Charsets.UTF_8), Base64.NO_WRAP or Base64.URL_SAFE)
+        legacy.edit()
+            .putString("vocabulary", "legacy-vocab\t${encoded("hyper land")}\t_")
+            .putString("snippets", "legacy-snippet\t${encoded("my email")}\t${encoded("person@example.test")}")
+            .putString("replacements", "legacy-replacement\t${encoded("sapto deep")}\t${encoded("Saptodeep")}")
+            .commit()
+
+        store = PersonalizationStore(context)
+
+        assertEquals("hyper land", store.vocabulary().single().trigger)
+        assertEquals("person@example.test", store.render("my email"))
+        assertEquals("Saptodeep", store.render("sapto deep"))
+        assertTrue(legacy.getBoolean("sqlite_migrated_v1", false))
     }
 }

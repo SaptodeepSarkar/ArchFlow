@@ -37,7 +37,7 @@ The prompts explicitly excluded text, logos, fake UI, neon, particles, sparkles,
 GRADLE_USER_HOME=/tmp/vaani-gradle ./gradlew :app:assembleDebug :app:lintDebug
 ```
 
-Result: `BUILD SUCCESSFUL` for lint, unit tests, and the debug APK; connected instrumentation also completed all 3 tests on `emulator-5554`. Manual ADB verification confirmed onboarding, microphone permission handling, Vaani IME enablement/selection, and the page-four rehearsal field with the Vaani keyboard visibly rendered. The IME explicitly keeps its input view visible on hardware-keyboard emulators. TalkBack, large-font, landscape, dark-mode, and full live speech/insertion flows still need dedicated QA.
+Result: `BUILD SUCCESSFUL` for lint, unit tests, and the debug APK; connected instrumentation also completed all 4 tests on `emulator-5554`, including legacy-preferences migration into SQLite. Manual ADB verification confirmed onboarding, microphone permission handling, Vaani IME enablement/selection, and the page-four rehearsal field with the Vaani keyboard visibly rendered. The IME explicitly keeps its input view visible on hardware-keyboard emulators. TalkBack, large-font, landscape, dark-mode, and full live speech/insertion flows still need dedicated QA.
 
 ## Deliberately not implemented
 
