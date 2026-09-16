@@ -6,8 +6,15 @@
 //! keystroke injection.
 
 use std::ffi::c_int;
+use std::mem::size_of;
+use std::ptr::null_mut;
+use vaani_core::engine::{EngineError, EngineErrorKind, InsertOutcome};
 
 const WM_HOTKEY: u32 = 0x0312;
+const CF_UNICODETEXT: u32 = 13;
+const GMEM_MOVEABLE: u32 = 0x0002;
+const KEYEVENTF_KEYUP: u32 = 0x0002;
+const INPUT_KEYBOARD: u32 = 1;
 
 #[repr(C)]
 struct Message {
@@ -28,6 +35,38 @@ extern "system" {
     fn GetMessageW(message: *mut Message, hwnd: *mut std::ffi::c_void, min: u32, max: u32) -> i32;
     fn TranslateMessage(message: *const Message) -> i32;
     fn DispatchMessageW(message: *const Message) -> isize;
+    fn GetForegroundWindow() -> *mut std::ffi::c_void;
+    fn GetClassNameW(hwnd: *mut std::ffi::c_void, class_name: *mut u16, max_count: i32) -> i32;
+    fn OpenClipboard(owner: *mut std::ffi::c_void) -> i32;
+    fn CloseClipboard() -> i32;
+    fn EmptyClipboard() -> i32;
+    fn SetClipboardData(format: u32, data: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn GlobalAlloc(flags: u32, bytes: usize) -> *mut std::ffi::c_void;
+    fn GlobalLock(memory: *mut std::ffi::c_void) -> *mut u16;
+    fn GlobalUnlock(memory: *mut std::ffi::c_void) -> i32;
+    fn GlobalFree(memory: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn SendInput(count: u32, inputs: *mut Input, size: c_int) -> u32;
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct KeyboardInput {
+    virtual_key: u16,
+    scan_code: u16,
+    flags: u32,
+    time: u32,
+    extra_info: usize,
+}
+
+#[repr(C)]
+union InputUnion {
+    keyboard: KeyboardInput,
+}
+
+#[repr(C)]
+struct Input {
+    input_type: u32,
+    input: InputUnion,
 }
 
 pub struct GlobalHotkey {
@@ -82,4 +121,194 @@ impl Drop for GlobalHotkey {
             let _ = UnregisterHotKey(std::ptr::null_mut(), self.id);
         }
     }
+}
+
+/// Windows clipboard adapter. Text is copied through the Win32 clipboard API
+/// from memory; it is never placed in a command line or shell invocation.
+pub struct WindowsClipboard;
+
+impl crate::ClipboardPort for WindowsClipboard {
+    fn copy(&self, text: &str) -> Result<(), EngineError> {
+        copy_windows(text)
+    }
+}
+
+/// Safe best-effort insertion: clipboard ownership plus a Ctrl+V dispatch.
+/// Terminal and multiline shell-like targets deliberately remain copy-only.
+pub struct WindowsInserter;
+
+impl crate::DirectInserter for WindowsInserter {
+    fn insert(&self, text: &str) -> Result<InsertOutcome, EngineError> {
+        if text.is_empty() {
+            return Err(EngineError::new(
+                EngineErrorKind::InvalidInput,
+                "empty text",
+            ));
+        }
+        let window = foreground_window()?;
+        if is_terminal(&window) || (text.contains('\n') && looks_shell_like(text)) {
+            copy_windows(text)?;
+            return Ok(InsertOutcome::Copied {
+                reason: "terminal or shell-like target is copy-only".into(),
+            });
+        }
+        copy_windows(text)?;
+        send_paste()?;
+        Ok(InsertOutcome::Inserted)
+    }
+}
+
+fn copy_windows(text: &str) -> Result<(), EngineError> {
+    let mut wide: Vec<u16> = text.encode_utf16().collect();
+    wide.push(0);
+    unsafe {
+        if OpenClipboard(null_mut()) == 0 {
+            return Err(EngineError::new(
+                EngineErrorKind::Unavailable,
+                "Windows clipboard is busy",
+            ));
+        }
+        let result = (|| {
+            if EmptyClipboard() == 0 {
+                return Err(EngineError::new(
+                    EngineErrorKind::Runtime,
+                    "could not clear Windows clipboard",
+                ));
+            }
+            let memory = GlobalAlloc(GMEM_MOVEABLE, wide.len() * size_of::<u16>());
+            if memory.is_null() {
+                return Err(EngineError::new(
+                    EngineErrorKind::Runtime,
+                    "could not allocate clipboard memory",
+                ));
+            }
+            let destination = GlobalLock(memory);
+            if destination.is_null() {
+                let _ = GlobalFree(memory);
+                return Err(EngineError::new(
+                    EngineErrorKind::Runtime,
+                    "could not lock clipboard memory",
+                ));
+            }
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), destination, wide.len());
+            let _ = GlobalUnlock(memory);
+            if SetClipboardData(CF_UNICODETEXT, memory).is_null() {
+                let _ = GlobalFree(memory);
+                return Err(EngineError::new(
+                    EngineErrorKind::Runtime,
+                    "could not publish Windows clipboard text",
+                ));
+            }
+            Ok(())
+        })();
+        let _ = CloseClipboard();
+        result
+    }
+}
+
+fn foreground_window() -> Result<*mut std::ffi::c_void, EngineError> {
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_null() {
+        Err(EngineError::new(
+            EngineErrorKind::Unavailable,
+            "focused window unavailable",
+        ))
+    } else {
+        Ok(window)
+    }
+}
+
+fn foreground_class(window: *mut std::ffi::c_void) -> String {
+    let mut buffer = [0u16; 128];
+    let length = unsafe { GetClassNameW(window, buffer.as_mut_ptr(), buffer.len() as i32) };
+    String::from_utf16_lossy(&buffer[..length.max(0) as usize])
+}
+
+fn is_terminal(window: &*mut std::ffi::c_void) -> bool {
+    let class = foreground_class(*window).to_ascii_lowercase();
+    [
+        "cascadia_window_class",
+        "consolewindowclass",
+        "mintty",
+        "windowsterminal",
+    ]
+    .iter()
+    .any(|name| class.contains(name))
+}
+
+fn send_paste() -> Result<(), EngineError> {
+    let mut inputs = [
+        Input {
+            input_type: INPUT_KEYBOARD,
+            input: InputUnion {
+                keyboard: KeyboardInput {
+                    virtual_key: 0x11,
+                    scan_code: 0,
+                    flags: 0,
+                    time: 0,
+                    extra_info: 0,
+                },
+            },
+        },
+        Input {
+            input_type: INPUT_KEYBOARD,
+            input: InputUnion {
+                keyboard: KeyboardInput {
+                    virtual_key: 0x56,
+                    scan_code: 0,
+                    flags: 0,
+                    time: 0,
+                    extra_info: 0,
+                },
+            },
+        },
+        Input {
+            input_type: INPUT_KEYBOARD,
+            input: InputUnion {
+                keyboard: KeyboardInput {
+                    virtual_key: 0x56,
+                    scan_code: 0,
+                    flags: KEYEVENTF_KEYUP,
+                    time: 0,
+                    extra_info: 0,
+                },
+            },
+        },
+        Input {
+            input_type: INPUT_KEYBOARD,
+            input: InputUnion {
+                keyboard: KeyboardInput {
+                    virtual_key: 0x11,
+                    scan_code: 0,
+                    flags: KEYEVENTF_KEYUP,
+                    time: 0,
+                    extra_info: 0,
+                },
+            },
+        },
+    ];
+    let sent = unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_mut_ptr(),
+            size_of::<Input>() as c_int,
+        )
+    };
+    if sent == inputs.len() as u32 {
+        Ok(())
+    } else {
+        Err(EngineError::new(
+            EngineErrorKind::Runtime,
+            "Windows paste dispatch failed",
+        ))
+    }
+}
+
+fn looks_shell_like(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim_start().to_ascii_lowercase();
+        ["del ", "format ", "git ", "cargo ", "powershell ", "rm "]
+            .iter()
+            .any(|prefix| line.starts_with(prefix))
+    })
 }
