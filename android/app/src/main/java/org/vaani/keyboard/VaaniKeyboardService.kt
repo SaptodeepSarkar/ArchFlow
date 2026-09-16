@@ -404,6 +404,7 @@ class VaaniKeyboardService : InputMethodService() {
 
     private fun commit(value: String) {
         currentInputConnection?.commitText(value, 1)
+        if (!symbols && shifted && value.length == 1 && value[0].isLetter()) shifted = false
         handler.post { if (::suggestionBar.isInitialized) showSuggestions() }
     }
 

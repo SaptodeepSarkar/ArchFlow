@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
@@ -110,7 +111,11 @@ class Ui(private val context: Context) {
         setPadding(0, dp(6), 0, dp(6))
         stateListAnimator = null
         background = shape(palette.surface, palette.line, 12)
-        setOnClickListener { click() }
+        isHapticFeedbackEnabled = true
+        setOnClickListener {
+            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            click()
+        }
     }
 
     fun controlKey(value: String, click: () -> Unit) = key(value, click).apply {
