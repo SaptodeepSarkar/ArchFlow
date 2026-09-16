@@ -154,7 +154,9 @@ impl crate::DirectInserter for WindowsInserter {
         }
         copy_windows(text)?;
         send_paste()?;
-        Ok(InsertOutcome::Inserted)
+        Ok(InsertOutcome::Copied {
+            reason: "paste requested through focused Windows editor".into(),
+        })
     }
 }
 

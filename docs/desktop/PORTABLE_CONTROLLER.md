@@ -46,6 +46,8 @@ retain terminal and shell-like copy-only safeguards. Windows uses the User32
 replacements in the shared JSONL schema and applies the same deterministic
 canonicalization/rendering rules. Windows accessibility, tray, clipboard, and
 editor insertion are now represented by a User32 clipboard-plus-paste adapter;
+when the paste dispatch is accepted, it reports “paste requested” while
+retaining the complete clipboard text rather than claiming editor acceptance;
 the complete Windows shell/tray and focused-editor integration still need to
 be connected.
 
