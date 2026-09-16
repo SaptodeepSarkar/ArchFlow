@@ -24,7 +24,7 @@ Install or copy the package into the user-local model directory, refresh discove
 
 ## 6. Activate
 
-Select the validated model in configuration. Activation is reversible and should retain the previous working model until the new model passes a load/health check.
+Select the validated model in configuration. `recognition.model` and `recognition.live_model` are integrity-checked before the daemon persists the change; an unavailable or invalid package leaves the prior in-memory configuration untouched. Activation is reversible and should retain the previous working model until the new model passes a load/health check.
 
 ## Compatibility rule
 

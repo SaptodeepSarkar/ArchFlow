@@ -19,7 +19,7 @@ Date: 2026-09-16
 ## Risks
 
 - `models/manifest.toml` still has placeholder checksums for tiny/base.en/small.
-- The runtime keeps legacy alias resolution, but package directories with a `model.json` sidecar now pass through schema, path, byte-size, and SHA-256 verification before inference. Valid packages are discoverable by manifest ID and the `doctor` response reports valid/invalid package entries.
+- The runtime keeps legacy alias resolution, but package directories with a `model.json` sidecar now pass through schema, path, byte-size, and SHA-256 verification before inference. `recognition.model` and `recognition.live_model` reject unavailable or invalid artifacts before configuration is saved, preserving the prior in-memory selection. Valid packages are discoverable by manifest ID and the `doctor` response reports valid/invalid package entries.
 - Android has no Vaani-owned STT package or model registry.
 
 ## Required next artifact

@@ -437,12 +437,14 @@ mod tests {
         };
         std::fs::write(root.join("model.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
         assert!(validate_model_package(root.to_str().unwrap()).is_ok());
+        assert!(validate_resolved_model("v5", root.to_str().unwrap()).is_ok());
         let packages = discover_model_packages(root.parent().unwrap());
         assert_eq!(packages.len(), 1);
         assert_eq!(packages[0].manifest.as_ref().unwrap().id, "test-model");
         assert!(packages[0].error.is_none());
         std::fs::write(&model, b"tampered model").unwrap();
         assert!(validate_model_package(root.to_str().unwrap()).is_err());
+        assert!(validate_resolved_model("v5", root.to_str().unwrap()).is_err());
         assert!(discover_model_packages(root.parent().unwrap())[0].error.is_some());
         let _ = std::fs::remove_dir_all(root);
     }
@@ -660,6 +662,26 @@ fn validate_model_package(path: &str) -> anyhow::Result<()> {
         if !actual.eq_ignore_ascii_case(&file.sha256) { anyhow::bail!("sha256 mismatch for model file {}", file.path); }
     }
     Ok(())
+}
+
+/// Verify a configured model before persisting its selection. This is a
+/// lightweight activation health check: the artifact must exist, registered
+/// V5 must retain its package manifest, and any present package is checksum
+/// validated before the previous configuration can be replaced.
+pub fn validate_model_selection(model: &str) -> anyhow::Result<()> {
+    let path = model_path_for(model);
+    validate_resolved_model(model, &path)
+}
+
+fn validate_resolved_model(model: &str, path: &str) -> anyhow::Result<()> {
+    let model_path = std::path::Path::new(path);
+    if !model_path.exists() {
+        anyhow::bail!("selected model is not installed");
+    }
+    if model == "v5" && (!model_path.is_dir() || !model_path.join("model.json").is_file()) {
+        anyhow::bail!("V5 must be installed as a verified model package");
+    }
+    validate_model_package(path)
 }
 
 /// Transcribe complete utterance (stop-gated, max 120 s). Long audio uses

@@ -521,11 +521,28 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
                 return Response { ok: false, message: Some("key/value too large".into()), ..resp_ok(&rid, &g.session, None, None) };
             }
             let mut g = shared.lock().await;
+            let previous = g.cfg.clone();
             match g.cfg.set_key(&key, &value) {
-                Ok(canonical) => match g.cfg.save() {
-                    Ok(()) => resp_ok(&rid, &g.session, Some("saved".into()), Some(serde_json::json!({"key": key, "value": canonical}))),
-                    Err(e) => Response { ok: false, message: Some(format!("save failed: {e}")), ..resp_ok(&rid, &g.session, None, None) },
-                },
+                Ok(canonical) => {
+                    let selected_model = match key.as_str() {
+                        "recognition.model" => Some(g.cfg.recognition.model.as_str()),
+                        "recognition.live_model" => Some(g.cfg.recognition.live_model.as_str()),
+                        _ => None,
+                    };
+                    if let Some(model) = selected_model {
+                        if let Err(error) = worker_sup::validate_model_selection(model) {
+                            g.cfg = previous;
+                            return Response { ok: false, message: Some(format!("model activation rejected: {error}")), ..resp_ok(&rid, &g.session, None, None) };
+                        }
+                    }
+                    match g.cfg.save() {
+                        Ok(()) => resp_ok(&rid, &g.session, Some("saved".into()), Some(serde_json::json!({"key": key, "value": canonical}))),
+                        Err(e) => {
+                            g.cfg = previous;
+                            Response { ok: false, message: Some(format!("save failed: {e}")), ..resp_ok(&rid, &g.session, None, None) }
+                        }
+                    }
+                }
                 Err(e) => Response { ok: false, message: Some(e), ..resp_ok(&rid, &g.session, None, None) },
             }
         }
