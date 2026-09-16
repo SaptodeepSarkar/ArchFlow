@@ -439,6 +439,15 @@ where
         Ok(())
     }
 
+    /// Feed one normalized front-end block into the STT lifecycle.
+    pub fn feed_audio_chunk(
+        &mut self,
+        session_id: SessionId,
+        chunk: AudioChunk,
+    ) -> Result<(), EngineError> {
+        self.feed_audio(session_id, &chunk.samples, chunk.level)
+    }
+
     pub fn finish(
         &mut self,
         session_id: SessionId,
@@ -758,7 +767,16 @@ mod tests {
             Clipboard(true),
         );
         let session_id = runtime.start().unwrap();
-        runtime.feed_audio(session_id, &[0.0, 0.1], 72).unwrap();
+        runtime
+            .feed_audio_chunk(
+                session_id,
+                AudioChunk {
+                    samples: vec![0.0, 0.1],
+                    speech: true,
+                    level: 72,
+                },
+            )
+            .unwrap();
         let report = runtime
             .finish(
                 session_id,
