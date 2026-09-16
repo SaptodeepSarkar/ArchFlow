@@ -24,15 +24,20 @@ commands. No transcript is logged or placed in command arguments by the
 portable layer.
 
 The crate now contains target-specific adapter foundations and a desktop-local
-personalization repository: Linux uses
-Hyprland focus metadata plus `wl-copy`/`wtype` for GUI paste with terminal and
-shell-like copy-only safeguards; Windows uses the User32 `RegisterHotKey`
-message loop. `PersonalizationRepository` stores vocabulary, snippets, and
+personalization repository: Linux has explicit Hyprland/Wayland and X11
+adapters. The Wayland path uses Hyprland focus metadata plus
+`wl-copy`/`wtype`, while the X11 path uses optional `xclip`/`xdotool`; both
+retain terminal and shell-like copy-only safeguards. Windows uses the User32
+`RegisterHotKey` message loop. `PersonalizationRepository` stores vocabulary, snippets, and
 replacements in the shared JSONL schema and applies the same deterministic
 canonicalization/rendering rules. Windows accessibility, tray, clipboard, and
 editor insertion are now represented by a User32 clipboard-plus-paste adapter;
 the complete Windows shell/tray and focused-editor integration still need to
 be connected.
+
+The current verification host has `wl-copy` and `wtype`, but not `xclip` or
+`xdotool`. X11 policy and adapter behavior are therefore contract-tested only;
+no live X11 clipboard or focused-editor insertion result is claimed.
 
 `FirebaseRestProvider` can push and pull those records through Firestore using
 an injected ID-token provider; it never owns credentials or participates in the

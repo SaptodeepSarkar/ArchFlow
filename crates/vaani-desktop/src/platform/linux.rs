@@ -171,6 +171,125 @@ impl DirectInserter for HyprlandInserter {
     }
 }
 
+/// X11 clipboard adapter. `xclip` owns the selection after stdin is closed;
+/// this is the same short-lived handoff pattern used by the Wayland clipboard
+/// helper and keeps dictated text out of arguments and logs.
+pub struct X11Clipboard;
+
+impl crate::ClipboardPort for X11Clipboard {
+    fn copy(&self, text: &str) -> Result<(), EngineError> {
+        copy_x11(text)
+    }
+}
+
+/// X11 insertion through `xdotool`'s paste shortcut. Terminals and shell-like
+/// multiline text remain copy-only by policy.
+pub struct X11Inserter;
+
+impl DirectInserter for X11Inserter {
+    fn insert(&self, text: &str) -> Result<InsertOutcome, EngineError> {
+        if text.is_empty() {
+            return Err(EngineError::new(
+                EngineErrorKind::InvalidInput,
+                "empty text",
+            ));
+        }
+        let class = x11_active_window_class()?;
+        if is_terminal(&class) || (text.contains('\n') && looks_shell_like(text)) {
+            copy_x11(text)?;
+            return Ok(InsertOutcome::Copied {
+                reason: "terminal or shell-like target is copy-only".into(),
+            });
+        }
+        copy_x11(text)?;
+        let status = Command::new("xdotool")
+            .args(["key", "--clearmodifiers", "ctrl+v"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|e| {
+                EngineError::new(
+                    EngineErrorKind::Unavailable,
+                    format!("xdotool unavailable: {e}"),
+                )
+            })?;
+        if status.success() {
+            Ok(InsertOutcome::Copied {
+                reason: "paste requested through focused X11 editor".into(),
+            })
+        } else {
+            Ok(InsertOutcome::Unavailable {
+                reason: "X11 paste shortcut failed".into(),
+            })
+        }
+    }
+}
+
+fn copy_x11(text: &str) -> Result<(), EngineError> {
+    if text.is_empty() {
+        return Err(EngineError::new(
+            EngineErrorKind::InvalidInput,
+            "empty text",
+        ));
+    }
+    let mut child = Command::new("xclip")
+        .args(["-selection", "clipboard", "-in"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| {
+            EngineError::new(
+                EngineErrorKind::Unavailable,
+                format!("xclip unavailable: {e}"),
+            )
+        })?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(text.as_bytes()).map_err(|e| {
+            EngineError::new(
+                EngineErrorKind::Runtime,
+                format!("clipboard write failed: {e}"),
+            )
+        })?;
+    }
+    // X11 requires a selection owner to remain available after the write. A
+    // successful xclip process is therefore intentionally handed off; an
+    // immediate failure is still surfaced to the caller.
+    std::thread::sleep(Duration::from_millis(10));
+    match child.try_wait() {
+        Ok(Some(status)) if !status.success() => {
+            Err(EngineError::new(EngineErrorKind::Runtime, "xclip failed"))
+        }
+        Ok(_) => {
+            std::mem::forget(child);
+            Ok(())
+        }
+        Err(e) => Err(EngineError::new(
+            EngineErrorKind::Runtime,
+            format!("clipboard process wait failed: {e}"),
+        )),
+    }
+}
+
+fn x11_active_window_class() -> Result<String, EngineError> {
+    let output = Command::new("xdotool")
+        .args(["getactivewindow", "getwindowclassname"])
+        .output()
+        .map_err(|e| {
+            EngineError::new(
+                EngineErrorKind::Unavailable,
+                format!("xdotool unavailable: {e}"),
+            )
+        })?;
+    if !output.status.success() {
+        return Err(EngineError::new(
+            EngineErrorKind::Unavailable,
+            "focused X11 window unavailable",
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
 fn looks_shell_like(text: &str) -> bool {
     text.lines().any(|line| {
         let line = line.trim_start();
@@ -180,4 +299,18 @@ fn looks_shell_like(text: &str) -> bool {
             || line.starts_with("cargo ")
             || line.starts_with("make ")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn x11_terminal_and_shell_guards_match_wayland_policy() {
+        assert!(is_terminal("gnome-terminal"));
+        assert!(is_terminal("XTerm"));
+        assert!(!is_terminal("code"));
+        assert!(looks_shell_like("git status\nmake test"));
+        assert!(!looks_shell_like("write a meeting note\nfor review"));
+    }
 }

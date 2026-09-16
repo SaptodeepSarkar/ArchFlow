@@ -4,7 +4,7 @@ Date: 2026-09-16
 
 ## Current automated coverage
 
-`cargo test --workspace` passed 77 tests on 2026-09-16, with 1 hardware streaming test ignored. The current breakdown is 38 core unit tests, 4 core config integration tests, 6 protocol-abuse tests, 13 portable desktop tests, 3 worker pipe tests, and 14 daemon tests (including package-validation coverage; one of those is the ignored hardware test). The run emitted warnings, but no test failures.
+`cargo test --workspace` passed 78 tests on 2026-09-16, with 1 hardware streaming test ignored. The current breakdown is 38 core unit tests, 4 core config integration tests, 6 protocol-abuse tests, 14 portable desktop tests, 3 worker pipe tests, and 14 daemon tests (including package-validation coverage; one of those is the ignored hardware test). The run emitted warnings, but no test failures.
 
 Coverage includes state transitions, protocol limits, reconciliation, VAD, config validation, filler/repetition cleanup, insertion chord construction, clipboard deadlines, and worker silence behavior.
 
@@ -25,6 +25,8 @@ Gradle unit tests executed all 7 Android policy/reducer tests successfully on 20
 - Model manifest validation and benchmark regression tests.
 - Full Android IME dictation with live speech and insertion on the emulator; the installed APK launch, onboarding flow, IME selection, and visible rehearsal keyboard were smoke-tested through ADB on 2026-09-16.
 - Native Linux/Windows desktop adapter behavior and end-to-end focused-editor insertion.
+- Live X11 clipboard and focused-editor insertion; the verification host lacks
+  the optional `xclip` and `xdotool` tools.
 
 ## Test policy for next slices
 
