@@ -4,8 +4,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import android.text.InputType
 
 class DictationControllerTest {
+    @Test
+    fun passwordFieldsAreNeverDictatedInto() {
+        assertTrue(InputFieldSafety.isPassword(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD))
+        assertTrue(InputFieldSafety.isPassword(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD))
+        assertTrue(InputFieldSafety.isPassword(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD))
+        assertTrue(!InputFieldSafety.isPassword(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_NORMAL))
+    }
+
     @Test
     fun staleResultCannotMutateNewSession() {
         val controller = DictationController()

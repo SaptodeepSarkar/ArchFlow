@@ -432,9 +432,7 @@ class VaaniKeyboardService : InputMethodService() {
     private fun startVoice() {
         if (dictationController.state !is DictationState.Hidden) return
         val type = currentInputEditorInfo?.inputType ?: 0
-        val variation = type and InputType.TYPE_MASK_VARIATION
-        if ((type and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT && variation in listOf(InputType.TYPE_TEXT_VARIATION_PASSWORD, InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)) ||
-            (type and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD)) {
+        if (InputFieldSafety.isPassword(type)) {
             showKeys(getString(R.string.status_password)); return
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
