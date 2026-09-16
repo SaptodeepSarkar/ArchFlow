@@ -8,6 +8,7 @@ Date: 2026-09-16
 |---|---|---|
 | whisper.cpp base | user-local `~/.local/share/vaani/models/base.bin`; `models/manifest.toml` | Current verified Linux STT path, weights not in Git |
 | Cozy fine-tune | user-local CT2 directory referenced by `cozy` config/model resolution | Optional current fine-tuned path, weights not in Git |
+| V5 Whisper CT2 | user-local `~/.local/share/vaani/models/v5-stt-whisper-v5-supervised-200-ct2/`; `recognition.model = "v5"` | Registered checksum-verified package; current host `doctor` reports it valid; no Android performance claim |
 | V5 formatter experiments | `docs/V6_BASELINE.md`, training scripts, ignored local outputs | Evidence/control material, not a shipped runtime artifact |
 | Android SpeechRecognizer | Android platform service | Current Android backend/fallback; on-device availability is device-dependent |
 
@@ -23,4 +24,4 @@ Date: 2026-09-16
 
 ## Required next artifact
 
-Implement a versioned model-package manifest and validator that can discover, checksum, report capabilities, and activate V5 without UI changes. The portable schema, runtime integrity gate, ID-based discovery, and doctor diagnostics are now present; V5 registry routing remains. Keep future V6/V7 registration data-driven.
+The V5 local package is now registered, checksum-validated, discoverable by ID, and selected through the `v5` alias without a UI-specific path. The remaining runtime gap is an Android-owned package/runtime; keep future V6/V7 registration data-driven.

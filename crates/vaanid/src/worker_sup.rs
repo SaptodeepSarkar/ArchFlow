@@ -560,12 +560,26 @@ pub fn model_path_for(model: &str) -> String {
     // V5 is an explicit selectable alias for the locally converted Whisper
     // candidate. Keep this mapping in the resolver so configuration remains
     // portable and does not put an absolute model path in the TOML file.
-    let model = if model == "v5" {
+    let requested_v5 = model == "v5";
+    let model = if requested_v5 {
         "v5-stt-whisper-v5-supervised-200-ct2"
     } else {
         model
     };
     let lookup = |dir: &str| {
+        // Package discovery happens first so a manifest-backed installation
+        // cannot be shadowed by a stale same-named file or directory.
+        if let Some(package) = discover_model_packages(std::path::Path::new(dir)).into_iter()
+            .find(|package| package.manifest.as_ref().is_some_and(|manifest| manifest.id == model) && package.error.is_none())
+        {
+            return Some(package.root.to_string_lossy().into_owned());
+        }
+        // The deployed V5 artifact is a directory and must be registered as
+        // a package before runtime use. Legacy single-file Whisper installs
+        // stay supported below for offline compatibility.
+        if requested_v5 {
+            return None;
+        }
         let file = format!("{dir}/{model}.bin");
         if std::path::Path::new(&file).is_file() {
             return Some(file);
@@ -574,9 +588,7 @@ pub fn model_path_for(model: &str) -> String {
         if std::path::Path::new(&direct).exists() {
             return Some(direct);
         }
-        discover_model_packages(std::path::Path::new(dir)).into_iter()
-            .find(|package| package.manifest.as_ref().is_some_and(|manifest| manifest.id == model) && package.error.is_none())
-            .map(|package| package.root.to_string_lossy().into_owned())
+        None
     };
     if let Ok(dir) = std::env::var("VAANI_MODELS_DIR") {
         if !dir.is_empty() {

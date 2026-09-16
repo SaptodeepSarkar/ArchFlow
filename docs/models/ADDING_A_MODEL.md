@@ -8,7 +8,7 @@ Choose a CPU-capable runtime supported by the target platform (currently whisper
 
 ## 2. Create a package
 
-Place the package in the user model directory or a release artifact. Include a `model.json` manifest with `id`, `kind`, semantic `version`, languages, runtime, quantization, files, SHA-256 checksums, memory estimate, license, and capabilities.
+Place the package in the user model directory or a release artifact. Include a `model.json` manifest with `id`, `kind`, semantic `version`, languages, runtime, quantization, files, SHA-256 checksums, memory estimate, license, and capabilities. For an already exported local directory, use `tools/register-model-package.py`; it hashes named files and atomically creates the sidecar without copying weights.
 
 ## 3. Validate
 
