@@ -112,7 +112,11 @@ class MainActivity : Activity() {
         val ui = Ui(this)
         val frame = FrameLayout(this).apply { setBackgroundColor(ui.paper) }
         val content = ScrollView(this).apply { clipToPadding = false }
-        val page = if (activeTab == 0) home(ui) else settings(ui)
+        val page = when (activeTab) {
+            1 -> personalize(ui)
+            2 -> settings(ui)
+            else -> home(ui)
+        }
         content.addView(page)
         val nav = bottomNav(ui)
         frame.addView(content, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = ui.dp(76) })
@@ -148,10 +152,21 @@ class MainActivity : Activity() {
         gravity = Gravity.CENTER
         setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
         setBackgroundColor(ui.palette.surface)
-        val home = ui.key(if (activeTab == 0) "Home" else "Home") { activeTab = 0; render() }
-        val settings = ui.key("Settings") { activeTab = 1; render() }
-        addView(home, LinearLayout.LayoutParams(0, ui.dp(52), 1f).apply { marginEnd = ui.dp(6) })
-        addView(settings, LinearLayout.LayoutParams(0, ui.dp(52), 1f).apply { marginStart = ui.dp(6) })
+        listOf("Home" to 0, "Personalize" to 1, "Settings" to 2).forEachIndexed { index, (label, tab) ->
+            val button = ui.key(if (activeTab == tab) "✓  $label" else label) { selectTab(tab) }.apply {
+                contentDescription = if (activeTab == tab) "$label, selected" else label
+            }
+            addView(button, LinearLayout.LayoutParams(0, ui.dp(52), 1f).apply {
+                if (index > 0) marginStart = ui.dp(4)
+                if (index < 2) marginEnd = ui.dp(4)
+            })
+        }
+    }
+
+    private fun selectTab(tab: Int) {
+        activeTab = tab
+        scrollY = 0
+        render()
     }
 
     private fun home(ui: Ui): LinearLayout {
@@ -238,7 +253,19 @@ class MainActivity : Activity() {
         root.addView(ui.secondaryButton("Open Android keyboard settings") { openImeSettings() }, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(6) })
         root.addView(ui.secondaryButton("Choose keyboard now") { showKeyboardPicker() }, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(6) })
         root.addView(ui.sectionTitle("Personalization"))
-        root.addView(ui.label("These rules stay on this device and run before insertion. Word boundaries prevent accidental edits inside larger words.", 14f, ui.palette.muted))
+        root.addView(ui.label("Vocabulary, snippets, and replacements are managed on their own screen and remain available offline.", 14f, ui.palette.muted))
+        root.addView(ui.secondaryButton("Open Personalize") { selectTab(1) }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
+        addAccountSection(root, ui)
+        root.addView(ui.sectionTitle("About"))
+        root.addView(ui.meta("Vaani Android 0.1.0 · local-first dictation"))
+        return root
+    }
+
+    private fun personalize(ui: Ui): LinearLayout {
+        val root = ui.screenColumn()
+        root.addView(ui.title("Personalize"))
+        root.addView(ui.label("Teach Vaani the words and shortcuts that make your writing yours.", 16f, ui.palette.muted))
+        root.addView(ui.label("These rules stay on this device and run before insertion. Word boundaries prevent accidental edits inside larger words.", 14f, ui.palette.muted), LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(16) })
         addPersonalizationEditor(root, ui, "Vocabulary term", "Spoken aliases (comma-separated)", "Add vocabulary") { term, aliases ->
             personalization.addVocabulary(term, aliases.split(',').map(String::trim))
         }
@@ -247,9 +274,9 @@ class MainActivity : Activity() {
         addPersonalizationRows(root, ui, "Vocabulary", personalization.vocabulary(), PersonalizationStore.Kind.VOCABULARY)
         addPersonalizationRows(root, ui, "Snippets", personalization.snippets(), PersonalizationStore.Kind.SNIPPET)
         addPersonalizationRows(root, ui, "Replacements", personalization.replacements(), PersonalizationStore.Kind.REPLACEMENT)
-        addAccountSection(root, ui)
-        root.addView(ui.sectionTitle("About"))
-        root.addView(ui.meta("Vaani Android 0.1.0 · local-first dictation"))
+        root.addView(ui.sectionTitle("Sync"))
+        root.addView(ui.label("Optional sync is available in Settings. Your local rules work without an account.", 14f, ui.palette.muted))
+        root.addView(ui.secondaryButton("Open Settings") { selectTab(2) }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
         return root
     }
 
