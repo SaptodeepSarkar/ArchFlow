@@ -4,7 +4,7 @@ Date: 2026-09-16
 
 ## Scope and evidence
 
-This is a source-tree audit of commit `2f441f4e` (`fix(android): add microphone recovery in keyboard`). Evidence came from `git ls-files`, `git status --short --ignored`, Cargo metadata/tree, the Android Gradle sources, and the existing documentation. Runtime checks were repeated on 2026-09-16 with the local Gradle 8.9 distribution and `emulator-5554`.
+This is a source-tree audit of commit `19781c6f` (`fix(windows): report paste dispatch conservatively`). Evidence came from `git ls-files`, `git status --short --ignored`, Cargo metadata/tree, the Android Gradle sources, and the existing documentation. Runtime checks were repeated on 2026-09-16 with the local Gradle 8.9 distribution and `emulator-5554`.
 
 ## Current shape
 
@@ -20,7 +20,7 @@ This is a source-tree audit of commit `2f441f4e` (`fix(android): add microphone 
 | Sync/auth | Local sync records/repository, Firestore rules/emulator tests, and Android optional auth/provider bridge exist; production provider enablement and desktop adapters remain | EXTEND after local-first data model |
 | Models | Manifest plus user-local V5/cozy references; no model weights tracked | KEEP policy; formalize package validation |
 | Training | Historical V1–V5/V6 scripts, ignored datasets, checkpoints, and caches | ARCHIVE/document; exclude from active runtime |
-| Tests | 82 passing Rust tests plus one ignored hardware test, 8 Android policy/reducer tests, 6 connected Android tests, and 15 portable desktop tests; no native desktop test suite | KEEP coverage; ADD platform and contract tests |
+| Tests | 83 passing Rust tests plus one ignored hardware test, 8 Android policy/reducer tests, 6 connected Android tests, and 16 portable desktop tests; no native desktop test suite | KEEP coverage; ADD platform and contract tests |
 
 ## Keep / refactor / replace / archive / delete
 

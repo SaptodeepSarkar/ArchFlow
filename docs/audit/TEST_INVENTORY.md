@@ -20,7 +20,7 @@ Gradle unit tests executed all 8 Android policy/reducer tests successfully on 20
 
 - Automated Android coverage for IME lifecycle, permission denial/recovery, rotation, large-font, dark-mode, password-field, and local data flows.
 - Windows/Linux cross-platform contract tests for shortcut, insertion, clipboard fallback, and transcript preservation.
-- Android SQLite repository instrumentation and schema-migration tests; portable vocabulary/snippet/replacement persistence tests remain partial.
+- Android SQLite repository instrumentation and schema-migration tests are present; broader IME-driven persistence coverage remains partial.
 - Cross-device sync-provider integration beyond the Firestore rules boundary.
 - Model manifest validation and benchmark regression tests.
 - Full Android IME dictation with live speech and insertion on the emulator; the installed APK launch, onboarding flow, IME selection, and visible rehearsal keyboard were smoke-tested through ADB on 2026-09-16.
