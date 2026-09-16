@@ -370,6 +370,7 @@ pub struct DesktopRuntime<S, F, P, O, I, C> {
     inserter: I,
     clipboard: C,
     session_id: Option<SessionId>,
+    audio_samples: usize,
 }
 
 impl<S, F, P, O, I, C> DesktopRuntime<S, F, P, O, I, C>
@@ -396,6 +397,7 @@ where
             inserter,
             clipboard,
             session_id: None,
+            audio_samples: 0,
         }
     }
 
@@ -414,6 +416,7 @@ where
             return Err(error);
         }
         self.session_id = Some(session_id);
+        self.audio_samples = 0;
         Ok(session_id)
     }
 
@@ -433,9 +436,26 @@ where
         level: u8,
     ) -> Result<(), EngineError> {
         self.require_session(session_id)?;
+        let max_samples = vaani_core::MAX_AUDIO_SECS as usize * vaani_core::SAMPLE_RATE as usize;
+        let next_samples = self
+            .audio_samples
+            .checked_add(samples.len())
+            .ok_or_else(|| {
+                EngineError::new(
+                    vaani_core::engine::EngineErrorKind::InvalidInput,
+                    "desktop session audio exceeds the maximum duration",
+                )
+            })?;
+        if next_samples > max_samples {
+            return Err(EngineError::new(
+                vaani_core::engine::EngineErrorKind::InvalidInput,
+                "desktop session audio exceeds the maximum duration",
+            ));
+        }
         if let Some(partial) = self.stt.feed_audio(session_id, samples)?.into_iter().last() {
             self.controller.preview(partial.text, level);
         }
+        self.audio_samples = next_samples;
         Ok(())
     }
 
@@ -460,6 +480,7 @@ where
             Err(error) => {
                 self.controller.fail(error.message.clone());
                 self.session_id = None;
+                self.audio_samples = 0;
                 return Err(error);
             }
         };
@@ -476,6 +497,7 @@ where
             .controller
             .deliver(&self.inserter, &self.clipboard, &text);
         self.session_id = None;
+        self.audio_samples = 0;
         Ok(report)
     }
 
@@ -484,6 +506,7 @@ where
         self.stt.cancel(session_id)?;
         self.controller.invoke(Invocation::Cancel);
         self.session_id = None;
+        self.audio_samples = 0;
         Ok(())
     }
 
@@ -735,6 +758,16 @@ mod tests {
         let first = runtime.start().unwrap();
         assert_eq!(runtime.state(), DesktopState::Listening);
         assert!(runtime.feed_audio(SessionId::new_v4(), &[], 0).is_err());
+        let oversized = vec![
+            0.0_f32;
+            vaani_core::MAX_AUDIO_SECS as usize * vaani_core::SAMPLE_RATE as usize
+                + 1
+        ];
+        let error = runtime.feed_audio(first, &oversized, 0).unwrap_err();
+        assert_eq!(
+            error.kind,
+            vaani_core::engine::EngineErrorKind::InvalidInput
+        );
         let report = runtime
             .finish(
                 first,

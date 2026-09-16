@@ -24,6 +24,8 @@ bounded VAD block size, and returns every sample with an activity/level hint.
 The hint is for UI and endpoint policy; it does not discard audio before STT.
 Its `AudioChunk` output can be handed directly to
 `DesktopRuntime::feed_audio_chunk`.
+`DesktopRuntime` also enforces the shared 120-second per-session audio cap
+before forwarding a chunk to STT.
 
 The controller is event-driven. Platform event loops call `invoke`, `preview`,
 `finishing`, and `deliver`; it does not poll windows or spawn per-tick helper
