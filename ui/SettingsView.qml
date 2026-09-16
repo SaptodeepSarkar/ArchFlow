@@ -266,6 +266,22 @@ ColumnLayout {
                 currentIndex: (settingsRoot.cfg.recognition && settingsRoot.cfg.recognition.device === "cuda") ? 1 : 0
                 onActivated: settingsRoot.setKey("recognition.device", currentText)
             }
+            Label {
+                text: "Inference sidecar idle limit (seconds)"
+                font.bold: true
+            }
+            SpinBox {
+                from: 0
+                to: 600
+                value: settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.server_idle_secs : 0
+                onValueModified: settingsRoot.setKey("recognition.server_idle_secs", String(value))
+            }
+            Label {
+                text: "Economy always unloads after use. Balanced enforces at least 60 seconds; Ready enforces up to 10 minutes."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                color: colors.muted
+            }
             CheckBox {
                 text: "Translate to English (opt-in)"
                 checked: settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.translate_to_en : false
