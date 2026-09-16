@@ -4,7 +4,7 @@ Date: 2026-09-16
 
 ## Current automated coverage
 
-`cargo test --workspace` passed 75 tests on 2026-09-16, with 1 hardware streaming test ignored. The current breakdown is 37 core unit tests, 4 core config integration tests, 6 protocol-abuse tests, 12 portable desktop tests, 3 worker pipe tests, and 14 daemon tests (including package-validation coverage; one of those is the ignored hardware test). The run emitted warnings, but no test failures.
+`cargo test --workspace` passed 76 tests on 2026-09-16, with 1 hardware streaming test ignored. The current breakdown is 37 core unit tests, 4 core config integration tests, 6 protocol-abuse tests, 13 portable desktop tests, 3 worker pipe tests, and 14 daemon tests (including package-validation coverage; one of those is the ignored hardware test). The run emitted warnings, but no test failures.
 
 Coverage includes state transitions, protocol limits, reconciliation, VAD, config validation, filler/repetition cleanup, insertion chord construction, clipboard deadlines, and worker silence behavior.
 

@@ -220,6 +220,10 @@ impl<O: OverlayPort> DesktopController<O> {
         }
     }
 
+    pub fn state(&self) -> DesktopState {
+        self.model.state
+    }
+
     pub fn invoke(&mut self, invocation: Invocation) -> DesktopState {
         self.model.state = match (self.model.state, invocation) {
             (DesktopState::Hidden, Invocation::Toggle | Invocation::Start) => {
@@ -343,6 +347,14 @@ where
         }
         self.session_id = Some(session_id);
         Ok(session_id)
+    }
+
+    pub fn state(&self) -> DesktopState {
+        self.controller.state()
+    }
+
+    pub fn active_session(&self) -> Option<SessionId> {
+        self.session_id
     }
 
     /// Feed an in-memory audio chunk and publish only the newest partial.
@@ -607,6 +619,42 @@ mod tests {
             InsertOutcome::Inserted
         );
         assert!(events.lock().unwrap().contains(&DesktopState::Delivering));
+    }
+
+    #[test]
+    fn runtime_rejects_stale_session_and_can_restart_after_failure() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut runtime = DesktopRuntime::new(
+            RuntimeStt::new(),
+            RuntimeFormatter,
+            RuntimePersonalization,
+            Overlay(events),
+            Inserter(Err(EngineError::new(
+                vaani_core::engine::EngineErrorKind::Runtime,
+                "insertion unavailable",
+            ))),
+            Clipboard(false),
+        );
+        let first = runtime.start().unwrap();
+        assert_eq!(runtime.state(), DesktopState::Listening);
+        assert!(runtime.feed_audio(SessionId::new_v4(), &[], 0).is_err());
+        let report = runtime
+            .finish(
+                first,
+                FormatContext {
+                    application: None,
+                    language: "en".into(),
+                    personalization: PersonalizationSnapshot::default(),
+                },
+            )
+            .unwrap();
+        assert!(!report.text_preserved);
+        assert_eq!(runtime.state(), DesktopState::Failure);
+        let second = runtime.start().unwrap();
+        assert_ne!(first, second);
+        assert_eq!(runtime.active_session(), Some(second));
+        runtime.cancel(second).unwrap();
+        assert_eq!(runtime.state(), DesktopState::Hidden);
     }
 
     #[test]

@@ -11,7 +11,8 @@ are adapters. They are not allowed to alter the delivery policy:
 2. If the editor or platform rejects insertion, copy the complete text.
 3. Report `Unavailable` only after the clipboard fallback also fails.
 
-`DesktopRuntime` is the composition boundary used by a shell: it accepts
+`DesktopRuntime` is the composition boundary used by a shell. A shell can read
+its current state and active session, and it accepts
 in-memory audio chunks, forwards partials to the overlay, finalizes the STT
 session, runs the replaceable formatter plus deterministic personalization
 pipeline, and delivers through the insertion/clipboard policy. Platform shells
