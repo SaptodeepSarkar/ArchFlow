@@ -42,6 +42,11 @@ The same installation places `vaani-desktop` beside the daemon and CLI. Use
 `vaani-desktop status`, `vaani-desktop personalize`, and the optional
 `login`/`sync` commands for desktop-local personalization and account sync.
 
+The Windows CI run publishes a `vaani-desktop-windows-x86_64` artifact for the
+current desktop companion. It provides local personalization, secure-session
+and optional sync commands; the full Windows dictation shell and microphone
+runtime are still under implementation.
+
 ## Locally trained cleanup models
 
 The repository ignores `training/cleanup-llm/output/` because the artifacts

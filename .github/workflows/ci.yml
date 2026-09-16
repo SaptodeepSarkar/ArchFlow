@@ -49,6 +49,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Test portable core
         run: cargo test -p vaani-core -p vaani-desktop --locked
+      - name: Build Windows desktop companion
+        run: cargo build -p vaani-desktop --release --locked
+      - name: Publish Windows desktop companion artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vaani-desktop-windows-x86_64
+          path: target/release/vaani-desktop.exe
+          if-no-files-found: error
 
   firestore-rules:
     name: Firestore emulator rules
