@@ -14,7 +14,7 @@ Added pure reducer tests in `android/app/src/test/.../DictationControllerTest.kt
 
 ## Android runtime verification
 
-Gradle unit tests executed all 4 reducer tests successfully on 2026-09-16. Connected instrumentation executed all 3 Android tests successfully on `emulator-5554` on 2026-09-16. Manual ADB smoke testing also confirmed the installed APK reaches onboarding, the Vaani IME can be enabled and selected, and the rehearsal field displays the Vaani keyboard even when the emulator advertises a hardware keyboard.
+Gradle unit tests executed all 5 Android policy/reducer tests successfully on 2026-09-16. Connected instrumentation executed all 3 Android tests successfully on `emulator-5554` on 2026-09-16. Manual ADB smoke testing also confirmed the installed APK reaches onboarding, the Vaani IME can be enabled and selected, and the rehearsal field displays the Vaani keyboard even when the emulator advertises a hardware keyboard.
 
 ## Missing coverage
 
