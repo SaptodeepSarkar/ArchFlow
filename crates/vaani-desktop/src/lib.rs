@@ -6,7 +6,10 @@
 //! the complete text is copied, and only a confirmed copy failure is reported
 //! as unavailable.
 
-use vaani_core::engine::{EngineError, InsertOutcome};
+use vaani_core::engine::{
+    EngineError, FormatContext, FormatRequest, FormatterEngine, InsertOutcome,
+    PersonalizationProvider, SessionId, SttEngine, TextPipeline,
+};
 
 pub mod credentials;
 pub mod firebase;
@@ -225,6 +228,9 @@ impl<O: OverlayPort> DesktopController<O> {
             (DesktopState::Listening, Invocation::Toggle | Invocation::Stop) => {
                 DesktopState::Finishing
             }
+            (DesktopState::Failure, Invocation::Toggle | Invocation::Start) => {
+                DesktopState::Listening
+            }
             (_, Invocation::Cancel) => DesktopState::Hidden,
             (state, _) => state,
         };
@@ -252,6 +258,12 @@ impl<O: OverlayPort> DesktopController<O> {
         }
     }
 
+    pub fn fail(&mut self, message: impl Into<String>) {
+        self.model.state = DesktopState::Failure;
+        self.model.message = message.into();
+        self.overlay.render(&self.model);
+    }
+
     pub fn deliver<I: DirectInserter, C: ClipboardPort>(
         &mut self,
         inserter: &I,
@@ -276,10 +288,134 @@ impl<O: OverlayPort> DesktopController<O> {
     }
 }
 
+/// Event-driven desktop runtime composition. Platform capture and shortcut
+/// adapters feed this type in memory; the runtime owns the stable STT →
+/// formatter → personalization → delivery sequence.
+pub struct DesktopRuntime<S, F, P, O, I, C> {
+    stt: S,
+    pipeline: TextPipeline<F, P>,
+    controller: DesktopController<O>,
+    inserter: I,
+    clipboard: C,
+    session_id: Option<SessionId>,
+}
+
+impl<S, F, P, O, I, C> DesktopRuntime<S, F, P, O, I, C>
+where
+    S: SttEngine,
+    F: FormatterEngine,
+    P: PersonalizationProvider,
+    O: OverlayPort,
+    I: DirectInserter,
+    C: ClipboardPort,
+{
+    pub fn new(
+        stt: S,
+        formatter: F,
+        personalization: P,
+        overlay: O,
+        inserter: I,
+        clipboard: C,
+    ) -> Self {
+        Self {
+            stt,
+            pipeline: TextPipeline::new(formatter, personalization),
+            controller: DesktopController::new(overlay),
+            inserter,
+            clipboard,
+            session_id: None,
+        }
+    }
+
+    pub fn start(&mut self) -> Result<SessionId, EngineError> {
+        if self.session_id.is_some()
+            || self.controller.invoke(Invocation::Start) != DesktopState::Listening
+        {
+            return Err(EngineError::new(
+                vaani_core::engine::EngineErrorKind::Runtime,
+                "desktop session already active",
+            ));
+        }
+        let session_id = SessionId::new_v4();
+        if let Err(error) = self.stt.start(session_id) {
+            self.controller.invoke(Invocation::Cancel);
+            return Err(error);
+        }
+        self.session_id = Some(session_id);
+        Ok(session_id)
+    }
+
+    /// Feed an in-memory audio chunk and publish only the newest partial.
+    pub fn feed_audio(
+        &mut self,
+        session_id: SessionId,
+        samples: &[f32],
+        level: u8,
+    ) -> Result<(), EngineError> {
+        self.require_session(session_id)?;
+        if let Some(partial) = self.stt.feed_audio(session_id, samples)?.into_iter().last() {
+            self.controller.preview(partial.text, level);
+        }
+        Ok(())
+    }
+
+    pub fn finish(
+        &mut self,
+        session_id: SessionId,
+        context: FormatContext,
+    ) -> Result<DeliveryReport, EngineError> {
+        self.require_session(session_id)?;
+        self.controller.invoke(Invocation::Stop);
+        let final_partial = match self.stt.finalize(session_id) {
+            Ok(partial) => partial,
+            Err(error) => {
+                self.controller.fail(error.message.clone());
+                self.session_id = None;
+                return Err(error);
+            }
+        };
+        let request = FormatRequest {
+            session_id,
+            transcript: final_partial.text,
+            context,
+        };
+        let text = match self.pipeline.process(&request) {
+            Ok(result) => result.text,
+            Err(_) => request.transcript,
+        };
+        let report = self
+            .controller
+            .deliver(&self.inserter, &self.clipboard, &text);
+        self.session_id = None;
+        Ok(report)
+    }
+
+    pub fn cancel(&mut self, session_id: SessionId) -> Result<(), EngineError> {
+        self.require_session(session_id)?;
+        self.stt.cancel(session_id)?;
+        self.controller.invoke(Invocation::Cancel);
+        self.session_id = None;
+        Ok(())
+    }
+
+    fn require_session(&self, session_id: SessionId) -> Result<(), EngineError> {
+        if self.session_id == Some(session_id) {
+            Ok(())
+        } else {
+            Err(EngineError::new(
+                vaani_core::engine::EngineErrorKind::Cancelled,
+                "stale desktop session",
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+    use vaani_core::engine::{FormatResult, SttCapabilities, SttPartial};
+    use vaani_core::personalization::PersonalizationSnapshot;
 
     struct Overlay(Arc<Mutex<Vec<DesktopState>>>);
     impl OverlayPort for Overlay {
@@ -309,6 +445,117 @@ mod tests {
                     "copy denied",
                 ))
             }
+        }
+    }
+
+    struct RuntimeStt {
+        capabilities: SttCapabilities,
+        active: Option<SessionId>,
+    }
+
+    impl RuntimeStt {
+        fn new() -> Self {
+            Self {
+                capabilities: SttCapabilities {
+                    engine_id: "test-stt".into(),
+                    languages: vec!["en".into()],
+                    streaming: true,
+                    n_best: false,
+                },
+                active: None,
+            }
+        }
+
+        fn check(&self, session_id: SessionId) -> Result<(), EngineError> {
+            if self.active == Some(session_id) {
+                Ok(())
+            } else {
+                Err(EngineError::new(
+                    vaani_core::engine::EngineErrorKind::Cancelled,
+                    "stale test session",
+                ))
+            }
+        }
+    }
+
+    impl SttEngine for RuntimeStt {
+        fn capabilities(&self) -> &SttCapabilities {
+            &self.capabilities
+        }
+
+        fn start(&mut self, session_id: SessionId) -> Result<(), EngineError> {
+            self.active = Some(session_id);
+            Ok(())
+        }
+
+        fn feed_audio(
+            &mut self,
+            session_id: SessionId,
+            _samples: &[f32],
+        ) -> Result<Vec<SttPartial>, EngineError> {
+            self.check(session_id)?;
+            Ok(vec![SttPartial {
+                session_id,
+                text: "send my github".into(),
+                revision: 1,
+                is_final: false,
+            }])
+        }
+
+        fn finalize(&mut self, session_id: SessionId) -> Result<SttPartial, EngineError> {
+            self.check(session_id)?;
+            Ok(SttPartial {
+                session_id,
+                text: "send my github".into(),
+                revision: 2,
+                is_final: true,
+            })
+        }
+
+        fn cancel(&mut self, session_id: SessionId) -> Result<(), EngineError> {
+            self.check(session_id)?;
+            self.active = None;
+            Ok(())
+        }
+    }
+
+    struct RuntimeFormatter;
+    impl FormatterEngine for RuntimeFormatter {
+        fn engine_id(&self) -> &str {
+            "test-formatter"
+        }
+
+        fn format(&self, request: &FormatRequest) -> Result<FormatResult, EngineError> {
+            Ok(FormatResult {
+                engine_id: self.engine_id().into(),
+                text: request.transcript.clone(),
+                changed: false,
+            })
+        }
+    }
+
+    struct RuntimePersonalization;
+    impl PersonalizationProvider for RuntimePersonalization {
+        fn snapshot(&self) -> Result<PersonalizationSnapshot, EngineError> {
+            Ok(PersonalizationSnapshot {
+                vocabulary: Vec::new(),
+                snippets: vec![vaani_core::personalization::Snippet {
+                    id: "github".into(),
+                    trigger: "my GitHub".into(),
+                    value: "https://github.com/example/repo".into(),
+                    created_at_ms: 0,
+                    updated_at_ms: 0,
+                }],
+                replacements: Vec::new(),
+            })
+        }
+    }
+
+    struct CapturingInserter(Arc<Mutex<Vec<String>>>);
+    impl DirectInserter for CapturingInserter {
+        fn insert(&self, text: &str) -> Result<InsertOutcome, EngineError> {
+            self.0.lock().unwrap().push(text.to_owned());
+            Ok(InsertOutcome::Inserted)
         }
     }
 
@@ -359,6 +606,39 @@ mod tests {
                 .outcome,
             InsertOutcome::Inserted
         );
+        assert!(events.lock().unwrap().contains(&DesktopState::Delivering));
+    }
+
+    #[test]
+    fn runtime_wires_partial_final_personalization_and_delivery() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let inserted = Arc::new(Mutex::new(Vec::new()));
+        let mut runtime = DesktopRuntime::new(
+            RuntimeStt::new(),
+            RuntimeFormatter,
+            RuntimePersonalization,
+            Overlay(events.clone()),
+            CapturingInserter(inserted.clone()),
+            Clipboard(true),
+        );
+        let session_id = runtime.start().unwrap();
+        runtime.feed_audio(session_id, &[0.0, 0.1], 72).unwrap();
+        let report = runtime
+            .finish(
+                session_id,
+                FormatContext {
+                    application: Some("test-editor".into()),
+                    language: "en".into(),
+                    personalization: PersonalizationSnapshot::default(),
+                },
+            )
+            .unwrap();
+        assert!(report.text_preserved);
+        assert_eq!(
+            inserted.lock().unwrap().as_slice(),
+            &["send https://github.com/example/repo".to_string()]
+        );
+        assert!(events.lock().unwrap().contains(&DesktopState::Listening));
         assert!(events.lock().unwrap().contains(&DesktopState::Delivering));
     }
 

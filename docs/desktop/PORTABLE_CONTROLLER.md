@@ -11,6 +11,12 @@ are adapters. They are not allowed to alter the delivery policy:
 2. If the editor or platform rejects insertion, copy the complete text.
 3. Report `Unavailable` only after the clipboard fallback also fails.
 
+`DesktopRuntime` is the composition boundary used by a shell: it accepts
+in-memory audio chunks, forwards partials to the overlay, finalizes the STT
+session, runs the replaceable formatter plus deterministic personalization
+pipeline, and delivers through the insertion/clipboard policy. Platform shells
+remain responsible for capture, shortcuts, and rendering.
+
 The controller is event-driven. Platform event loops call `invoke`, `preview`,
 `finishing`, and `deliver`; it does not poll windows or spawn per-tick helper
 commands. No transcript is logged or placed in command arguments by the
