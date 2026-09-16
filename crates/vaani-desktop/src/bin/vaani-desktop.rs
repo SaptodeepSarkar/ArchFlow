@@ -92,6 +92,63 @@ fn print_snapshot(snapshot: PersonalizationSnapshot) {
     }
 }
 
+fn command_available(name: &str) -> bool {
+    let Some(path_value) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path_value).any(|directory| {
+        let candidate = directory.join(name);
+        candidate.is_file()
+            || (cfg!(windows)
+                && [".exe", ".cmd", ".bat"]
+                    .iter()
+                    .map(|suffix| directory.join(format!("{name}{suffix}")))
+                    .any(|candidate| candidate.is_file()))
+    })
+}
+
+fn print_doctor() {
+    println!("platform: {}", std::env::consts::OS);
+    println!("local personalization: ready");
+    println!(
+        "secure session store: {}",
+        if cfg!(any(unix, windows)) {
+            "available through platform keyring"
+        } else {
+            "unsupported on this target"
+        }
+    );
+    if cfg!(unix) {
+        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+        let x11 = std::env::var_os("DISPLAY").is_some();
+        println!(
+            "wayland insertion: {}",
+            if wayland && command_available("wl-copy") && command_available("wtype") {
+                "ready"
+            } else if wayland {
+                "needs wl-copy and wtype"
+            } else {
+                "not detected"
+            }
+        );
+        println!(
+            "x11 insertion: {}",
+            if x11 && command_available("xclip") && command_available("xdotool") {
+                "ready"
+            } else if x11 {
+                "needs xclip and xdotool"
+            } else {
+                "not detected"
+            }
+        );
+        println!("audio/STT runtime: delegated to the Vaani daemon");
+    } else if cfg!(windows) {
+        println!("windows shortcut/insertion: User32 companion available");
+        println!("audio/STT runtime: shell integration required");
+    }
+    println!("sync: optional; local mode does not require an account");
+}
+
 fn personalization_menu(
     repository: &PersonalizationRepository,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -212,8 +269,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 account
             );
         }
+        "doctor" => print_doctor(),
         "personalize" => personalization_menu(&repository()?)?,
-        _ => return Err("usage: vaani-desktop [login|sync|sign-out|status|personalize]".into()),
+        _ => {
+            return Err(
+                "usage: vaani-desktop [login|sync|sign-out|status|doctor|personalize]".into(),
+            )
+        }
     }
     Ok(())
 }

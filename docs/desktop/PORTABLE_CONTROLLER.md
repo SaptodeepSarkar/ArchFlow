@@ -63,7 +63,8 @@ The `vaani-desktop` binary is a minimal cross-platform integration entry point:
 `login` reads credentials interactively, `sync` restores the keyring session and
 runs one bounded cycle, `status` reports local counts only, `personalize` opens
 an interactive local control surface for vocabulary, snippets, and replacements,
-and `sign-out` clears the keyring. Personalization values are read from stdin,
+`doctor` reports platform and insertion prerequisites without touching clipboard
+or dictation data, and `sign-out` clears the keyring. Personalization values are read from stdin,
 never command-line arguments, and are available without an account. It reads `VAANI_FIREBASE_PROJECT` and
 `VAANI_FIREBASE_API_KEY` from the environment; passwords and tokens are never
 command-line arguments.
