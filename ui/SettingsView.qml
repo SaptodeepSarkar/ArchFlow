@@ -131,6 +131,55 @@ ColumnLayout {
                 Layout.fillWidth: true
                 color: colors.muted
             }
+            Label {
+                text: "App overrides"
+                font.bold: true
+            }
+            Label {
+                text: "Match a focused app-id substring and choose a safer delivery mode."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                color: colors.muted
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                TextField {
+                    id: overridePattern
+                    Layout.fillWidth: true
+                    placeholderText: "App id, e.g. code or firefox"
+                }
+                ComboBox {
+                    id: overrideMode
+                    model: ["automatic", "review", "copy-only"]
+                }
+                Button {
+                    text: "Save"
+                    onClicked: {
+                        if (overridePattern.text.trim().length > 0) {
+                            settingsRoot.setKey("insertion.app_override", overridePattern.text.trim() + "=" + overrideMode.currentText)
+                            overridePattern.text = ""
+                        }
+                    }
+                }
+            }
+            Repeater {
+                model: settingsRoot.cfg.insertion && settingsRoot.cfg.insertion.app_overrides
+                    ? Object.keys(settingsRoot.cfg.insertion.app_overrides)
+                    : []
+                delegate: RowLayout {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    Label {
+                        text: modelData + " → " + settingsRoot.cfg.insertion.app_overrides[modelData]
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+                    Button {
+                        text: "Remove"
+                        onClicked: settingsRoot.setKey("insertion.app_override", modelData + "=none")
+                    }
+                }
+            }
         }
 
         // ---- Audio ----

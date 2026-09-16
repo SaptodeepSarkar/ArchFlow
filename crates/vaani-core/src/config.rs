@@ -311,6 +311,12 @@ impl Config {
             "automatic" | "review" | "copy-only" => {}
             _ => self.insertion.mode = "automatic".into(),
         }
+        self.insertion.app_overrides.retain(|pattern, mode| {
+            !pattern.trim().is_empty()
+                && pattern.len() <= 128
+                && !pattern.contains(['=', '\r', '\n'])
+                && matches!(mode.as_str(), "automatic" | "review" | "copy-only")
+        });
         match self.cleanup.mode.as_str() {
             "raw" | "clean" | "stream" => {}
             _ => self.cleanup.mode = "raw".into(),
@@ -440,6 +446,31 @@ impl Config {
                 }
                 _ => Err("must be automatic|review|copy-only".into()),
             },
+            "insertion.app_override" => {
+                let (pattern, mode) = v
+                    .split_once('=')
+                    .ok_or("must be app pattern=automatic|review|copy-only|none")?;
+                let pattern = pattern.trim();
+                if pattern.is_empty()
+                    || pattern.len() > 128
+                    || pattern.contains(['=', '\r', '\n'])
+                {
+                    return Err("app pattern must be 1..128 characters without = or newlines".into());
+                }
+                match mode.trim() {
+                    "automatic" | "review" | "copy-only" => {
+                        self.insertion
+                            .app_overrides
+                            .insert(pattern.into(), mode.trim().into());
+                        Ok(format!("{pattern}={}", mode.trim()))
+                    }
+                    "none" => {
+                        self.insertion.app_overrides.remove(pattern);
+                        Ok(format!("{pattern}=none"))
+                    }
+                    _ => Err("must be app pattern=automatic|review|copy-only|none".into()),
+                }
+            }
             "cleanup.mode" => match v {
                 "raw" | "clean" | "stream" => {
                     self.cleanup.mode = v.into();
