@@ -207,7 +207,11 @@ class OnboardingView(
         when (page) {
             0 -> { page = 1; persistPage(); update(animated = true) }
             1 -> if (prefs.getBoolean("microphone_granted", false) || hasMic()) { page = 2; persistPage(); update(animated = true) } else requestMicrophone()
-            2 -> if (keyboardEnabled()) { page = 3; persistPage(); update(animated = true) } else enableKeyboard()
+            2 -> when {
+                !keyboardEnabled() -> enableKeyboard()
+                !keyboardSelected() -> chooseKeyboard()
+                else -> { page = 3; persistPage(); update(animated = true) }
+            }
             3 -> if (prefs.getBoolean("first_dictation_complete", false)) done() else openKeyboardForTest()
         }
     }
@@ -347,6 +351,7 @@ class OnboardingView(
             page == 3 -> "Show Vaani keyboard"
             page == 1 && !mic -> if (microphoneNeedsSettings()) "Open app settings" else "Allow microphone"
             page == 2 && !ime -> "Enable Vaani keyboard"
+            page == 2 && !selected -> "Choose Vaani keyboard"
             else -> context.getString(R.string.onboarding_continue)
         }
         back.visibility = if (page == 0) GONE else VISIBLE
