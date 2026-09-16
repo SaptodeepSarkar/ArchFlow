@@ -17,10 +17,10 @@ This is a source-tree audit of commit `c5957f6` (`v1.0.0 restore typing and reli
 | Linux UI | Quickshell/QML overlay and settings | KEEP for Linux overlay; do not make it the cross-platform UI |
 | Windows | Target-specific User32 global-hotkey adapter foundation; no complete shell/audio/insertion client | BUILD as a separate native shell |
 | Personalization | Portable deterministic rules, bounded Android SQLite store/UI with legacy migration, dependency-free JSONL repository, and desktop repository writes exist; Linux imports/renders persisted records | EXTEND with platform settings UI and migrations |
-| Sync/auth | Local sync records/repository, Firestore rules, and emulator test package now exist; auth/provider wiring remains | EXTEND after local-first data model |
+| Sync/auth | Local sync records/repository, Firestore rules/emulator tests, and Android optional auth/provider bridge exist; production provider enablement and desktop adapters remain | EXTEND after local-first data model |
 | Models | Manifest plus user-local V5/cozy references; no model weights tracked | KEEP policy; formalize package validation |
 | Training | Historical V1–V5/V6 scripts, ignored datasets, checkpoints, and caches | ARCHIVE/document; exclude from active runtime |
-| Tests | 64 Rust tests including one ignored hardware test, 3 portable desktop tests, and 4 Android reducer tests; no native desktop test suite | KEEP coverage; ADD platform and contract tests |
+| Tests | 66 Rust tests including one ignored hardware test, 4 portable desktop tests, and 4 Android reducer tests; no native desktop test suite | KEEP coverage; ADD platform and contract tests |
 
 ## Keep / refactor / replace / archive / delete
 
@@ -66,5 +66,5 @@ No deletion is authorized by this audit alone. Rust compiler warnings identify c
 ## Known verification blockers
 
 - ADB and Android Gradle are now available through the current emulator and writable Gradle cache override; full live speech/insertion is still not verified.
-- `gh auth status`: configured token is invalid.
+- GitHub authentication is available for the current CLI account; production review/merge remains a repository-owner decision.
 - Firebase emulator rules tests pass locally. No production cloud mutation was attempted.

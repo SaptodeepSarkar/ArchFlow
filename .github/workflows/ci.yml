@@ -62,12 +62,12 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: firebase/package.json
+          cache-dependency-path: firebase/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - name: Install rules test dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Run rules against the emulator
         run: npx firebase emulators:exec --project vaani-rules-test --only firestore "npm test"
