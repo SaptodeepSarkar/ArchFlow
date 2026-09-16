@@ -61,6 +61,12 @@ where
         &self.vad
     }
 
+    /// Discard a partial capture and start a fresh VAD session.
+    pub fn reset(&mut self) {
+        self.pending.clear();
+        self.vad.reset();
+    }
+
     fn drain_blocks(&mut self, flush_partial: bool) -> Result<Vec<AudioChunk>, EngineError> {
         let block_size = vaani_core::vad::BLOCK_SAMPLES;
         let mut chunks = Vec::new();
@@ -373,6 +379,80 @@ pub struct DesktopRuntime<S, F, P, O, I, C> {
     clipboard: C,
     session_id: Option<SessionId>,
     audio_samples: usize,
+}
+
+/// Complete capture-to-delivery composition for a desktop shell. The shell
+/// supplies platform capture and invokes only this session boundary; audio
+/// normalization, VAD lifetime, STT, formatting, and safe delivery stay
+/// consistent across Linux and Windows.
+pub struct DesktopSession<S, F, P, O, I, C, V, D> {
+    runtime: DesktopRuntime<S, F, P, O, I, C>,
+    audio: AudioFrontEnd<V, D>,
+}
+
+impl<S, F, P, O, I, C, V, D> DesktopSession<S, F, P, O, I, C, V, D>
+where
+    S: SttEngine,
+    F: FormatterEngine,
+    P: PersonalizationProvider,
+    O: OverlayPort,
+    I: DirectInserter,
+    C: ClipboardPort,
+    V: VadEngine,
+    D: DenoiserEngine,
+{
+    pub fn new(runtime: DesktopRuntime<S, F, P, O, I, C>, audio: AudioFrontEnd<V, D>) -> Self {
+        Self { runtime, audio }
+    }
+
+    pub fn start(&mut self) -> Result<SessionId, EngineError> {
+        self.audio.reset();
+        self.runtime.start()
+    }
+
+    pub fn active_session(&self) -> Option<SessionId> {
+        self.runtime.active_session()
+    }
+
+    pub fn state(&self) -> DesktopState {
+        self.runtime.state()
+    }
+
+    pub fn push_audio(&mut self, samples: &[f32]) -> Result<(), EngineError> {
+        let session_id = self.active_session().ok_or_else(|| {
+            EngineError::new(
+                vaani_core::engine::EngineErrorKind::Cancelled,
+                "no active desktop session",
+            )
+        })?;
+        for chunk in self.audio.push(samples)? {
+            self.runtime.feed_audio_chunk(session_id, chunk)?;
+        }
+        Ok(())
+    }
+
+    pub fn finish(&mut self, context: FormatContext) -> Result<DeliveryReport, EngineError> {
+        let session_id = self.active_session().ok_or_else(|| {
+            EngineError::new(
+                vaani_core::engine::EngineErrorKind::Cancelled,
+                "no active desktop session",
+            )
+        })?;
+        for chunk in self.audio.finish()? {
+            self.runtime.feed_audio_chunk(session_id, chunk)?;
+        }
+        self.runtime.finish(session_id, context)
+    }
+
+    pub fn cancel(&mut self) -> Result<(), EngineError> {
+        let Some(session_id) = self.active_session() else {
+            self.audio.reset();
+            return Ok(());
+        };
+        self.runtime.cancel(session_id)?;
+        self.audio.reset();
+        Ok(())
+    }
 }
 
 impl<S, F, P, O, I, C> DesktopRuntime<S, F, P, O, I, C>
@@ -835,6 +915,41 @@ mod tests {
         );
         assert!(events.lock().unwrap().contains(&DesktopState::Listening));
         assert!(events.lock().unwrap().contains(&DesktopState::Delivering));
+    }
+
+    #[test]
+    fn desktop_session_owns_front_end_lifecycle_and_flushes_tail() {
+        let inserted = Arc::new(Mutex::new(Vec::new()));
+        let runtime = DesktopRuntime::new(
+            RuntimeStt::new(),
+            RuntimeFormatter,
+            RuntimePersonalization,
+            Overlay(Arc::new(Mutex::new(Vec::new()))),
+            CapturingInserter(inserted.clone()),
+            Clipboard(true),
+        );
+        let mut session = DesktopSession::new(
+            runtime,
+            AudioFrontEnd::new(
+                vaani_core::vad::Vad::default(),
+                vaani_core::engine::NoopDenoiser,
+            ),
+        );
+        session.start().unwrap();
+        session.push_audio(&[0.2_f32; 100]).unwrap();
+        let report = session
+            .finish(FormatContext {
+                application: None,
+                language: "en".into(),
+                personalization: PersonalizationSnapshot::default(),
+            })
+            .unwrap();
+        assert!(report.text_preserved);
+        assert_eq!(session.active_session(), None);
+        assert_eq!(
+            inserted.lock().unwrap().as_slice(),
+            &["send https://github.com/example/repo".to_string()]
+        );
     }
 
     #[test]
