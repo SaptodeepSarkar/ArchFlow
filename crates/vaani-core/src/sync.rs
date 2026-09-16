@@ -199,6 +199,34 @@ pub struct SyncCoordinator<S, P> {
     cursor: Mutex<Option<String>>,
 }
 
+/// Execute one bounded push/pull cycle against caller-owned components.
+/// Platform shells can use this without moving their local repository into a
+/// coordinator, while retaining identical outbox and merge semantics.
+pub fn run_sync_cycle<S: SyncStorage, P: SyncProvider>(
+    storage: &S,
+    provider: &P,
+    cursor: &mut Option<String>,
+) -> Result<SyncCycle, EngineError> {
+    let mut cycle = SyncCycle::default();
+    let pending = storage.pending_sync()?;
+    if !pending.is_empty() {
+        if provider.push(&pending).is_err() {
+            cycle.failed = true;
+            return Ok(cycle);
+        }
+        storage.acknowledge_sync(&pending)?;
+        cycle.pushed = pending.len();
+    }
+    let (remote, next_cursor) = provider.pull(cursor.as_deref())?;
+    for record in remote {
+        storage.merge_remote(record)?;
+        cycle.pulled += 1;
+    }
+    *cursor = next_cursor.clone();
+    cycle.cursor = next_cursor;
+    Ok(cycle)
+}
+
 impl<S: SyncStorage, P: SyncProvider> SyncCoordinator<S, P> {
     pub fn new(storage: S, provider: P) -> Self {
         Self {
@@ -209,31 +237,16 @@ impl<S: SyncStorage, P: SyncProvider> SyncCoordinator<S, P> {
     }
 
     pub fn run_once(&self) -> Result<SyncCycle, EngineError> {
-        let mut cycle = SyncCycle::default();
-        let pending = self.storage.pending_sync()?;
-        if !pending.is_empty() {
-            if self.provider.push(&pending).is_err() {
-                cycle.failed = true;
-                return Ok(cycle);
-            }
-            self.storage.acknowledge_sync(&pending)?;
-            cycle.pushed = pending.len();
-        }
-        let cursor = self
+        let mut cursor = self
             .cursor
             .lock()
             .map_err(|_| storage_error("sync cursor lock poisoned"))?
             .clone();
-        let (remote, next_cursor) = self.provider.pull(cursor.as_deref())?;
-        for record in remote {
-            self.storage.merge_remote(record)?;
-            cycle.pulled += 1;
-        }
+        let cycle = run_sync_cycle(&self.storage, &self.provider, &mut cursor)?;
         *self
             .cursor
             .lock()
-            .map_err(|_| storage_error("sync cursor lock poisoned"))? = next_cursor.clone();
-        cycle.cursor = next_cursor;
+            .map_err(|_| storage_error("sync cursor lock poisoned"))? = cursor;
         Ok(cycle)
     }
 }

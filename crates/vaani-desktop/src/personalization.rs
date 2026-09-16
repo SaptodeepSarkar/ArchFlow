@@ -12,7 +12,8 @@ use vaani_core::personalization::{
     render, PersonalizationSnapshot, Replacement, Snippet, VocabularyEntry,
 };
 use vaani_core::sync::{
-    JsonlStorage, PersonalizationRecord, StorageProvider, SyncEntityKind, SyncRecord,
+    run_sync_cycle, JsonlStorage, PersonalizationRecord, StorageProvider, SyncCycle, SyncEntityKind,
+    SyncProvider, SyncRecord,
 };
 
 pub struct PersonalizationRepository {
@@ -35,6 +36,16 @@ impl PersonalizationRepository {
 
     pub fn render(&self, text: &str) -> Result<String, EngineError> {
         Ok(render(text, &self.snapshot()?))
+    }
+
+    /// Run one bounded provider cycle while keeping the local repository owned
+    /// by the desktop shell. Dictation remains independent of this operation.
+    pub fn sync_once<P: SyncProvider>(
+        &self,
+        provider: &P,
+        cursor: &mut Option<String>,
+    ) -> Result<SyncCycle, EngineError> {
+        run_sync_cycle(&self.storage, provider, cursor)
     }
 
     pub fn add_vocabulary(
@@ -135,6 +146,7 @@ fn now_ms() -> Result<i64, EngineError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     #[test]
     fn desktop_repository_renders_and_persists_rules() {
@@ -174,6 +186,67 @@ mod tests {
             .render("hyper land")
             .unwrap()
             .contains("hyper land"));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("outbox.jsonl"));
+    }
+
+    struct MockProvider {
+        pushed: Mutex<Vec<PersonalizationRecord>>,
+        remote: Mutex<Vec<PersonalizationRecord>>,
+    }
+
+    impl SyncProvider for MockProvider {
+        fn push(&self, records: &[PersonalizationRecord]) -> Result<(), EngineError> {
+            self.pushed.lock().unwrap().extend_from_slice(records);
+            Ok(())
+        }
+
+        fn pull(
+            &self,
+            _cursor: Option<&str>,
+        ) -> Result<(Vec<PersonalizationRecord>, Option<String>), EngineError> {
+            Ok((self.remote.lock().unwrap().drain(..).collect(), Some("cursor-1".into())))
+        }
+    }
+
+    #[test]
+    fn desktop_repository_runs_provider_cycle_without_gating_local_rendering() {
+        let path = std::env::temp_dir().join(format!(
+            "vaani-desktop-sync-{}.jsonl",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("outbox.jsonl"));
+        let repository = PersonalizationRepository::open(&path, "desktop-sync-test").unwrap();
+        repository.add_snippet("my GitHub", "https://github.com/example/repo").unwrap();
+        let remote_id = "remote-vocabulary".to_string();
+        let remote = SyncRecord::live(
+            SyncEntityKind::Vocabulary,
+            remote_id,
+            1,
+            2,
+            "android-device".into(),
+            10,
+            VocabularyEntry {
+                id: "remote-vocabulary".into(),
+                canonical: "Hyprland".into(),
+                spoken_aliases: vec!["hyper land".into()],
+                category: Some("technical".into()),
+                created_at_ms: 10,
+                updated_at_ms: 10,
+            },
+        );
+        let provider = MockProvider {
+            pushed: Mutex::new(Vec::new()),
+            remote: Mutex::new(vec![PersonalizationRecord::Vocabulary(remote)]),
+        };
+        let mut cursor = None;
+        let cycle = repository.sync_once(&provider, &mut cursor).unwrap();
+        assert_eq!(cycle.pushed, 1);
+        assert_eq!(cycle.pulled, 1);
+        assert_eq!(cursor.as_deref(), Some("cursor-1"));
+        assert_eq!(repository.render("my github is hyper land").unwrap(), "https://github.com/example/repo is Hyprland");
+        assert_eq!(provider.pushed.lock().unwrap().len(), 1);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("outbox.jsonl"));
     }
