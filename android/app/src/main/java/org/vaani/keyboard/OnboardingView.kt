@@ -3,6 +3,7 @@ package org.vaani.keyboard
 import android.Manifest
 import android.content.Context
 import android.content.SharedPreferences
+import android.provider.Settings
 import android.animation.ValueAnimator
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -152,7 +153,7 @@ class OnboardingView(
 
     /** Reopens the focused rehearsal field after the IME picker dismisses. */
     fun showRehearsalKeyboardIfReady() {
-        if (page != 3 || !keyboardEnabled() || prefs.getBoolean("first_dictation_complete", false)) return
+        if (page != 3 || !keyboardSelected() || prefs.getBoolean("first_dictation_complete", false)) return
         val field = testField ?: return
         field.requestFocus()
         field.postDelayed({
@@ -220,6 +221,11 @@ class OnboardingView(
         }
     }
 
+    private fun keyboardSelected(): Boolean = Settings.Secure.getString(
+        context.contentResolver,
+        Settings.Secure.DEFAULT_INPUT_METHOD,
+    ) == android.content.ComponentName(context, VaaniKeyboardService::class.java).flattenToShortString()
+
     private fun update(animated: Boolean = false) {
         if (animated && isLaidOut && ValueAnimator.areAnimatorsEnabled()) {
             val animatedViews = listOf(title, body, visualHost)
@@ -243,6 +249,7 @@ class OnboardingView(
     private fun renderContent() {
         val mic = hasMic()
         val ime = keyboardEnabled()
+        val selected = keyboardSelected()
         val tested = prefs.getBoolean("first_dictation_complete", false)
         progress.text = context.getString(R.string.onboarding_progress, page + 1)
         for (index in 0 until progressTrack.childCount) {
@@ -318,18 +325,19 @@ class OnboardingView(
                 visualHost.addView(field, LayoutParams(-1, ui.dp(64)))
                 testAction = ui.secondaryButton(when {
                     tested -> "Test complete"
-                    ime -> "Show Vaani keyboard"
+                    selected -> "Show Vaani keyboard"
                     else -> "Choose Vaani keyboard"
                 }) {
                     if (!prefs.getBoolean("first_dictation_complete", false)) openKeyboardForTest()
                 }
                 visualHost.addView(testAction, LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(8) })
-                if (ime && !tested) post { showRehearsalKeyboardIfReady() }
+                if (selected && !tested) post { showRehearsalKeyboardIfReady() }
             }
         }
         next.text = when {
             page == 3 && tested -> context.getString(R.string.onboarding_finish)
-            page == 3 && !ime -> "Choose Vaani keyboard"
+            page == 3 && !ime -> "Enable Vaani keyboard"
+            page == 3 && !selected -> "Choose Vaani keyboard"
             page == 3 -> "Show Vaani keyboard"
             page == 1 && !mic -> "Allow microphone"
             page == 2 && !ime -> "Enable Vaani keyboard"
@@ -341,14 +349,16 @@ class OnboardingView(
     private fun updateTestCompletion() {
         val tested = prefs.getBoolean("first_dictation_complete", false)
         val ime = keyboardEnabled()
+        val selected = keyboardSelected()
         testAction?.text = when {
             tested -> "Test complete"
-            ime -> "Show Vaani keyboard"
+            selected -> "Show Vaani keyboard"
             else -> "Choose Vaani keyboard"
         }
         next.text = when {
             tested -> context.getString(R.string.onboarding_finish)
-            ime -> "Show Vaani keyboard"
+            !ime -> "Enable Vaani keyboard"
+            selected -> "Show Vaani keyboard"
             else -> "Choose Vaani keyboard"
         }
         if (tested) {
@@ -359,11 +369,16 @@ class OnboardingView(
 
     private fun openKeyboardForTest() {
         val field = testField ?: return
-        if (keyboardEnabled()) {
+        if (keyboardSelected()) {
             showRehearsalKeyboardIfReady()
-        } else {
+        } else if (keyboardEnabled()) {
             field.requestFocus()
             field.postDelayed(chooseKeyboard, 180)
+        } else {
+            // If the service is not enabled yet, send the user to Android's
+            // input-method settings before attempting the picker.
+            field.requestFocus()
+            field.postDelayed(enableKeyboard, 180)
         }
     }
 }

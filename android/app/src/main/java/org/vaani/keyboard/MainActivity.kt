@@ -79,9 +79,14 @@ class MainActivity : Activity() {
         return imm.enabledInputMethodList.any { it.packageName == packageName && it.serviceName == VaaniKeyboardService::class.java.name }
     }
 
+    private fun keyboardSelected(): Boolean = Settings.Secure.getString(
+        contentResolver,
+        Settings.Secure.DEFAULT_INPUT_METHOD,
+    ) == android.content.ComponentName(this, VaaniKeyboardService::class.java).flattenToShortString()
+
     private fun recognizerAvailable() = android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
 
-    private fun readiness() = AppReadiness(recognizerAvailable(), checkMic(), keyboardEnabled(), prefs.getBoolean("first_dictation_complete", false))
+    private fun readiness() = AppReadiness(recognizerAvailable(), checkMic(), keyboardEnabled() && keyboardSelected(), prefs.getBoolean("first_dictation_complete", false))
 
     private fun render() {
         configureWindow(window)
@@ -187,7 +192,11 @@ class MainActivity : Activity() {
         root.addView(ui.sectionTitle("Quick status"))
         root.addView(statusRow(ui, "Speech service", if (ready.recognizerAvailable) "Available on this device" else "Unavailable"))
         root.addView(statusRow(ui, "Microphone", if (ready.microphoneGranted) "Allowed" else "Needs access"))
-        root.addView(statusRow(ui, "Vaani keyboard", if (ready.keyboardEnabled) "Enabled" else "Not enabled"))
+        root.addView(statusRow(ui, "Vaani keyboard", when {
+            keyboardSelected() -> "Selected"
+            keyboardEnabled() -> "Enabled; choose it"
+            else -> "Not enabled"
+        }))
         root.addView(ui.sectionTitle("Privacy"))
         root.addView(ui.label("Audio is used by the device speech recognizer during an active dictation and is not stored by this app. Network access is used only for optional account sync.", 14f, ui.palette.muted))
         return root
