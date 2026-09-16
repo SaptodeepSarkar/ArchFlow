@@ -8,10 +8,12 @@
 
 use vaani_core::engine::{EngineError, InsertOutcome};
 
+pub mod credentials;
 pub mod firebase;
 pub mod personalization;
 #[cfg(any(unix, windows))]
 pub mod platform;
+pub use credentials::SecureSessionStore;
 pub use firebase::{
     FirebaseEmailAuth, FirebaseRestProvider, FirebaseSession, FirebaseTokenProvider,
 };
@@ -69,6 +71,31 @@ impl DesktopSyncClient {
     pub fn sign_out(&mut self) {
         self.session = None;
         self.cursor = None;
+    }
+
+    pub fn persist_session(&self, store: &SecureSessionStore) -> Result<(), EngineError> {
+        self.session
+            .as_ref()
+            .ok_or_else(|| {
+                EngineError::new(
+                    vaani_core::engine::EngineErrorKind::Unavailable,
+                    "not signed in",
+                )
+            })
+            .and_then(|session| store.save(session))
+    }
+
+    pub fn restore_session(&mut self, store: &SecureSessionStore) -> Result<bool, EngineError> {
+        let Some(session) = store.load()? else {
+            return Ok(false);
+        };
+        self.session = Some(session);
+        self.cursor = None;
+        Ok(true)
+    }
+
+    pub fn clear_persisted_session(&self, store: &SecureSessionStore) -> Result<(), EngineError> {
+        store.clear()
     }
 
     pub fn email(&self) -> Option<&str> {

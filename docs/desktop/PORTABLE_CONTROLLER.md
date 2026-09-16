@@ -36,3 +36,8 @@ binding and settings UX wired in.
 repository, accepts optional email/password sign-in through `FirebaseEmailAuth`,
 and runs one bounded sync cycle only when a session exists. Local rendering and
 dictation do not depend on this client being signed in.
+
+`SecureSessionStore` stores the refreshable session in the platform credential
+store through keyring (Secret Service on Linux, Windows Credential Manager on
+Windows). The shared crate never writes refresh tokens to config, JSONL, or
+logs; a shell must explicitly opt into saving and restoring a session.

@@ -4,6 +4,7 @@
 //! credentials. Linux and Windows shells can bind that trait to their secure
 //! credential stores, while this crate remains usable in local-only mode.
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -43,6 +44,13 @@ struct SessionTokens {
     id_token: String,
     refresh_token: String,
     expires_at: Instant,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct PersistedFirebaseSession {
+    pub(crate) uid: String,
+    pub(crate) email: String,
+    pub(crate) refresh_token: String,
 }
 
 impl FirebaseEmailAuth {
@@ -147,6 +155,33 @@ impl FirebaseEmailAuth {
 impl FirebaseSession {
     pub fn email(&self) -> &str {
         &self.email
+    }
+
+    pub(crate) fn persisted(&self) -> Result<PersistedFirebaseSession, EngineError> {
+        let tokens = self
+            .tokens
+            .lock()
+            .map_err(|_| network_error("Firebase session lock was poisoned"))?;
+        Ok(PersistedFirebaseSession {
+            uid: self.uid.clone(),
+            email: self.email.clone(),
+            refresh_token: tokens.refresh_token.clone(),
+        })
+    }
+
+    pub(crate) fn from_persisted(api_key: String, persisted: PersistedFirebaseSession) -> Self {
+        Self {
+            uid: persisted.uid,
+            email: persisted.email,
+            api_key,
+            secure_token_base: SECURE_TOKEN_BASE.into(),
+            agent: ureq::Agent::new_with_defaults(),
+            tokens: Mutex::new(SessionTokens {
+                id_token: String::new(),
+                refresh_token: persisted.refresh_token,
+                expires_at: Instant::now(),
+            }),
+        }
     }
 
     fn refresh_token(&self, tokens: &mut SessionTokens) -> Result<(), EngineError> {

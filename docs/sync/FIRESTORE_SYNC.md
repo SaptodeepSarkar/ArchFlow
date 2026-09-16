@@ -46,5 +46,6 @@ and a desktop Firestore REST provider plus email/password Auth client are
 source-implemented. Desktop tokens remain memory-only in the shared client; the
 desktop provider accepts an injected Firebase ID-token supplier so Linux and
 Windows can bind it to OS-secure credential storage. `DesktopSyncClient` provides
-the local-first sign-in/sync lifecycle, while desktop sign-in UX and secure token
-binding still require environment-specific setup.
+the local-first sign-in/sync lifecycle, and `SecureSessionStore` implements the
+platform keyring binding. Desktop sign-in UI and runtime keyring availability
+checks still require environment-specific shell work.

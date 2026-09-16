@@ -14,3 +14,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 ureq = { version = "3.4.2", default-features = false, features = ["json", "native-tls"] }
+keyring = "4.2.0"
