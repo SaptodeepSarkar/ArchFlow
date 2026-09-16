@@ -32,6 +32,11 @@ class DictationControllerTest {
     }
 
     @Test
+    fun microphoneRecoveryIntentTargetsThisAppSettings() {
+        assertEquals("package:org.vaani.keyboard", MicrophonePermissionPolicy.appSettingsPackageUri("org.vaani.keyboard"))
+    }
+
+    @Test
     fun staleResultCannotMutateNewSession() {
         val controller = DictationController()
         val old = controller.start()!!

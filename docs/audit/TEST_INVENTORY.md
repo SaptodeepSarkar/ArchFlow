@@ -10,11 +10,11 @@ Coverage includes state transitions, protocol limits, reconciliation, VAD/audio-
 
 ## Android coverage added in this slice
 
-Added pure reducer and input-policy tests in `android/app/src/test/.../DictationControllerTest.kt` covering stale callbacks, endpointing/finalization, insertion-failure text retention, retry token freshness, password-field blocking, permanent-denial routing, and editor-action labels. Gradle 8.9 executed all 7 tests successfully on 2026-09-16.
+Added pure reducer and input-policy tests in `android/app/src/test/.../DictationControllerTest.kt` covering stale callbacks, endpointing/finalization, insertion-failure text retention, retry token freshness, password-field blocking, permanent-denial routing, microphone recovery targeting, and editor-action labels. Gradle 8.9 executed all 8 tests successfully on 2026-09-16.
 
 ## Android runtime verification
 
-Gradle unit tests executed all 7 Android policy/reducer tests successfully on 2026-09-16. Connected instrumentation executed all 6 Android tests successfully on `emulator-5554` on 2026-09-16, including legacy-preferences migration into SQLite, top-level Home/Personalize/Settings navigation, and the final onboarding recovery path. Manual ADB smoke testing also confirmed the installed APK reaches onboarding, the Vaani IME can be enabled and selected, and the rehearsal field displays the Vaani keyboard even when the emulator advertises a hardware keyboard.
+Gradle unit tests executed all 8 Android policy/reducer tests successfully on 2026-09-16. Connected instrumentation executed all 6 Android tests successfully on `emulator-5554` on 2026-09-16, including legacy-preferences migration into SQLite, top-level Home/Personalize/Settings navigation, and the final onboarding recovery path. Manual ADB smoke testing also confirmed the installed APK reaches onboarding, the Vaani IME can be enabled and selected, and the rehearsal field displays the Vaani keyboard even when the emulator advertises a hardware keyboard.
 
 ## Missing coverage
 

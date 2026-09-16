@@ -559,7 +559,7 @@ class VaaniKeyboardService : InputMethodService() {
     private fun openMicrophoneSettings() {
         startActivity(
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                .setData(Uri.parse("package:$packageName"))
+                .setData(Uri.parse(MicrophonePermissionPolicy.appSettingsPackageUri(packageName)))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
