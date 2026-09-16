@@ -31,3 +31,8 @@ be connected.
 an injected ID-token provider; it never owns credentials or participates in the
 dictation path. Linux and Windows shells still need their platform-secure auth
 binding and settings UX wired in.
+
+`DesktopSyncClient` is the lifecycle bridge for a shell: it owns the local
+repository, accepts optional email/password sign-in through `FirebaseEmailAuth`,
+and runs one bounded sync cycle only when a session exists. Local rendering and
+dictation do not depend on this client being signed in.

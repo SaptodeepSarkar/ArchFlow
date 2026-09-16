@@ -204,6 +204,16 @@ impl FirebaseTokenProvider for FirebaseSession {
     }
 }
 
+impl FirebaseTokenProvider for &FirebaseSession {
+    fn user_id(&self) -> &str {
+        (*self).user_id()
+    }
+
+    fn id_token(&self) -> Result<String, EngineError> {
+        (*self).id_token()
+    }
+}
+
 pub struct FirebaseRestProvider<T> {
     project_id: String,
     database_id: String,
