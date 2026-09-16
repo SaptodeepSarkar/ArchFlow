@@ -26,3 +26,8 @@ canonicalization/rendering rules. Windows accessibility, tray, clipboard, and
 editor insertion are now represented by a User32 clipboard-plus-paste adapter;
 the complete Windows shell/tray and focused-editor integration still need to
 be connected.
+
+`FirebaseRestProvider` can push and pull those records through Firestore using
+an injected ID-token provider; it never owns credentials or participates in the
+dictation path. Linux and Windows shells still need their platform-secure auth
+binding and settings UX wired in.

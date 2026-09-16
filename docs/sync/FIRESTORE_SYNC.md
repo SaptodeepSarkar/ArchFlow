@@ -41,7 +41,8 @@ firebase deploy --only firestore:rules,firestore:indexes
 ```
 
 Deployment is intentionally not attempted by the repository build. The core
-`SyncProvider` contract, local JSONL implementation, Android auth client, and
-Android personalization provider are source-implemented; production Auth
-provider configuration and Linux/Windows provider adapters still require
-environment-specific setup.
+`SyncProvider` contract, local JSONL implementation, Android auth client/provider,
+and a desktop Firestore REST provider are source-implemented. The desktop
+provider accepts an injected Firebase ID-token supplier so Linux and Windows
+can bind it to OS-secure credential storage; desktop sign-in UX and that secure
+binding still require environment-specific setup.
