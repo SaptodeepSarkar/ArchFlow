@@ -5,8 +5,16 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import android.text.InputType
+import android.view.inputmethod.EditorInfo
 
 class DictationControllerTest {
+    @Test
+    fun editorActionLabelsFollowFocusedField() {
+        assertEquals("Search", EditorActionPolicy.label(EditorInfo.IME_ACTION_SEARCH))
+        assertEquals("Done", EditorActionPolicy.label(EditorInfo.IME_ACTION_DONE))
+        assertEquals("Enter", EditorActionPolicy.label(EditorInfo.IME_ACTION_NONE))
+    }
+
     @Test
     fun passwordFieldsAreNeverDictatedInto() {
         assertTrue(InputFieldSafety.isPassword(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD))

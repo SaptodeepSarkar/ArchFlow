@@ -10,12 +10,14 @@ import android.graphics.Paint
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
@@ -241,13 +243,23 @@ class VaaniKeyboardService : InputMethodService() {
         } else {
             controlKey(row, if (symbols) "ABC" else "?123", 1.25f) { symbols = !symbols; showKeys() }
             key(row, ",") { commit(",") }
-            val space = key(row, "Space", 4f) { commit(" ") }
+            val space = key(row, "Space", 3.5f) { commit(" ") }
             enableCursorScrub(space)
             key(row, ".") { commit(".") }
+            if (symbols) {
+                val backspace = controlKey(row, "⌫", 1.1f) { delete() }
+                enableRepeatDelete(backspace)
+            }
+            controlKey(row, "↵", 1.1f) { editorAction() }.apply {
+                contentDescription = editorActionDescription()
+            }
         }
         if (numberField) {
             val backspace = controlKey(row, "⌫", 1.2f) { delete() }
             enableRepeatDelete(backspace)
+            controlKey(row, "↵", 1.1f) { editorAction() }.apply {
+                contentDescription = editorActionDescription()
+            }
         } else key(row, "⌨") { (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showInputMethodPicker() }
         val send = sendKey(row, "", 1.25f) { normalSend() }.apply {
             setCompoundDrawablesWithIntrinsicBounds(0, R.drawable.ic_send, 0, 0)
@@ -312,6 +324,19 @@ class VaaniKeyboardService : InputMethodService() {
         val ic = currentInputConnection
         if (!ic?.getSelectedText(0).isNullOrEmpty()) ic?.commitText("", 1) else ic?.deleteSurroundingTextInCodePoints(1, 0)
         showSuggestions()
+    }
+
+    private fun editorActionDescription(): String = EditorActionPolicy.label(currentInputEditorInfo?.imeOptions ?: 0)
+
+    private fun editorAction() {
+        val connection = currentInputConnection ?: return
+        val action = currentInputEditorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION) ?: EditorInfo.IME_ACTION_NONE
+        if (action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED) {
+            if (connection.performEditorAction(action)) return
+        }
+        val now = SystemClock.uptimeMillis()
+        connection.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, 0))
+        connection.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0, 0))
     }
 
     private fun enableRepeatDelete(button: Button) {
