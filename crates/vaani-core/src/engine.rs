@@ -141,3 +141,99 @@ pub trait MetricsProvider: Send + Sync {
     fn record_latency(&self, stage: &str, milliseconds: u64);
     fn record_error(&self, stage: &str, kind: EngineErrorKind);
 }
+
+/// Portable text composition boundary. A formatter may be replaced without
+/// changing deterministic personalization or any platform insertion adapter.
+/// The formatter receives the original request; vocabulary, snippets, and
+/// replacements are applied only after its output has passed successfully.
+pub struct TextPipeline<F, P> {
+    formatter: F,
+    personalization: P,
+}
+
+impl<F, P> TextPipeline<F, P>
+where
+    F: FormatterEngine,
+    P: PersonalizationProvider,
+{
+    pub fn new(formatter: F, personalization: P) -> Self {
+        Self {
+            formatter,
+            personalization,
+        }
+    }
+
+    pub fn process(&self, request: &FormatRequest) -> Result<FormatResult, EngineError> {
+        let mut result = self.formatter.format(request)?;
+        let snapshot = self.personalization.snapshot()?;
+        let rendered = crate::personalization::render(&result.text, &snapshot);
+        result.changed |= rendered != result.text;
+        result.text = rendered;
+        Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Formatter;
+    impl FormatterEngine for Formatter {
+        fn engine_id(&self) -> &str {
+            "test-formatter"
+        }
+
+        fn format(&self, request: &FormatRequest) -> Result<FormatResult, EngineError> {
+            Ok(FormatResult {
+                engine_id: self.engine_id().into(),
+                text: request.transcript.to_string(),
+                changed: false,
+            })
+        }
+    }
+
+    struct Personalization;
+    impl PersonalizationProvider for Personalization {
+        fn snapshot(&self) -> Result<PersonalizationSnapshot, EngineError> {
+            Ok(PersonalizationSnapshot {
+                vocabulary: vec![crate::personalization::VocabularyEntry {
+                    id: "vocab".into(),
+                    canonical: "Hyprland".into(),
+                    spoken_aliases: vec!["hyper land".into()],
+                    category: None,
+                    created_at_ms: 0,
+                    updated_at_ms: 0,
+                }],
+                snippets: vec![crate::personalization::Snippet {
+                    id: "snippet".into(),
+                    trigger: "my GitHub".into(),
+                    value: "https://github.com/example/repo".into(),
+                    created_at_ms: 0,
+                    updated_at_ms: 0,
+                }],
+                replacements: Vec::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn formatter_output_flows_through_deterministic_personalization() {
+        let pipeline = TextPipeline::new(Formatter, Personalization);
+        let request = FormatRequest {
+            session_id: SessionId::new_v4(),
+            transcript: "send my github to hyper land".into(),
+            context: FormatContext {
+                application: None,
+                language: "en".into(),
+                personalization: PersonalizationSnapshot::default(),
+            },
+        };
+        let result = pipeline.process(&request).unwrap();
+        assert_eq!(result.engine_id, "test-formatter");
+        assert_eq!(
+            result.text,
+            "send https://github.com/example/repo to Hyprland"
+        );
+        assert!(result.changed);
+    }
+}
