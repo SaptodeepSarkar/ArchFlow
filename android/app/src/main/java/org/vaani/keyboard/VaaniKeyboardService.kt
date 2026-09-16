@@ -4,13 +4,16 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.inputmethodservice.InputMethodService
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.text.InputType
 import android.text.SpannableString
 import android.text.Spanned
@@ -196,7 +199,7 @@ class VaaniKeyboardService : InputMethodService() {
         }
     }
 
-    private fun showKeys(message: String? = null) {
+    private fun showKeys(message: String? = null, recoveryAction: (() -> Unit)? = null) {
         dictationController.hide()
         transition(DictationState.Hidden, message)
         root.removeAllViews()
@@ -205,6 +208,12 @@ class VaaniKeyboardService : InputMethodService() {
             setPadding(ui.dp(10), 0, ui.dp(10), 0)
         }
         root.addView(status, LinearLayout.LayoutParams(-1, ui.dp(28)))
+        recoveryAction?.let { action ->
+            root.addView(
+                ui.secondaryButton("Open microphone settings", action),
+                LinearLayout.LayoutParams(-1, ui.dp(46)).apply { bottomMargin = ui.dp(4) },
+            )
+        }
         suggestionBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         root.addView(suggestionBar, LinearLayout.LayoutParams(-1, 0))
         wave = Wave(this).apply { visibility = View.GONE; contentDescription = "Live microphone level" }
@@ -462,7 +471,7 @@ class VaaniKeyboardService : InputMethodService() {
             showKeys(getString(R.string.status_password)); return
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            showKeys(getString(R.string.status_permission_off)); return
+            showKeys(getString(R.string.status_permission_off), ::openMicrophoneSettings); return
         }
         val token = dictationController.start() ?: return
         transition(dictationController.state)
@@ -545,6 +554,14 @@ class VaaniKeyboardService : InputMethodService() {
     private fun normalSend() {
         val action = (currentInputEditorInfo?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
         if (action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED) currentInputConnection?.performEditorAction(action) else currentInputConnection?.commitText("\n", 1)
+    }
+
+    private fun openMicrophoneSettings() {
+        startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.parse("package:$packageName"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
     }
 
     private fun cancelVoice() {
