@@ -5,15 +5,203 @@
 //! credential stores, while this crate remains usable in local-only mode.
 
 use serde_json::{json, Map, Value};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use vaani_core::engine::{EngineError, EngineErrorKind};
 use vaani_core::sync::{PersonalizationRecord, SyncEntityKind, SyncProvider, SyncRecord};
 
 const FIRESTORE_BASE: &str = "https://firestore.googleapis.com";
+const AUTH_BASE: &str = "https://identitytoolkit.googleapis.com/v1";
+const SECURE_TOKEN_BASE: &str = "https://securetoken.googleapis.com/v1";
 const MAX_PULL_RECORDS: usize = 2_000;
 
 pub trait FirebaseTokenProvider: Send + Sync {
     fn user_id(&self) -> &str;
     fn id_token(&self) -> Result<String, EngineError>;
+}
+
+/// Email/password Firebase Auth client for desktop shells. Credentials are
+/// sent only over HTTPS; returned tokens remain in the session object and are
+/// not written to disk by this crate.
+pub struct FirebaseEmailAuth {
+    api_key: String,
+    auth_base: String,
+    secure_token_base: String,
+    agent: ureq::Agent,
+}
+
+pub struct FirebaseSession {
+    uid: String,
+    email: String,
+    api_key: String,
+    secure_token_base: String,
+    agent: ureq::Agent,
+    tokens: Mutex<SessionTokens>,
+}
+
+struct SessionTokens {
+    id_token: String,
+    refresh_token: String,
+    expires_at: Instant,
+}
+
+impl FirebaseEmailAuth {
+    pub fn new(api_key: impl Into<String>) -> Self {
+        Self {
+            api_key: api_key.into(),
+            auth_base: AUTH_BASE.into(),
+            secure_token_base: SECURE_TOKEN_BASE.into(),
+            agent: ureq::Agent::new_with_defaults(),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_auth_base(mut self, base: impl Into<String>) -> Self {
+        self.auth_base = base.into();
+        self
+    }
+
+    pub fn sign_in(&self, email: &str, password: &str) -> Result<FirebaseSession, EngineError> {
+        self.account_request("signInWithPassword", email, password)
+    }
+
+    pub fn create_account(
+        &self,
+        email: &str,
+        password: &str,
+    ) -> Result<FirebaseSession, EngineError> {
+        self.account_request("signUp", email, password)
+    }
+
+    fn account_request(
+        &self,
+        action: &str,
+        email: &str,
+        password: &str,
+    ) -> Result<FirebaseSession, EngineError> {
+        if email.trim().is_empty() || password.is_empty() {
+            return Err(EngineError::new(
+                EngineErrorKind::InvalidInput,
+                "email and password are required",
+            ));
+        }
+        let url = format!(
+            "{}/accounts:{}?key={}",
+            self.auth_base.trim_end_matches('/'),
+            action,
+            self.api_key
+        );
+        let mut response = self
+            .agent
+            .post(url)
+            .send_json(json!({
+                "email": email.trim(),
+                "password": password,
+                "returnSecureToken": true,
+            }))
+            .map_err(|_| network_error("Firebase authentication request failed"))?;
+        let body: Value = response
+            .body_mut()
+            .read_json()
+            .map_err(|_| network_error("Firebase authentication response was invalid"))?;
+        self.session_from_response(&body)
+    }
+
+    fn session_from_response(&self, body: &Value) -> Result<FirebaseSession, EngineError> {
+        let uid = body
+            .get("localId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| network_error("Firebase authentication omitted user ID"))?;
+        let email = body
+            .get("email")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let id_token = body
+            .get("idToken")
+            .and_then(Value::as_str)
+            .ok_or_else(|| network_error("Firebase authentication omitted ID token"))?;
+        let refresh_token = body
+            .get("refreshToken")
+            .and_then(Value::as_str)
+            .ok_or_else(|| network_error("Firebase authentication omitted refresh token"))?;
+        let expires_in = body
+            .get("expiresIn")
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(3_600);
+        Ok(FirebaseSession {
+            uid: uid.into(),
+            email: email.into(),
+            api_key: self.api_key.clone(),
+            secure_token_base: self.secure_token_base.clone(),
+            agent: ureq::Agent::new_with_defaults(),
+            tokens: Mutex::new(SessionTokens {
+                id_token: id_token.into(),
+                refresh_token: refresh_token.into(),
+                expires_at: Instant::now() + Duration::from_secs(expires_in),
+            }),
+        })
+    }
+}
+
+impl FirebaseSession {
+    pub fn email(&self) -> &str {
+        &self.email
+    }
+
+    fn refresh_token(&self, tokens: &mut SessionTokens) -> Result<(), EngineError> {
+        let url = format!(
+            "{}/token?key={}",
+            self.secure_token_base.trim_end_matches('/'),
+            self.api_key
+        );
+        let mut response = self
+            .agent
+            .post(url)
+            .send_form([
+                ("grant_type", "refresh_token"),
+                ("refresh_token", tokens.refresh_token.as_str()),
+            ])
+            .map_err(|_| network_error("Firebase token refresh failed"))?;
+        let body: Value = response
+            .body_mut()
+            .read_json()
+            .map_err(|_| network_error("Firebase token response was invalid"))?;
+        let id_token = body
+            .get("id_token")
+            .and_then(Value::as_str)
+            .ok_or_else(|| network_error("Firebase token response omitted ID token"))?;
+        let refresh_token = body
+            .get("refresh_token")
+            .and_then(Value::as_str)
+            .unwrap_or(&tokens.refresh_token);
+        let expires_in = body
+            .get("expires_in")
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(3_600);
+        tokens.id_token = id_token.into();
+        tokens.refresh_token = refresh_token.into();
+        tokens.expires_at = Instant::now() + Duration::from_secs(expires_in);
+        Ok(())
+    }
+}
+
+impl FirebaseTokenProvider for FirebaseSession {
+    fn user_id(&self) -> &str {
+        &self.uid
+    }
+
+    fn id_token(&self) -> Result<String, EngineError> {
+        let mut tokens = self
+            .tokens
+            .lock()
+            .map_err(|_| network_error("Firebase session lock was poisoned"))?;
+        if tokens.expires_at <= Instant::now() + Duration::from_secs(30) {
+            self.refresh_token(&mut tokens)?;
+        }
+        Ok(tokens.id_token.clone())
+    }
 }
 
 pub struct FirebaseRestProvider<T> {
@@ -449,7 +637,7 @@ fn array_strings(fields: &Map<String, Value>, key: &str) -> Result<Vec<String>, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vaani_core::personalization::{Snippet, VocabularyEntry};
+    use vaani_core::personalization::VocabularyEntry;
 
     struct Session;
     impl FirebaseTokenProvider for Session {
@@ -506,12 +694,29 @@ mod tests {
         let provider = FirebaseRestProvider::new("arch-flow-vanni", Session)
             .with_base_url("https://example.test");
         assert_eq!(provider.document_url(Some("id-1")).unwrap(), "https://example.test/v1/projects/arch-flow-vanni/databases/(default)/documents/users/user-1/personalization/id-1");
-        let _ = Snippet {
-            id: String::new(),
-            trigger: String::new(),
-            value: String::new(),
-            created_at_ms: 0,
-            updated_at_ms: 0,
-        };
+    }
+
+    #[test]
+    fn auth_response_creates_memory_only_session() {
+        let auth = FirebaseEmailAuth::new("web-api-key").with_auth_base("https://example.test/v1");
+        let session = auth
+            .session_from_response(&json!({
+                "localId": "user-1",
+                "email": "person@example.test",
+                "idToken": "id-token",
+                "refreshToken": "refresh-token",
+                "expiresIn": "3600"
+            }))
+            .unwrap();
+        assert_eq!(session.user_id(), "user-1");
+        assert_eq!(session.email(), "person@example.test");
+        assert_eq!(session.id_token().unwrap(), "id-token");
+    }
+
+    #[test]
+    fn auth_rejects_missing_credentials() {
+        let auth = FirebaseEmailAuth::new("web-api-key");
+        assert!(auth.sign_in("", "secret").is_err());
+        assert!(auth.create_account("person@example.test", "").is_err());
     }
 }
