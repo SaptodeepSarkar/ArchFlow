@@ -294,6 +294,16 @@ impl JsonlStorage {
         })
     }
 
+    /// Return the versioned local records for a control surface. Callers may
+    /// filter by entity, but must not bypass the storage provider methods when
+    /// mutating records.
+    pub fn records(&self) -> Result<Vec<PersonalizationRecord>, EngineError> {
+        self.state
+            .lock()
+            .map(|records| records.clone())
+            .map_err(|_| storage_error("state lock poisoned"))
+    }
+
     fn next_clock(&self) -> Result<u64, EngineError> {
         let mut clock = self
             .logical_clock

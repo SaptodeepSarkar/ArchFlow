@@ -34,6 +34,39 @@ impl PersonalizationRepository {
         self.storage.personalization()
     }
 
+    pub fn records(&self, kind: SyncEntityKind) -> Result<Vec<PersonalizationRecord>, EngineError> {
+        Ok(self
+            .storage
+            .records()?
+            .into_iter()
+            .filter(|record| match (kind, record) {
+                (SyncEntityKind::Vocabulary, PersonalizationRecord::Vocabulary(_))
+                | (SyncEntityKind::Snippet, PersonalizationRecord::Snippet(_))
+                | (SyncEntityKind::Replacement, PersonalizationRecord::Replacement(_)) => true,
+                _ => false,
+            })
+            .collect())
+    }
+
+    pub fn remove_current(&self, kind: SyncEntityKind, id: &str) -> Result<(), EngineError> {
+        let record = self
+            .records(kind)?
+            .into_iter()
+            .find(|record| record.id() == id)
+            .ok_or_else(|| {
+                EngineError::new(
+                    EngineErrorKind::InvalidInput,
+                    "unknown personalization record",
+                )
+            })?;
+        let revision = match &record {
+            PersonalizationRecord::Vocabulary(value) => value.revision,
+            PersonalizationRecord::Snippet(value) => value.revision,
+            PersonalizationRecord::Replacement(value) => value.revision,
+        };
+        self.remove(kind, id, revision.saturating_add(1))
+    }
+
     pub fn render(&self, text: &str) -> Result<String, EngineError> {
         Ok(render(text, &self.snapshot()?))
     }
@@ -172,14 +205,14 @@ mod tests {
             "https://github.com/example/repo is Hyprland"
         );
         repository
-            .remove(SyncEntityKind::Snippet, &snippet_id, 2)
+            .remove_current(SyncEntityKind::Snippet, &snippet_id)
             .unwrap();
         assert_eq!(
             repository.render("my GitHub is hyper land").unwrap(),
             "my GitHub is Hyprland"
         );
         repository
-            .remove(SyncEntityKind::Vocabulary, &vocabulary_id, 2)
+            .remove_current(SyncEntityKind::Vocabulary, &vocabulary_id)
             .unwrap();
         let reopened = PersonalizationRepository::open(&path, "desktop-test").unwrap();
         assert!(reopened

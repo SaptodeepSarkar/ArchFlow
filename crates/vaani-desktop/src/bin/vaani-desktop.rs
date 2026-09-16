@@ -4,6 +4,8 @@
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use vaani_core::engine::EngineError;
+use vaani_core::personalization::PersonalizationSnapshot;
+use vaani_core::sync::SyncEntityKind;
 use vaani_desktop::{
     DesktopSyncClient, FirebaseEmailAuth, PersonalizationRepository, SecureSessionStore,
 };
@@ -67,6 +69,89 @@ fn repository() -> Result<PersonalizationRepository, EngineError> {
     PersonalizationRepository::open(dir.join("personalization.jsonl"), device_id)
 }
 
+fn prompt(label: &str) -> io::Result<String> {
+    print!("{label}: ");
+    io::stdout().flush()?;
+    let mut value = String::new();
+    io::stdin().lock().read_line(&mut value)?;
+    Ok(value.trim_end_matches(['\r', '\n']).to_owned())
+}
+
+fn print_snapshot(snapshot: PersonalizationSnapshot) {
+    println!("Vocabulary ({}):", snapshot.vocabulary.len());
+    for entry in snapshot.vocabulary {
+        println!("  {} [{}]", entry.canonical, entry.id);
+    }
+    println!("Snippets ({}):", snapshot.snippets.len());
+    for entry in snapshot.snippets {
+        println!("  {} → {} [{}]", entry.trigger, entry.value, entry.id);
+    }
+    println!("Replacements ({}):", snapshot.replacements.len());
+    for entry in snapshot.replacements {
+        println!("  {} → {} [{}]", entry.source, entry.target, entry.id);
+    }
+}
+
+fn personalization_menu(
+    repository: &PersonalizationRepository,
+) -> Result<(), Box<dyn std::error::Error>> {
+    loop {
+        println!("\nVaani local personalization");
+        println!("  list · add-vocabulary · add-snippet · add-replacement · remove · quit");
+        match prompt("Action")?.trim().to_ascii_lowercase().as_str() {
+            "list" => print_snapshot(repository.snapshot()?),
+            "add-vocabulary" => {
+                let canonical = prompt("Canonical term")?;
+                let aliases = prompt("Spoken aliases (comma-separated)")?
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                let category = prompt("Category (optional)")?;
+                repository.add_vocabulary(
+                    canonical,
+                    aliases,
+                    (!category.is_empty()).then_some(category),
+                )?;
+                println!("Vocabulary saved locally.");
+            }
+            "add-snippet" => {
+                let trigger = prompt("Snippet trigger")?;
+                let value = prompt("Snippet expansion")?;
+                repository.add_snippet(trigger, value)?;
+                println!("Snippet saved locally.");
+            }
+            "add-replacement" => {
+                let source = prompt("Replacement source")?;
+                let target = prompt("Replacement target")?;
+                repository.add_replacement(source, target)?;
+                println!("Replacement saved locally.");
+            }
+            "remove" => {
+                let kind = match prompt("Kind (vocabulary|snippet|replacement)")?
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "vocabulary" => SyncEntityKind::Vocabulary,
+                    "snippet" => SyncEntityKind::Snippet,
+                    "replacement" => SyncEntityKind::Replacement,
+                    _ => {
+                        println!("Unknown kind.");
+                        continue;
+                    }
+                };
+                let id = prompt("Record id")?;
+                repository.remove_current(kind, &id)?;
+                println!("Record removed locally.");
+            }
+            "quit" | "q" | "" => break,
+            _ => println!("Choose one of the listed actions."),
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let command = std::env::args().nth(1).unwrap_or_else(|| "status".into());
     match command.as_str() {
@@ -127,7 +212,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 account
             );
         }
-        _ => return Err("usage: vaani-desktop [login|sync|sign-out|status]".into()),
+        "personalize" => personalization_menu(&repository()?)?,
+        _ => return Err("usage: vaani-desktop [login|sync|sign-out|status|personalize]".into()),
     }
     Ok(())
 }
