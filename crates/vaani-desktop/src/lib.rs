@@ -491,6 +491,7 @@ pub struct DesktopRuntime<S, F, P, O, I, C> {
 pub struct DesktopSession<S, F, P, O, I, C, V, D> {
     runtime: DesktopRuntime<S, F, P, O, I, C>,
     audio: AudioFrontEnd<V, D>,
+    speech_seen: bool,
 }
 
 impl<S, F, P, O, I, C, V, D> DesktopSession<S, F, P, O, I, C, V, D>
@@ -505,11 +506,16 @@ where
     D: DenoiserEngine,
 {
     pub fn new(runtime: DesktopRuntime<S, F, P, O, I, C>, audio: AudioFrontEnd<V, D>) -> Self {
-        Self { runtime, audio }
+        Self {
+            runtime,
+            audio,
+            speech_seen: false,
+        }
     }
 
     pub fn start(&mut self) -> Result<SessionId, EngineError> {
         self.audio.reset();
+        self.speech_seen = false;
         self.runtime.start()
     }
 
@@ -521,6 +527,13 @@ where
         self.runtime.state()
     }
 
+    /// Whether any normalized block in the active utterance passed the VAD
+    /// activity gate. A shell can use this to short-circuit silence-only
+    /// finalization and avoid phantom STT output.
+    pub fn speech_seen(&self) -> bool {
+        self.speech_seen
+    }
+
     pub fn push_audio(&mut self, samples: &[f32]) -> Result<(), EngineError> {
         let session_id = self.active_session().ok_or_else(|| {
             EngineError::new(
@@ -529,6 +542,7 @@ where
             )
         })?;
         for chunk in self.audio.push(samples)? {
+            self.speech_seen |= chunk.speech;
             self.runtime.feed_audio_chunk(session_id, chunk)?;
         }
         Ok(())
@@ -542,6 +556,7 @@ where
             )
         })?;
         for chunk in self.audio.finish()? {
+            self.speech_seen |= chunk.speech;
             self.runtime.feed_audio_chunk(session_id, chunk)?;
         }
         self.runtime.finish(session_id, context)
@@ -550,10 +565,12 @@ where
     pub fn cancel(&mut self) -> Result<(), EngineError> {
         let Some(session_id) = self.active_session() else {
             self.audio.reset();
+            self.speech_seen = false;
             return Ok(());
         };
         self.runtime.cancel(session_id)?;
         self.audio.reset();
+        self.speech_seen = false;
         Ok(())
     }
 }
@@ -1054,7 +1071,10 @@ mod tests {
             ),
         );
         session.start().unwrap();
+        assert!(!session.speech_seen());
         session.push_audio(&[0.2_f32; 100]).unwrap();
+        // A sub-block tail is classified when finish flushes it.
+        assert!(!session.speech_seen());
         let report = session
             .finish(FormatContext {
                 application: None,
@@ -1062,12 +1082,20 @@ mod tests {
                 personalization: PersonalizationSnapshot::default(),
             })
             .unwrap();
+        assert!(session.speech_seen());
         assert!(report.text_preserved);
         assert_eq!(session.active_session(), None);
         assert_eq!(
             inserted.lock().unwrap().as_slice(),
             &["send https://github.com/example/repo".to_string()]
         );
+
+        session.start().unwrap();
+        session
+            .push_audio(&[0.0_f32; vaani_core::vad::BLOCK_SAMPLES])
+            .unwrap();
+        assert!(!session.speech_seen());
+        session.cancel().unwrap();
     }
 
     #[test]

@@ -31,6 +31,8 @@ utterance, preventing prior speech from affecting a new session.
 `DesktopSession` packages those two boundaries so a shell can start, push
 arbitrary capture chunks, finish, or cancel without duplicating lifecycle
 plumbing.
+The session also exposes `speech_seen` so a shell can avoid finalizing a
+silence-only utterance and thereby avoid phantom recognizer output.
 
 `ShortcutSpec` is the shared validated invocation format. It accepts
 case-insensitive `CTRL`, `ALT`, `SHIFT`, and `SUPER` modifiers plus a bounded
