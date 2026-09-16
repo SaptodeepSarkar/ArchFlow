@@ -23,5 +23,6 @@ shell-like copy-only safeguards; Windows uses the User32 `RegisterHotKey`
 message loop. `PersonalizationRepository` stores vocabulary, snippets, and
 replacements in the shared JSONL schema and applies the same deterministic
 canonicalization/rendering rules. Windows accessibility, tray, clipboard, and
-editor insertion adapters still need to be connected to a complete shell
-binary.
+editor insertion are now represented by a User32 clipboard-plus-paste adapter;
+the complete Windows shell/tray and focused-editor integration still need to
+be connected.

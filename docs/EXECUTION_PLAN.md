@@ -30,7 +30,7 @@ Add optional authentication, Firestore rules, background synchronization, tombst
 
 ## Phase 6 — desktop ecosystem
 
-Define a shared desktop domain layer, then implement Linux overlay/tray/insertion and a separate Windows shell/insertion adapter. Use clipboard recovery whenever direct insertion is unavailable. **In progress:** portable lifecycle/fallback logic, Linux Hyprland/Wayland adapters, and a Windows User32 global-hotkey foundation are implemented; full shells, tray, audio/STT wiring, and Windows insertion remain.
+Define a shared desktop domain layer, then implement Linux overlay/tray/insertion and a separate Windows shell/insertion adapter. Use clipboard recovery whenever direct insertion is unavailable. **In progress:** portable lifecycle/fallback logic, Linux Hyprland/Wayland adapters, and Windows User32 hotkey plus clipboard/paste insertion are implemented; full shells, tray, audio/STT wiring, and focused-editor integration remain.
 
 ## Phase 7 — performance and release
 
