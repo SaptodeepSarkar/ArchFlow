@@ -38,6 +38,10 @@ source = ~/.config/hypr/vaani.conf
 or source `~/.config/hypr/vaani.lua` from a Lua-enabled Hyprland setup. Reload
 Hyprland after changing bindings. `install.sh` never edits unrelated dotfiles.
 
+The same installation places `vaani-desktop` beside the daemon and CLI. Use
+`vaani-desktop status`, `vaani-desktop personalize`, and the optional
+`login`/`sync` commands for desktop-local personalization and account sync.
+
 ## Locally trained cleanup models
 
 The repository ignores `training/cleanup-llm/output/` because the artifacts
