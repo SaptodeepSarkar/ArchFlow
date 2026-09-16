@@ -26,7 +26,7 @@ Refactor the IME around the explicit dictation state machine, preserve recoverab
 
 ## Phase 5 — optional local-first sync
 
-Add optional authentication, Firestore rules, background synchronization, tombstones, conflict resolution, migrations, and offline tests. **In progress:** portable sync records/coordinator, persisted outbox, Firestore rules/emulator tests, and Android email/password plus personalization provider are implemented; production Auth-provider enablement and Linux/Windows provider adapters remain. Never sync audio or raw dictations by default.
+Add optional authentication, Firestore rules, background synchronization, tombstones, conflict resolution, migrations, and offline tests. **In progress:** portable sync records/coordinator, persisted outbox, Firestore rules/emulator tests, Android email/password plus personalization provider, and Android's network-constrained periodic WorkManager sync are implemented; production Auth-provider enablement and Linux/Windows provider adapters remain. Never sync audio or raw dictations by default.
 
 ## Phase 6 — desktop ecosystem
 

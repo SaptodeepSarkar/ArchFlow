@@ -9,9 +9,11 @@ Only vocabulary, snippet, and replacement records are eligible. Each record
 uses the versioned `vaani-core` envelope: schema version, stable record ID,
 revision, Lamport-style logical clock, writer device ID, update time, and an
 optional value or deletion tombstone. The local repository remains the source
-of immediate behavior; the Android Firebase provider pushes/pulls records only
-after an explicit sign-in and sync action, then applies the same deterministic
-merge policy. The Linux/Windows provider adapters remain to be connected.
+of immediate behavior; the Android Firebase provider pushes/pulls records after
+optional sign-in through a bounded, network-constrained periodic WorkManager
+job, and also exposes an explicit sync action. It applies the same deterministic
+merge policy in both paths. The Linux/Windows provider adapters remain to be
+connected.
 
 The rules in [`firestore.rules`](../../firestore.rules) enforce:
 
