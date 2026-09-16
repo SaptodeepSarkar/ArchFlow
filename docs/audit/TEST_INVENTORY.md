@@ -10,7 +10,7 @@ Coverage includes state transitions, protocol limits, reconciliation, VAD, confi
 
 ## Android coverage added in this slice
 
-Added pure reducer tests in `android/app/src/test/.../DictationControllerTest.kt` covering stale callbacks, endpointing/finalization, insertion-failure text retention, and retry token freshness. Gradle 8.9 executed all 4 tests successfully on 2026-09-16.
+Added pure reducer and input-policy tests in `android/app/src/test/.../DictationControllerTest.kt` covering stale callbacks, endpointing/finalization, insertion-failure text retention, retry token freshness, and password-field blocking. Gradle 8.9 executed all 5 tests successfully on 2026-09-16.
 
 ## Android runtime verification
 
