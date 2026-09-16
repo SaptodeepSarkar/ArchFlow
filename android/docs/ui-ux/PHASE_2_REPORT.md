@@ -1,6 +1,6 @@
 # Phase 2–4 implementation report
 
-Date: 2026-09-14
+Date: 2026-09-16
 
 The approved IME-first development path is now implemented as the current V1 surface. The future coexisting invocation remains a clean architectural direction, not a fake option in the app.
 
@@ -37,7 +37,7 @@ The prompts explicitly excluded text, logos, fake UI, neon, particles, sparkles,
 GRADLE_USER_HOME=/tmp/vaani-gradle ./gradlew :app:assembleDebug :app:lintDebug
 ```
 
-Result: `BUILD SUCCESSFUL` (44 actionable tasks). Lint reports 0 errors; remaining warnings are primarily custom touch-listener/tooling and draw-allocation guidance. No emulator is available in this environment, so system permission, IME picker, TalkBack, large-font, landscape, and insertion-failure flows still need physical/emulator QA.
+Result: `BUILD SUCCESSFUL` for lint, unit tests, and the debug APK; connected instrumentation also completed all 3 tests on `emulator-5554`. Manual ADB verification confirmed onboarding, microphone permission handling, Vaani IME enablement/selection, and the page-four rehearsal field with the Vaani keyboard visibly rendered. The IME explicitly keeps its input view visible on hardware-keyboard emulators. TalkBack, large-font, landscape, dark-mode, and full live speech/insertion flows still need dedicated QA.
 
 ## Deliberately not implemented
 
@@ -47,4 +47,3 @@ Result: `BUILD SUCCESSFUL` (44 actionable tasks). Lint reports 0 errors; remaini
 - A fake partial transcript; the current Android recognizer still requests final-only results.
 
 These remain backend/product gates, not visual placeholders.
-

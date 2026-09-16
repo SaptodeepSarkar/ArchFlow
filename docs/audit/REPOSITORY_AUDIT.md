@@ -4,7 +4,7 @@ Date: 2026-09-16
 
 ## Scope and evidence
 
-This is a source-tree audit of commit `c5957f6` (`v1.0.0 restore typing and reliable cleanup`). Evidence came from `git ls-files`, `git status --short --ignored`, Cargo metadata/tree, the Android Gradle sources, and the existing documentation. Runtime checks were repeated on 2026-09-16 with the local Gradle 8.9 distribution and `emulator-5554`.
+This is a source-tree audit of commit `9b1c581d` (`fix(android): distinguish enabled and selected IMEs`). Evidence came from `git ls-files`, `git status --short --ignored`, Cargo metadata/tree, the Android Gradle sources, and the existing documentation. Runtime checks were repeated on 2026-09-16 with the local Gradle 8.9 distribution and `emulator-5554`.
 
 ## Current shape
 
@@ -20,7 +20,7 @@ This is a source-tree audit of commit `c5957f6` (`v1.0.0 restore typing and reli
 | Sync/auth | Local sync records/repository, Firestore rules/emulator tests, and Android optional auth/provider bridge exist; production provider enablement and desktop adapters remain | EXTEND after local-first data model |
 | Models | Manifest plus user-local V5/cozy references; no model weights tracked | KEEP policy; formalize package validation |
 | Training | Historical V1–V5/V6 scripts, ignored datasets, checkpoints, and caches | ARCHIVE/document; exclude from active runtime |
-| Tests | 66 Rust tests including one ignored hardware test, 4 portable desktop tests, and 4 Android reducer tests; no native desktop test suite | KEEP coverage; ADD platform and contract tests |
+| Tests | 73 passing Rust tests plus one ignored hardware test, 11 portable desktop tests, 4 Android reducer tests, and 3 connected Android tests; no native desktop test suite | KEEP coverage; ADD platform and contract tests |
 
 ## Keep / refactor / replace / archive / delete
 
@@ -65,6 +65,6 @@ No deletion is authorized by this audit alone. Rust compiler warnings identify c
 
 ## Known verification blockers
 
-- ADB and Android Gradle are now available through the current emulator and writable Gradle cache override; full live speech/insertion is still not verified.
+- ADB and Android Gradle are available through the current emulator and writable Gradle cache override. Onboarding, IME selection, and visible rehearsal-keyboard behavior are verified; full live speech/insertion is still not verified.
 - GitHub authentication is available for the current CLI account; production review/merge remains a repository-owner decision.
 - Firebase emulator rules tests pass locally. No production cloud mutation was attempted.
