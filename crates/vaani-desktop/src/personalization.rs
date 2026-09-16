@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
-use vaani_core::engine::{EngineError, EngineErrorKind};
+use vaani_core::engine::{EngineError, EngineErrorKind, PersonalizationProvider};
 use vaani_core::personalization::{
     render, PersonalizationSnapshot, Replacement, Snippet, VocabularyEntry,
 };
@@ -166,6 +166,12 @@ impl PersonalizationRepository {
     }
 }
 
+impl PersonalizationProvider for PersonalizationRepository {
+    fn snapshot(&self) -> Result<PersonalizationSnapshot, EngineError> {
+        PersonalizationRepository::snapshot(self)
+    }
+}
+
 fn now_ms() -> Result<i64, EngineError> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -180,6 +186,9 @@ fn now_ms() -> Result<i64, EngineError> {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+    use vaani_core::engine::{
+        FormatContext, FormatRequest, LocalFormatter, SessionId, TextPipeline,
+    };
 
     #[test]
     fn desktop_repository_renders_and_persists_rules() {
@@ -219,6 +228,19 @@ mod tests {
             .render("hyper land")
             .unwrap()
             .contains("hyper land"));
+        let pipeline = TextPipeline::new(LocalFormatter, repository);
+        let result = pipeline
+            .process(&FormatRequest {
+                session_id: SessionId::new_v4(),
+                transcript: "hyper land".into(),
+                context: FormatContext {
+                    application: None,
+                    language: "en".into(),
+                    personalization: PersonalizationSnapshot::default(),
+                },
+            })
+            .unwrap();
+        assert_eq!(result.text, "hyper land");
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("outbox.jsonl"));
     }
