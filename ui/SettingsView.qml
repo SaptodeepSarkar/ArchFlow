@@ -112,6 +112,25 @@ ColumnLayout {
                 checked: settingsRoot.cfg.general ? settingsRoot.cfg.general.review_before_insertion : false
                 onToggled: settingsRoot.setKey("general.review_before_insertion", checked ? "true" : "false")
             }
+            Label {
+                text: "Delivery mode"
+                font.bold: true
+            }
+            ComboBox {
+                model: ["automatic", "review", "copy-only"]
+                currentIndex: Math.max(0, ["automatic", "review", "copy-only"].indexOf(settingsRoot.cfg.insertion ? settingsRoot.cfg.insertion.mode : "automatic"))
+                onActivated: settingsRoot.setKey("insertion.mode", currentText)
+            }
+            Label {
+                text: settingsRoot.cfg.insertion && settingsRoot.cfg.insertion.mode === "copy-only"
+                    ? "Copy-only keeps the complete result on the clipboard."
+                    : settingsRoot.cfg.insertion && settingsRoot.cfg.insertion.mode === "review"
+                        ? "Review pauses before insertion so you can confirm the focused field."
+                        : "Automatic types after a final focus check; terminals and shell-like text remain copy-only."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                color: colors.muted
+            }
         }
 
         // ---- Audio ----
@@ -161,9 +180,24 @@ ColumnLayout {
                 font.bold: true
             }
             ComboBox {
-                model: ["tiny", "base", "base.en", "small"]
-                currentIndex: Math.max(0, ["tiny", "base", "base.en", "small"].indexOf(settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.model : "base"))
+                model: ["tiny", "base", "base.en", "small", "cozy", "v5"]
+                currentIndex: Math.max(0, ["tiny", "base", "base.en", "small", "cozy", "v5"].indexOf(settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.model : "base"))
                 onActivated: settingsRoot.setKey("recognition.model", currentText)
+            }
+            Label {
+                text: "Live preview model"
+                font.bold: true
+            }
+            ComboBox {
+                model: ["tiny", "base", "base.en", "small", "cozy", "v5"]
+                currentIndex: Math.max(0, ["tiny", "base", "base.en", "small", "cozy", "v5"].indexOf(settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.live_model : "base"))
+                onActivated: settingsRoot.setKey("recognition.live_model", currentText)
+            }
+            Label {
+                text: "Preview text is provisional; final insertion always uses the selected final model."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                color: colors.muted
             }
             Label {
                 text: "Language (explicit setting; auto-detection fails on short utterances)"
