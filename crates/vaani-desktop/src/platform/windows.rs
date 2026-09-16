@@ -5,6 +5,7 @@
 //! future UI Automation/clipboard implementation cannot silently become raw
 //! keystroke injection.
 
+use crate::{ShortcutModifier, ShortcutSpec};
 use std::ffi::c_int;
 use std::mem::size_of;
 use std::ptr::null_mut;
@@ -82,6 +83,21 @@ impl GlobalHotkey {
             return Err("RegisterHotKey failed; the binding may already be claimed".into());
         }
         Ok(Self { id, modifiers, key })
+    }
+
+    pub fn register_spec(id: c_int, spec: &ShortcutSpec) -> Result<Self, String> {
+        let modifiers = spec.modifiers().iter().fold(0, |flags, modifier| {
+            flags
+                | match modifier {
+                    ShortcutModifier::Ctrl => 0x0002,
+                    ShortcutModifier::Alt => 0x0001,
+                    ShortcutModifier::Shift => 0x0004,
+                    ShortcutModifier::Super => 0x0008,
+                }
+        });
+        let key = virtual_key(spec.key())
+            .ok_or_else(|| "shortcut key has no Windows virtual-key mapping".to_string())?;
+        Self::register(id, modifiers, key)
     }
 
     pub fn run<F: FnMut()>(&self, mut on_hotkey: F) -> Result<(), String> {
@@ -313,4 +329,40 @@ fn looks_shell_like(text: &str) -> bool {
             .iter()
             .any(|prefix| line.starts_with(prefix))
     })
+}
+
+fn virtual_key(key: &str) -> Option<u32> {
+    if key.len() == 1 && key.as_bytes()[0].is_ascii_alphanumeric() {
+        return Some(key.as_bytes()[0].to_ascii_uppercase() as u32);
+    }
+    match key {
+        "SPACE" => Some(0x20),
+        "ESC" => Some(0x1b),
+        "TAB" => Some(0x09),
+        "ENTER" => Some(0x0d),
+        _ => key
+            .strip_prefix('F')
+            .and_then(|number| number.parse::<u32>().ok())
+            .filter(|number| (1..=12).contains(number))
+            .map(|number| 0x70 + number - 1),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcut_spec_maps_supported_windows_keys() {
+        assert_eq!(virtual_key("A"), Some(0x41));
+        assert_eq!(virtual_key("SPACE"), Some(0x20));
+        assert_eq!(virtual_key("F12"), Some(0x7b));
+        assert_eq!(virtual_key("F13"), None);
+    }
+
+    #[test]
+    fn shell_like_text_is_not_pasteable() {
+        assert!(looks_shell_like("powershell Get-Process"));
+        assert!(!looks_shell_like("write a meeting note"));
+    }
 }

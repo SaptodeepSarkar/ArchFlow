@@ -11,6 +11,109 @@ use vaani_core::engine::{
     PersonalizationProvider, SessionId, SttEngine, TextPipeline, VadEngine,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShortcutModifier {
+    Ctrl,
+    Alt,
+    Shift,
+    Super,
+}
+
+/// Validated cross-platform global invocation description. Platform adapters
+/// translate this representation to native registration APIs; shells never
+/// need to parse user-entered modifier strings themselves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShortcutSpec {
+    modifiers: Vec<ShortcutModifier>,
+    key: String,
+}
+
+impl ShortcutSpec {
+    pub fn parse(value: &str) -> Result<Self, EngineError> {
+        let mut modifiers = Vec::new();
+        let mut key = None;
+        for token in value
+            .split('+')
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+        {
+            let token_upper = token.to_ascii_uppercase();
+            let modifier = match token_upper.as_str() {
+                "CTRL" | "CONTROL" => Some(ShortcutModifier::Ctrl),
+                "ALT" => Some(ShortcutModifier::Alt),
+                "SHIFT" => Some(ShortcutModifier::Shift),
+                "SUPER" | "META" | "WIN" | "WINDOWS" => Some(ShortcutModifier::Super),
+                _ => None,
+            };
+            if let Some(modifier) = modifier {
+                if modifiers.contains(&modifier) {
+                    return Err(EngineError::new(
+                        vaani_core::engine::EngineErrorKind::InvalidInput,
+                        "shortcut contains a duplicate modifier",
+                    ));
+                }
+                modifiers.push(modifier);
+            } else if key.replace(token_upper.clone()).is_some() {
+                return Err(EngineError::new(
+                    vaani_core::engine::EngineErrorKind::InvalidInput,
+                    "shortcut contains multiple keys",
+                ));
+            }
+        }
+        let key = key.ok_or_else(|| {
+            EngineError::new(
+                vaani_core::engine::EngineErrorKind::InvalidInput,
+                "shortcut must contain one key",
+            )
+        })?;
+        if !valid_shortcut_key(&key) {
+            return Err(EngineError::new(
+                vaani_core::engine::EngineErrorKind::InvalidInput,
+                "shortcut key is unsupported",
+            ));
+        }
+        Ok(Self { modifiers, key })
+    }
+
+    pub fn default() -> Self {
+        Self::parse("SUPER+ALT+SPACE").expect("default shortcut is valid")
+    }
+
+    pub fn modifiers(&self) -> &[ShortcutModifier] {
+        &self.modifiers
+    }
+
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    pub fn canonical(&self) -> String {
+        let mut tokens = Vec::new();
+        for (modifier, label) in [
+            (ShortcutModifier::Ctrl, "CTRL"),
+            (ShortcutModifier::Alt, "ALT"),
+            (ShortcutModifier::Shift, "SHIFT"),
+            (ShortcutModifier::Super, "SUPER"),
+        ] {
+            if self.modifiers.contains(&modifier) {
+                tokens.push(label);
+            }
+        }
+        tokens.push(self.key.as_str());
+        tokens.join("+")
+    }
+}
+
+fn valid_shortcut_key(key: &str) -> bool {
+    (key.len() == 1 && key.as_bytes()[0].is_ascii_alphanumeric())
+        || matches!(key, "SPACE" | "ESC" | "TAB" | "ENTER")
+        || (key.strip_prefix('F').is_some_and(|number| {
+            number
+                .parse::<u8>()
+                .is_ok_and(|number| (1..=12).contains(&number))
+        }))
+}
+
 /// One bounded, denoised audio block ready for the STT adapter.
 ///
 /// The front-end keeps audio in memory and never serializes it into control
@@ -778,6 +881,21 @@ mod tests {
         );
         assert!(!report.text_preserved);
         assert!(matches!(report.outcome, InsertOutcome::Unavailable { .. }));
+    }
+
+    #[test]
+    fn shortcut_specs_are_canonical_and_case_insensitive() {
+        let spec = ShortcutSpec::parse("meta + alt + space").unwrap();
+        assert_eq!(spec.canonical(), "ALT+SUPER+SPACE");
+        assert_eq!(spec.key(), "SPACE");
+        assert_eq!(ShortcutSpec::default().canonical(), "ALT+SUPER+SPACE");
+    }
+
+    #[test]
+    fn shortcut_specs_reject_ambiguous_or_unsafe_values() {
+        for value in ["CTRL+ALT", "CTRL+ALT+A+B", "CTRL+CTRL+A", "CTRL+F13"] {
+            assert!(ShortcutSpec::parse(value).is_err(), "accepted {value}");
+        }
     }
 
     #[test]

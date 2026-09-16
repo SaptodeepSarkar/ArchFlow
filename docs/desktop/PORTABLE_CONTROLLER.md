@@ -32,6 +32,12 @@ utterance, preventing prior speech from affecting a new session.
 arbitrary capture chunks, finish, or cancel without duplicating lifecycle
 plumbing.
 
+`ShortcutSpec` is the shared validated invocation format. It accepts
+case-insensitive `CTRL`, `ALT`, `SHIFT`, and `SUPER` modifiers plus a bounded
+key set, canonicalizes ordering, and is translated to User32 virtual keys on
+Windows. Linux shells can use the same canonical value when generating their
+compositor binding.
+
 The controller is event-driven. Platform event loops call `invoke`, `preview`,
 `finishing`, and `deliver`; it does not poll windows or spawn per-tick helper
 commands. No transcript is logged or placed in command arguments by the

@@ -20,7 +20,7 @@ This is a source-tree audit of commit `19781c6f` (`fix(windows): report paste di
 | Sync/auth | Local sync records/repository, Firestore rules/emulator tests, and Android optional auth/provider bridge exist; production provider enablement and desktop adapters remain | EXTEND after local-first data model |
 | Models | Manifest plus user-local V5/cozy references; no model weights tracked | KEEP policy; formalize package validation |
 | Training | Historical V1–V5/V6 scripts, ignored datasets, checkpoints, and caches | ARCHIVE/document; exclude from active runtime |
-| Tests | 83 passing Rust tests plus one ignored hardware test, 8 Android policy/reducer tests, 6 connected Android tests, and 16 portable desktop tests; no native desktop test suite | KEEP coverage; ADD platform and contract tests |
+| Tests | 85 passing Rust tests plus one ignored hardware test, 8 Android policy/reducer tests, 6 connected Android tests, and 18 portable desktop tests; no native desktop test suite | KEEP coverage; ADD platform and contract tests |
 
 ## Keep / refactor / replace / archive / delete
 
