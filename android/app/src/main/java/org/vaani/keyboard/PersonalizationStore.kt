@@ -16,6 +16,7 @@ data class PersonalizationEntry(
     val writerDeviceId: String = "",
     val updatedAtMs: Long = 0,
     val deletedAtMs: Long? = null,
+    val spokenAliases: List<String> = emptyList(),
 )
 
 /** Versioned, local-only repository for structured personalization records. */
@@ -50,6 +51,7 @@ class PersonalizationStore(context: Context) {
         writerDeviceId: String,
         updatedAtMs: Long,
         deletedAtMs: Long?,
+        spokenAliases: List<String> = emptyList(),
     ): Boolean {
         if (id.isBlank() || trigger.length > MAX_TEXT || value.length > MAX_VALUE) return false
         val db = helper.writableDatabase
@@ -59,16 +61,18 @@ class PersonalizationStore(context: Context) {
         if (current != null && compareVersion(revision, logicalClock, writerDeviceId, updatedAtMs, current.revision, current.logicalClock, current.writerDeviceId, current.updatedAtMs) <= 0) return false
         val values = ContentValues().apply {
             put("id", id); put("kind", kind.dbValue); put("trigger_text", trigger); put("value_text", value)
+            put("aliases_text", encodeAliases(spokenAliases))
             put("revision", revision); put("logical_clock", logicalClock); put("writer_device_id", writerDeviceId); put("updated_at_ms", updatedAtMs)
             if (deletedAtMs == null) putNull("deleted_at_ms") else put("deleted_at_ms", deletedAtMs)
         }
         return db.insertWithOnConflict(TABLE, null, values, SQLiteDatabase.CONFLICT_REPLACE) != -1L
     }
 
-    fun addVocabulary(term: String): Boolean {
+    fun addVocabulary(term: String, spokenAliases: List<String> = emptyList()): Boolean {
         val clean = term.trim()
         if (clean.isEmpty() || clean.length > MAX_TEXT) return false
-        return insert(Kind.VOCABULARY, clean, "")
+        val aliases = spokenAliases.map(String::trim).filter { it.isNotEmpty() && it.length <= MAX_TEXT }.distinct()
+        return insert(Kind.VOCABULARY, clean, "", aliases)
     }
 
     fun addSnippet(trigger: String, expansion: String): Boolean = add(Kind.SNIPPET, trigger, expansion)
@@ -82,9 +86,12 @@ class PersonalizationStore(context: Context) {
         )
     }
 
-    /** Applies snippets first, then replacements, longest trigger first. */
+    /** Applies vocabulary aliases, snippets, then replacements, longest trigger first. */
     fun render(raw: String): String {
         var text = raw
+        vocabulary().flatMap { entry -> entry.spokenAliases.map { alias -> alias to entry.trigger } }
+            .sortedByDescending { it.first.length }
+            .forEach { (alias, canonical) -> text = replaceWholeWord(text, alias, canonical) }
         snippets().sortedByDescending { it.trigger.length }.forEach { text = replaceWholeWord(text, it.trigger, it.value) }
         replacements().sortedByDescending { it.trigger.length }.forEach { text = replaceWholeWord(text, it.trigger, it.value) }
         return text
@@ -97,7 +104,7 @@ class PersonalizationStore(context: Context) {
         return insert(kind, cleanTrigger, cleanValue)
     }
 
-    private fun insert(kind: Kind, trigger: String, value: String): Boolean {
+    private fun insert(kind: Kind, trigger: String, value: String, spokenAliases: List<String> = emptyList()): Boolean {
         val db = helper.writableDatabase
         val count = db.query(TABLE, arrayOf("COUNT(*)"), "kind = ?", arrayOf(kind.dbValue), null, null, null).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
         if (count >= MAX_ENTRIES) return false
@@ -107,6 +114,7 @@ class PersonalizationStore(context: Context) {
             put("kind", kind.dbValue)
             put("trigger_text", trigger)
             put("value_text", value)
+            put("aliases_text", encodeAliases(spokenAliases))
             put("revision", 1L)
             put("logical_clock", 1L)
             put("writer_device_id", deviceId)
@@ -118,7 +126,7 @@ class PersonalizationStore(context: Context) {
 
     private fun read(kind: Kind, includeDeleted: Boolean = false): List<PersonalizationEntry> = helper.readableDatabase.query(
         TABLE,
-        arrayOf("id", "trigger_text", "value_text", "revision", "logical_clock", "writer_device_id", "updated_at_ms", "deleted_at_ms"),
+        arrayOf("id", "trigger_text", "value_text", "aliases_text", "revision", "logical_clock", "writer_device_id", "updated_at_ms", "deleted_at_ms"),
         if (includeDeleted) "kind = ?" else "kind = ? AND deleted_at_ms IS NULL",
         arrayOf(kind.dbValue), null, null, "rowid ASC"
     ).use { cursor ->
@@ -126,8 +134,8 @@ class PersonalizationStore(context: Context) {
             while (cursor.moveToNext()) add(
                 PersonalizationEntry(
                     cursor.getString(0), cursor.getString(1), cursor.getString(2),
-                    cursor.getLong(3), cursor.getLong(4), cursor.getString(5), cursor.getLong(6),
-                    if (cursor.isNull(7)) null else cursor.getLong(7),
+                    cursor.getLong(4), cursor.getLong(5), cursor.getString(6), cursor.getLong(7),
+                    if (cursor.isNull(8)) null else cursor.getLong(8), decodeAliases(cursor.getString(3)),
                 ),
             )
         }
@@ -155,7 +163,7 @@ class PersonalizationStore(context: Context) {
             val value = if (vocabularyOnly) "" else runCatching { decode(parts[2]) }.getOrNull() ?: return@forEach
             if (trigger.isEmpty() || trigger.length > MAX_TEXT || value.length > MAX_VALUE) return@forEach
             db.insert(TABLE, null, ContentValues().apply {
-                put("id", parts[0]); put("kind", kind.dbValue); put("trigger_text", trigger); put("value_text", value)
+                put("id", parts[0]); put("kind", kind.dbValue); put("trigger_text", trigger); put("value_text", value); put("aliases_text", "")
                 put("revision", 1L); put("logical_clock", 1L); put("writer_device_id", deviceId); put("updated_at_ms", System.currentTimeMillis()); putNull("deleted_at_ms")
             })
         }
@@ -177,12 +185,14 @@ class PersonalizationStore(context: Context) {
 
     private fun newId() = UUID.randomUUID().toString()
     private fun decode(value: String) = String(Base64.decode(value, Base64.NO_WRAP or Base64.URL_SAFE), Charsets.UTF_8)
+    private fun encodeAliases(values: List<String>) = values.joinToString("|") { Base64.encodeToString(it.toByteArray(Charsets.UTF_8), Base64.NO_WRAP or Base64.URL_SAFE) }
+    private fun decodeAliases(value: String) = value.split('|').filter(String::isNotEmpty).mapNotNull { runCatching { decode(it) }.getOrNull() }
 
     enum class Kind(val dbValue: String) { VOCABULARY("vocabulary"), SNIPPET("snippet"), REPLACEMENT("replacement") }
 
     private class StoreHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
         override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("CREATE TABLE $TABLE (id TEXT NOT NULL PRIMARY KEY, kind TEXT NOT NULL, trigger_text TEXT NOT NULL, value_text TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, logical_clock INTEGER NOT NULL DEFAULT 1, writer_device_id TEXT NOT NULL DEFAULT '', updated_at_ms INTEGER NOT NULL DEFAULT 0, deleted_at_ms INTEGER)")
+            db.execSQL("CREATE TABLE $TABLE (id TEXT NOT NULL PRIMARY KEY, kind TEXT NOT NULL, trigger_text TEXT NOT NULL, value_text TEXT NOT NULL, aliases_text TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, logical_clock INTEGER NOT NULL DEFAULT 1, writer_device_id TEXT NOT NULL DEFAULT '', updated_at_ms INTEGER NOT NULL DEFAULT 0, deleted_at_ms INTEGER)")
             db.execSQL("CREATE INDEX personalization_kind_idx ON $TABLE(kind)")
         }
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -196,12 +206,13 @@ class PersonalizationStore(context: Context) {
                 db.execSQL("ALTER TABLE $TABLE ADD COLUMN logical_clock INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE $TABLE ADD COLUMN writer_device_id TEXT NOT NULL DEFAULT ''")
             }
+            if (oldVersion < 4) db.execSQL("ALTER TABLE $TABLE ADD COLUMN aliases_text TEXT NOT NULL DEFAULT ''")
         }
     }
 
     companion object {
         private const val DB_NAME = "vaani_personalization.db"
-        private const val DB_VERSION = 3
+        private const val DB_VERSION = 4
         private const val TABLE = "personalization"
         private const val LEGACY_PREFS = "vaani_personalization"
         private const val MIGRATED_KEY = "sqlite_migrated_v1"

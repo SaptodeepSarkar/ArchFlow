@@ -82,7 +82,7 @@ class FirebaseSyncClient(private val store: PersonalizationStore) {
             PersonalizationStore.Kind.REPLACEMENT -> "replacement"
         }
         val value: Map<String, Any?>? = if (entry.deletedAtMs == null) when (kind) {
-            PersonalizationStore.Kind.VOCABULARY -> mapOf("id" to entry.id, "canonical" to entry.trigger, "spoken_aliases" to emptyList<String>(), "category" to null, "created_at_ms" to entry.updatedAtMs, "updated_at_ms" to entry.updatedAtMs)
+            PersonalizationStore.Kind.VOCABULARY -> mapOf("id" to entry.id, "canonical" to entry.trigger, "spoken_aliases" to entry.spokenAliases, "category" to null, "created_at_ms" to entry.updatedAtMs, "updated_at_ms" to entry.updatedAtMs)
             PersonalizationStore.Kind.SNIPPET -> mapOf("id" to entry.id, "trigger" to entry.trigger, "value" to entry.value, "created_at_ms" to entry.updatedAtMs, "updated_at_ms" to entry.updatedAtMs)
             PersonalizationStore.Kind.REPLACEMENT -> mapOf("id" to entry.id, "source" to entry.trigger, "target" to entry.value, "created_at_ms" to entry.updatedAtMs, "updated_at_ms" to entry.updatedAtMs)
         } else null
@@ -114,26 +114,31 @@ class FirebaseSyncClient(private val store: PersonalizationStore) {
         val value = document.get("value") as? Map<*, *>
         val trigger: String
         val replacement: String
+        val aliases: List<String>
         if (deleted != null || value == null) {
             trigger = ""
             replacement = ""
+            aliases = emptyList()
         } else when (kind) {
             PersonalizationStore.Kind.VOCABULARY -> {
                 trigger = value["canonical"] as? String ?: return false
                 replacement = ""
+                aliases = (value["spoken_aliases"] as? List<*>)?.filterIsInstance<String>().orEmpty()
             }
             PersonalizationStore.Kind.SNIPPET -> {
                 trigger = value["trigger"] as? String ?: return false
                 replacement = value["value"] as? String ?: return false
+                aliases = emptyList()
             }
             PersonalizationStore.Kind.REPLACEMENT -> {
                 trigger = value["source"] as? String ?: return false
                 replacement = value["target"] as? String ?: return false
+                aliases = emptyList()
             }
         }
         val logicalClock = document.getLong("logical_clock") ?: revision
         val writerDeviceId = document.getString("writer_device_id") ?: return false
-        return store.mergeRemote(kind, id, trigger, replacement, revision, logicalClock, writerDeviceId, updated, deleted)
+        return store.mergeRemote(kind, id, trigger, replacement, revision, logicalClock, writerDeviceId, updated, deleted, aliases)
     }
 
     private fun offlineConfigError() = IllegalStateException("Firebase sync is not configured for this build")

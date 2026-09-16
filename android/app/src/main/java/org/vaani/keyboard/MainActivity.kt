@@ -227,7 +227,9 @@ class MainActivity : Activity() {
         root.addView(ui.secondaryButton("Choose keyboard now") { showKeyboardPicker() }, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(6) })
         root.addView(ui.sectionTitle("Personalization"))
         root.addView(ui.label("These rules stay on this device and run before insertion. Word boundaries prevent accidental edits inside larger words.", 14f, ui.palette.muted))
-        addPersonalizationEditor(root, ui, "Vocabulary term", "Add term") { term, _ -> personalization.addVocabulary(term) }
+        addPersonalizationEditor(root, ui, "Vocabulary term", "Spoken aliases (comma-separated)", "Add vocabulary") { term, aliases ->
+            personalization.addVocabulary(term, aliases.split(',').map(String::trim))
+        }
         addPersonalizationEditor(root, ui, "Spoken shortcut", "Expansion", "Add snippet") { trigger, value -> personalization.addSnippet(trigger, value) }
         addPersonalizationEditor(root, ui, "Replace", "With", "Add replacement") { trigger, value -> personalization.addReplacement(trigger, value) }
         addPersonalizationRows(root, ui, "Vocabulary", personalization.vocabulary(), PersonalizationStore.Kind.VOCABULARY)

@@ -10,7 +10,10 @@ if (file("google-services.json").isFile) {
 }
 
 android { namespace = "org.vaani.keyboard"; compileSdk = 35
-    defaultConfig { applicationId = "org.vaani.keyboard"; minSdk = 31; targetSdk = 35; versionCode = 100; versionName = "1.0.0" }
+    defaultConfig {
+        applicationId = "org.vaani.keyboard"; minSdk = 31; targetSdk = 35; versionCode = 100; versionName = "1.0.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
 
@@ -23,4 +26,6 @@ dependencies {
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
