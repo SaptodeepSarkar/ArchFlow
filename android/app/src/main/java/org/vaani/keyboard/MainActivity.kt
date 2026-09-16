@@ -173,7 +173,8 @@ class MainActivity : Activity() {
             testField?.let { field ->
                 field.requestFocus()
                 (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
-                    .showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                    .showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+                ViewCompat.getWindowInsetsController(field)?.show(WindowInsetsCompat.Type.ime())
                 field.postDelayed({ showKeyboardPicker() }, 180)
             }
         } else ui.primaryButton(blockerAction(ready.nextBlocker)) { runBlocker(ready.nextBlocker) }

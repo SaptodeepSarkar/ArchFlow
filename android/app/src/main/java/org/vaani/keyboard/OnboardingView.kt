@@ -10,12 +10,15 @@ import android.graphics.Path
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 private class FlowMark(context: Context, private val ui: Ui) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -141,7 +144,33 @@ class OnboardingView(
 
     /** Refreshes permission/IME state after returning from Android settings. */
     fun refreshExternalState() {
-        if (page == 3) updateTestCompletion() else update()
+        if (page == 3) {
+            updateTestCompletion()
+            showRehearsalKeyboardIfReady()
+        } else update()
+    }
+
+    /** Reopens the focused rehearsal field after the IME picker dismisses. */
+    fun showRehearsalKeyboardIfReady() {
+        if (page != 3 || !keyboardEnabled() || prefs.getBoolean("first_dictation_complete", false)) return
+        val field = testField ?: return
+        field.requestFocus()
+        field.postDelayed({
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.restartInput(field)
+            // This is an explicit user action (the rehearsal button).  Some
+            // Android 15 IME implementations reject SHOW_IMPLICIT while the
+            // picker is dismissing, leaving the selected keyboard invisible.
+            (context as? android.app.Activity)?.window?.setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                    WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE,
+            )
+            val shown = imm.showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+            if (!shown) imm.toggleSoftInput(android.view.inputmethod.InputMethodManager.SHOW_FORCED, 0)
+            // Android 11+ routes IME visibility through window insets; this
+            // complements the legacy manager call after an IME-picker return.
+            ViewCompat.getWindowInsetsController(field)?.show(WindowInsetsCompat.Type.ime())
+        }, 120L)
     }
 
     private fun build() {
@@ -287,15 +316,21 @@ class OnboardingView(
                 }
                 testField = field
                 visualHost.addView(field, LayoutParams(-1, ui.dp(64)))
-                testAction = ui.secondaryButton(if (tested) "Test complete" else "Choose Vaani keyboard") {
+                testAction = ui.secondaryButton(when {
+                    tested -> "Test complete"
+                    ime -> "Show Vaani keyboard"
+                    else -> "Choose Vaani keyboard"
+                }) {
                     if (!prefs.getBoolean("first_dictation_complete", false)) openKeyboardForTest()
                 }
                 visualHost.addView(testAction, LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(8) })
+                if (ime && !tested) post { showRehearsalKeyboardIfReady() }
             }
         }
         next.text = when {
             page == 3 && tested -> context.getString(R.string.onboarding_finish)
-            page == 3 -> "Open keyboard picker"
+            page == 3 && !ime -> "Choose Vaani keyboard"
+            page == 3 -> "Show Vaani keyboard"
             page == 1 && !mic -> "Allow microphone"
             page == 2 && !ime -> "Enable Vaani keyboard"
             else -> context.getString(R.string.onboarding_continue)
@@ -305,8 +340,17 @@ class OnboardingView(
 
     private fun updateTestCompletion() {
         val tested = prefs.getBoolean("first_dictation_complete", false)
-        testAction?.text = if (tested) "Test complete" else "Choose Vaani keyboard"
-        next.text = if (tested) context.getString(R.string.onboarding_finish) else "Open keyboard picker"
+        val ime = keyboardEnabled()
+        testAction?.text = when {
+            tested -> "Test complete"
+            ime -> "Show Vaani keyboard"
+            else -> "Choose Vaani keyboard"
+        }
+        next.text = when {
+            tested -> context.getString(R.string.onboarding_finish)
+            ime -> "Show Vaani keyboard"
+            else -> "Choose Vaani keyboard"
+        }
         if (tested) {
             testAction?.isEnabled = false
             testAction?.announceForAccessibility("Test dictation complete. Finish setup is available.")
@@ -315,9 +359,11 @@ class OnboardingView(
 
     private fun openKeyboardForTest() {
         val field = testField ?: return
-        field.requestFocus()
-        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-        imm.showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-        field.postDelayed(chooseKeyboard, 180)
+        if (keyboardEnabled()) {
+            showRehearsalKeyboardIfReady()
+        } else {
+            field.requestFocus()
+            field.postDelayed(chooseKeyboard, 180)
+        }
     }
 }

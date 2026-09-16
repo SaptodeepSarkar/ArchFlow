@@ -102,6 +102,11 @@ class VaaniKeyboardService : InputMethodService() {
 
     override fun onEvaluateFullscreenMode() = false
 
+    // Emulator and tablet profiles may advertise a hardware keyboard. Vaani
+    // is still an explicitly selected soft keyboard, so do not let that
+    // hardware capability suppress the IME input view.
+    override fun onEvaluateInputViewShown() = true
+
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         // An InputConnection can change without recreating the input view.
