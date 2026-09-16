@@ -71,6 +71,29 @@ impl Vad {
     }
 }
 
+impl crate::engine::VadEngine for Vad {
+    fn engine_id(&self) -> &str {
+        "energy-zcr"
+    }
+
+    fn push_block(
+        &mut self,
+        block: &[f32],
+    ) -> Result<bool, crate::engine::EngineError> {
+        if block.len() != BLOCK_SAMPLES {
+            return Err(crate::engine::EngineError::new(
+                crate::engine::EngineErrorKind::InvalidInput,
+                format!("VAD block must contain {BLOCK_SAMPLES} samples"),
+            ));
+        }
+        Ok(Vad::push_block(self, block))
+    }
+
+    fn is_silence(&self) -> bool {
+        Vad::is_silence(self)
+    }
+}
+
 /// Peak-normalised amplitude 0..1 for the overlay waveform (per block).
 pub fn block_amplitude(block: &[f32]) -> f32 {
     let mut peak: f32 = 0.0;
@@ -129,5 +152,14 @@ mod tests {
             v.push_block(&b);
         }
         assert!(!v.is_silence());
+    }
+
+    #[test]
+    fn adapter_rejects_unbounded_block_shape() {
+        use crate::engine::VadEngine;
+        let mut v = Vad::default();
+        let error = VadEngine::push_block(&mut v, &[0.0; BLOCK_SAMPLES - 1]).unwrap_err();
+        assert_eq!(error.kind, crate::engine::EngineErrorKind::InvalidInput);
+        assert_eq!(v.engine_id(), "energy-zcr");
     }
 }

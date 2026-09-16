@@ -87,6 +87,36 @@ pub trait SttEngine: Send {
     fn cancel(&mut self, session_id: SessionId) -> Result<(), EngineError>;
 }
 
+/// Replaceable voice-activity gate. Implementations consume bounded mono
+/// blocks and expose only activity/silence decisions to the controller.
+pub trait VadEngine: Send {
+    fn engine_id(&self) -> &str;
+    fn push_block(&mut self, block: &[f32]) -> Result<bool, EngineError>;
+    fn is_silence(&self) -> bool;
+}
+
+/// Replaceable audio preprocessor. Audio stays in memory and the output is
+/// handed to the STT boundary without involving control IPC or shell args.
+pub trait DenoiserEngine: Send + Sync {
+    fn engine_id(&self) -> &str;
+    fn process(&self, samples: &[f32]) -> Result<Vec<f32>, EngineError>;
+}
+
+/// Safe no-op denoiser for platforms without an installed preprocessing
+/// model. It makes the optional stage explicit without changing audio.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoopDenoiser;
+
+impl DenoiserEngine for NoopDenoiser {
+    fn engine_id(&self) -> &str {
+        "none"
+    }
+
+    fn process(&self, samples: &[f32]) -> Result<Vec<f32>, EngineError> {
+        Ok(samples.to_vec())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FormatContext {
     pub application: Option<String>,
@@ -273,5 +303,13 @@ mod tests {
         assert_eq!(result.engine_id, "local-polish");
         assert_eq!(result.text, "the browser");
         assert!(result.changed);
+    }
+
+    #[test]
+    fn noop_denoiser_preserves_audio_and_has_stable_identity() {
+        let denoiser = NoopDenoiser;
+        let samples = [0.0_f32, 0.25, -0.5, 1.0];
+        assert_eq!(denoiser.engine_id(), "none");
+        assert_eq!(denoiser.process(&samples).unwrap(), samples);
     }
 }

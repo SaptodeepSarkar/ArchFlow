@@ -19,6 +19,10 @@ text field focused
 ```
 
 - `crates/vaani-core`: config, versioned protocol, state machine, VAD, segment/reconcile.
+- `vaani-core::engine` also defines replaceable audio front-end contracts:
+  bounded-block `VadEngine` and in-memory `DenoiserEngine`; the existing energy
+  VAD implements the former and `NoopDenoiser` is the safe default for the
+  optional latter. Audio remains outside control IPC and shell arguments.
 - `crates/vaanid`: orchestration only — capture thread, focus checks
   (`hyprctl activewindow -j`), clipboard (`wl-copy`), key dispatch
   (`hyprctl dispatch sendkey`), worker supervision, pending-text expiry.
