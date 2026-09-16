@@ -7,9 +7,77 @@
 //! as unavailable.
 
 use vaani_core::engine::{
-    EngineError, FormatContext, FormatRequest, FormatterEngine, InsertOutcome,
-    PersonalizationProvider, SessionId, SttEngine, TextPipeline,
+    DenoiserEngine, EngineError, FormatContext, FormatRequest, FormatterEngine, InsertOutcome,
+    PersonalizationProvider, SessionId, SttEngine, TextPipeline, VadEngine,
 };
+
+/// One bounded, denoised audio block ready for the STT adapter.
+///
+/// The front-end keeps audio in memory and never serializes it into control
+/// messages, logs, or process arguments. `speech` is a gate hint only; STT
+/// still receives the complete block so quiet consonants are not discarded.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AudioChunk {
+    pub samples: Vec<f32>,
+    pub speech: bool,
+    pub level: u8,
+}
+
+/// Platform-neutral audio capture adapter. Capture implementations may emit
+/// any chunk size; this type normalizes them into the VAD's bounded blocks.
+pub struct AudioFrontEnd<V, D> {
+    vad: V,
+    denoiser: D,
+    pending: Vec<f32>,
+}
+
+impl<V, D> AudioFrontEnd<V, D>
+where
+    V: VadEngine,
+    D: DenoiserEngine,
+{
+    pub fn new(vad: V, denoiser: D) -> Self {
+        Self {
+            vad,
+            denoiser,
+            pending: Vec::new(),
+        }
+    }
+
+    /// Push an arbitrary-size mono PCM chunk and return all complete blocks.
+    pub fn push(&mut self, samples: &[f32]) -> Result<Vec<AudioChunk>, EngineError> {
+        self.pending.extend(self.denoiser.process(samples)?);
+        self.drain_blocks(false)
+    }
+
+    /// Flush the final short capture chunk without dropping its samples.
+    pub fn finish(&mut self) -> Result<Vec<AudioChunk>, EngineError> {
+        self.drain_blocks(true)
+    }
+
+    pub fn vad(&self) -> &V {
+        &self.vad
+    }
+
+    fn drain_blocks(&mut self, flush_partial: bool) -> Result<Vec<AudioChunk>, EngineError> {
+        let block_size = vaani_core::vad::BLOCK_SAMPLES;
+        let mut chunks = Vec::new();
+        while self.pending.len() >= block_size || (flush_partial && !self.pending.is_empty()) {
+            let take = self.pending.len().min(block_size);
+            let mut block: Vec<f32> = self.pending.drain(..take).collect();
+            let mut vad_block = block.clone();
+            vad_block.resize(block_size, 0.0);
+            let speech = self.vad.push_block(&vad_block)?;
+            let level = (vaani_core::vad::block_amplitude(&block) * 100.0).round() as u8;
+            chunks.push(AudioChunk {
+                samples: std::mem::take(&mut block),
+                speech,
+                level,
+            });
+        }
+        Ok(chunks)
+    }
+}
 
 pub mod credentials;
 pub mod firebase;
@@ -596,6 +664,26 @@ mod tests {
         );
         assert!(!report.text_preserved);
         assert!(matches!(report.outcome, InsertOutcome::Unavailable { .. }));
+    }
+
+    #[test]
+    fn audio_front_end_rechunks_without_dropping_samples() {
+        let mut front_end = AudioFrontEnd::new(
+            vaani_core::vad::Vad::default(),
+            vaani_core::engine::NoopDenoiser,
+        );
+        let first = vec![0.1_f32; 100];
+        let second = vec![0.2_f32; 300];
+        assert!(front_end.push(&first).unwrap().is_empty());
+        let chunks = front_end.push(&second).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].samples.len(), vaani_core::vad::BLOCK_SAMPLES);
+        assert!(chunks[0].speech);
+        assert_eq!(chunks[0].level, 20);
+
+        let tail = front_end.finish().unwrap();
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].samples, vec![0.2_f32; 80]);
     }
 
     #[test]

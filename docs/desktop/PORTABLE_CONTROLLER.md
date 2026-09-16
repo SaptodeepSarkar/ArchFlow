@@ -18,6 +18,11 @@ session, runs the replaceable formatter plus deterministic personalization
 pipeline, and delivers through the insertion/clipboard policy. Platform shells
 remain responsible for capture, shortcuts, and rendering.
 
+`AudioFrontEnd` is the capture-side composition boundary. It accepts arbitrary
+capture chunk sizes, runs the optional in-memory denoiser, buffers to the
+bounded VAD block size, and returns every sample with an activity/level hint.
+The hint is for UI and endpoint policy; it does not discard audio before STT.
+
 The controller is event-driven. Platform event loops call `invoke`, `preview`,
 `finishing`, and `deliver`; it does not poll windows or spawn per-tick helper
 commands. No transcript is logged or placed in command arguments by the
