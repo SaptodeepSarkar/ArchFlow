@@ -24,6 +24,9 @@ text field focused
   (`hyprctl dispatch sendkey`), worker supervision, pending-text expiry.
 - `crates/vaani-cli`: thin structured IPC client.
 - `crates/vaani-worker`: stdin PCM → stdout JSON; whisper-cli or silence-safe stub.
+- `crates/vaani-desktop`: replaceable desktop runtime boundary; in-memory
+  streaming STT → formatter → deterministic personalization → insertion with
+  clipboard recovery, plus explicit Linux/Windows adapters.
 - States: IDLE→STARTING→RECORDING→TRANSCRIBING→CLEANING→READY→INSERTING→IDLE,
   with CANCELLED/ERROR exits. Only the controller transitions; stale results die.
 - Control socket: `$XDG_RUNTIME_DIR/vaani/control.sock` (0700/0600), 1 MiB cap,

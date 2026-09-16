@@ -142,6 +142,27 @@ pub trait MetricsProvider: Send + Sync {
     fn record_error(&self, stage: &str, kind: EngineErrorKind);
 }
 
+/// CPU-safe formatter fallback. It performs only the deterministic polish
+/// rules shared by the runtime; model-backed formatters can replace it behind
+/// the same trait without changing the surrounding pipeline.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LocalFormatter;
+
+impl FormatterEngine for LocalFormatter {
+    fn engine_id(&self) -> &str {
+        "local-polish"
+    }
+
+    fn format(&self, request: &FormatRequest) -> Result<FormatResult, EngineError> {
+        let text = crate::transcript::polish(&request.transcript);
+        Ok(FormatResult {
+            engine_id: self.engine_id().into(),
+            changed: text != request.transcript,
+            text,
+        })
+    }
+}
+
 /// Portable text composition boundary. A formatter may be replaced without
 /// changing deterministic personalization or any platform insertion adapter.
 /// The formatter receives the original request; vocabulary, snippets, and
@@ -234,6 +255,23 @@ mod tests {
             result.text,
             "send https://github.com/example/repo to Hyprland"
         );
+        assert!(result.changed);
+    }
+
+    #[test]
+    fn local_formatter_is_a_conservative_offline_fallback() {
+        let request = FormatRequest {
+            session_id: SessionId::new_v4(),
+            transcript: "uh the the browser".into(),
+            context: FormatContext {
+                application: None,
+                language: "en".into(),
+                personalization: PersonalizationSnapshot::default(),
+            },
+        };
+        let result = LocalFormatter.format(&request).unwrap();
+        assert_eq!(result.engine_id, "local-polish");
+        assert_eq!(result.text, "the browser");
         assert!(result.changed);
     }
 }
