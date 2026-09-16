@@ -51,6 +51,7 @@ private class Wave(context: Context) : View(context) {
 
 class VaaniKeyboardService : InputMethodService() {
     private val prefs by lazy { getSharedPreferences("vaani", 0) }
+    private val personalization by lazy { PersonalizationStore(this) }
     private lateinit var ui: Ui
     private lateinit var root: LinearLayout
     private lateinit var wave: Wave
@@ -60,9 +61,8 @@ class VaaniKeyboardService : InputMethodService() {
     private lateinit var suggestionBar: LinearLayout
     private var shifted = false
     private var symbols = false
-    private var dictationState: DictationState = DictationState.Hidden
-    private var generation = 0
-    private var engine: OnDeviceSttEngine? = null
+    private val dictationController = DictationController()
+    private var engine: SttEngine? = null
     private val handler = Handler(Looper.getMainLooper())
     private var holdStart: Runnable? = null
     private var spellSession: SpellCheckerSession? = null
@@ -83,8 +83,13 @@ class VaaniKeyboardService : InputMethodService() {
     }
 
     private val timeout = Runnable {
-        if (dictationState is DictationState.Starting || dictationState is DictationState.Listening || dictationState is DictationState.Endpointing || dictationState is DictationState.Finalizing) {
-            fail(DictationState.Failure(FailureKind.TIMEOUT, getString(R.string.status_timed_out)))
+        val token = dictationController.currentToken()
+        val active = dictationController.state is DictationState.Starting ||
+            dictationController.state is DictationState.Listening ||
+            dictationController.state is DictationState.Endpointing ||
+            dictationController.state is DictationState.Finalizing
+        if (token != null && active) {
+            fail(token, FailureKind.TIMEOUT, getString(R.string.status_timed_out))
         }
     }
 
@@ -96,6 +101,20 @@ class VaaniKeyboardService : InputMethodService() {
     }
 
     override fun onEvaluateFullscreenMode() = false
+
+    override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
+        super.onStartInput(attribute, restarting)
+        // An InputConnection can change without recreating the input view.
+        // Invalidate any recognizer callback before accepting the new editor.
+        cancelVoice()
+        shifted = false
+        symbols = false
+    }
+
+    override fun onUnbindInput() {
+        cancelVoice()
+        super.onUnbindInput()
+    }
 
     override fun onCreateInputView(): View {
         // Theme changes made while the IME process survives take effect the
@@ -120,7 +139,6 @@ class VaaniKeyboardService : InputMethodService() {
     }
 
     private fun transition(next: DictationState, message: String? = null) {
-        dictationState = next
         if (!::status.isInitialized) return
         when (next) {
             DictationState.Hidden -> {
@@ -169,6 +187,7 @@ class VaaniKeyboardService : InputMethodService() {
     }
 
     private fun showKeys(message: String? = null) {
+        dictationController.hide()
         transition(DictationState.Hidden, message)
         root.removeAllViews()
         status = ui.label(message ?: getString(R.string.status_ready), 12f, ui.palette.muted).apply {
@@ -235,14 +254,14 @@ class VaaniKeyboardService : InputMethodService() {
                 }
                 MotionEvent.ACTION_UP -> {
                     holdStart?.let(handler::removeCallbacks); holdStart = null
-                    if (dictationState is DictationState.Listening || dictationState is DictationState.Starting || dictationState is DictationState.Endpointing || dictationState is DictationState.Finalizing) {
+                    if (dictationController.state is DictationState.Listening || dictationController.state is DictationState.Starting || dictationController.state is DictationState.Endpointing || dictationController.state is DictationState.Finalizing) {
                         releaseVoice()
                     } else view.performClick()
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     holdStart?.let(handler::removeCallbacks); holdStart = null
-                    if (dictationState !is DictationState.Hidden) {
+                    if (dictationController.state !is DictationState.Hidden) {
                         cancelVoice()
                         showKeys(getString(R.string.status_cancelled))
                     }
@@ -403,7 +422,7 @@ class VaaniKeyboardService : InputMethodService() {
     }
 
     private fun startVoice() {
-        if (dictationState !is DictationState.Hidden) return
+        if (dictationController.state !is DictationState.Hidden) return
         val type = currentInputEditorInfo?.inputType ?: 0
         val variation = type and InputType.TYPE_MASK_VARIATION
         if ((type and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT && variation in listOf(InputType.TYPE_TEXT_VARIATION_PASSWORD, InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)) ||
@@ -413,76 +432,80 @@ class VaaniKeyboardService : InputMethodService() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             showKeys(getString(R.string.status_permission_off)); return
         }
-        val token = ++generation
-        transition(DictationState.Starting)
+        val token = dictationController.start() ?: return
+        transition(dictationController.state)
         val lang = prefs.getString("language", "en-IN") ?: "en-IN"
         engine = OnDeviceSttEngine(this, lang, { level ->
-            if (token == generation && dictationState is DictationState.Listening) {
-                val current = dictationState as DictationState.Listening
-                dictationState = current.copy(level = level)
+            if (dictationController.isActive(token) && dictationController.state is DictationState.Listening) {
+                dictationController.level(token, level)
                 wave.push(level)
             }
-        }, { if (token == generation && dictationState is DictationState.Starting) transition(DictationState.Listening()) })
+        }, { if (dictationController.ready(token)) transition(dictationController.state) })
         handler.removeCallbacks(timeout)
         handler.postDelayed(timeout, 120000)
         engine?.start({ raw ->
-            if (token != generation || dictationState is DictationState.Hidden || dictationState is DictationState.Cancelled) return@start
+            if (!dictationController.isActive(token)) return@start
             handler.removeCallbacks(timeout)
-            val finalText = LocalConservativeCleanup(prefs.getBoolean("cleanup", true)).clean(raw)
+            val personalized = personalization.render(raw)
+            val finalText = LocalConservativeCleanup(prefs.getBoolean("cleanup", true)).clean(personalized)
             engine?.cancel(); engine = null
-            when (val current = dictationState) {
-                DictationState.Endpointing, DictationState.Finalizing -> deliver(finalText)
-                is DictationState.Listening -> {
-                    dictationState = current.copy(finalText = finalText)
-                    transition(dictationState)
-                }
-                DictationState.Starting -> transition(DictationState.Listening(finalText = finalText))
-                else -> Unit
-            }
+            val deliverNow = dictationController.result(token, finalText)
+            if (deliverNow) deliver(finalText, token) else transition(dictationController.state)
         }, { error ->
-            if (token == generation) fail(DictationState.Failure(FailureKind.RECOGNITION, error))
+            fail(token, FailureKind.RECOGNITION, error)
         })
     }
 
     private fun releaseVoice() {
-        val current = dictationState
-        if (current is DictationState.Listening && current.finalText != null) {
-            deliver(current.finalText)
+        val current = dictationController.state
+        val token = dictationController.currentToken() ?: return
+        val finalText = dictationController.release(token)
+        if (finalText != null) {
+            deliver(finalText, token)
             return
         }
         if (current !is DictationState.Listening && current !is DictationState.Starting) return
-        transition(DictationState.Endpointing)
+        transition(dictationController.state)
         handler.removeCallbacks(timeout)
-        handler.postDelayed({ if (dictationState == DictationState.Endpointing) transition(DictationState.Finalizing) }, 150)
+        handler.postDelayed({ if (dictationController.finishEndpoint(token)) transition(dictationController.state) }, 150)
         handler.postDelayed(timeout, 15000)
         engine?.stop()
     }
 
-    private fun deliver(text: String) {
+    private fun deliver(text: String, token: Long? = dictationController.currentToken()) {
         if (text.isEmpty()) {
             cancelVoice()
             showKeys(getString(R.string.status_no_speech))
             return
         }
-        transition(DictationState.Inserting(text))
+        val insertToken = if (dictationController.state is DictationState.Failure) {
+            dictationController.retry(text)
+        } else {
+            token
+        } ?: return
+        if (dictationController.state !is DictationState.Inserting) return
+        transition(dictationController.state)
         val accepted = currentInputConnection?.commitText(text, 1) == true
         if (accepted) {
             prefs.edit().putBoolean("first_dictation_complete", true).apply()
-            cancelVoice()
-            transition(DictationState.Success, getString(R.string.status_inserted))
-            handler.postDelayed({ if (dictationState is DictationState.Success) showKeys() }, 350)
+            engine?.cancel(); engine = null
+            dictationController.inserted(insertToken)
+            transition(dictationController.state, getString(R.string.status_inserted))
+            handler.postDelayed({ if (dictationController.state is DictationState.Success) { dictationController.hide(); showKeys() } }, 350)
         } else {
-            engine?.cancel(); engine = null; generation++
-            val failure = DictationState.Failure(FailureKind.INSERTION, getString(R.string.dictation_recovery_title), text)
+            engine?.cancel(); engine = null
+            dictationController.insertionFailed(insertToken, getString(R.string.dictation_recovery_title), text)
+            val failure = dictationController.state as DictationState.Failure
             transition(failure)
             showFailure(failure)
         }
     }
 
-    private fun fail(failure: DictationState.Failure) {
-        generation++
+    private fun fail(token: Long, kind: FailureKind, message: String, recoverableText: String? = null) {
         handler.removeCallbacks(timeout)
         engine?.cancel(); engine = null
+        if (!dictationController.failed(token, kind, message, recoverableText)) return
+        val failure = dictationController.state as DictationState.Failure
         transition(failure)
         if (failure.recoverableText != null) showFailure(failure) else showKeys(failure.message)
     }
@@ -493,10 +516,9 @@ class VaaniKeyboardService : InputMethodService() {
     }
 
     private fun cancelVoice() {
-        generation++
         handler.removeCallbacks(timeout)
         engine?.cancel(); engine = null
-        dictationState = DictationState.Hidden
+        dictationController.abort()
     }
 
     override fun onFinishInputView(finishingInput: Boolean) { cancelVoice(); super.onFinishInputView(finishingInput) }

@@ -674,6 +674,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vaani-desktop"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
+ "vaani-core",
+]
+
+[[package]]
 name = "vaani-worker"
 version = "1.0.0"
 dependencies = [

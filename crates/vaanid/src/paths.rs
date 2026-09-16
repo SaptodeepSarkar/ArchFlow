@@ -37,6 +37,10 @@ pub fn models_dir() -> PathBuf {
     data_dir().join("models")
 }
 
+pub fn personalization_path() -> PathBuf {
+    data_dir().join("personalization.jsonl")
+}
+
 pub fn ensure_dirs() -> anyhow::Result<()> {
     for d in [runtime_dir(), config_dir(), data_dir(), models_dir()] {
         std::fs::create_dir_all(&d)?;

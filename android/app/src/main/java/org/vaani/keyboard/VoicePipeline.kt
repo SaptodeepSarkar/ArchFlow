@@ -7,7 +7,11 @@ import android.speech.*
 import java.util.Locale
 
 /** STT boundary. A future JNI whisper.cpp engine can consume the same session contract. */
-interface SttEngine { fun start(onText: (String) -> Unit, onError: (String) -> Unit); fun stop() }
+interface SttEngine {
+    fun start(onText: (String) -> Unit, onError: (String) -> Unit)
+    fun stop()
+    fun cancel()
+}
 
 /** Native engines (for example whisper.cpp through JNI) can implement this
  * contract and receive bounded mono 16 kHz PCM without JSON/base64 transport. */
@@ -46,7 +50,7 @@ class OnDeviceSttEngine(private val context: Context, private val languageTag: S
         } catch (_: RuntimeException) { cancel(); onError("Could not start on-device speech. Check microphone and speech settings.") }
     }
     override fun stop() { recognizer?.stopListening() }
-    fun cancel() { recognizer?.cancel(); recognizer?.destroy(); recognizer = null }
+    override fun cancel() { recognizer?.cancel(); recognizer?.destroy(); recognizer = null }
 }
 
 /** Minimal-edit cleanup: punctuation/capitalization only; meaning and numbers survive. */

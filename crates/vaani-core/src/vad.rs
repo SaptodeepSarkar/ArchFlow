@@ -42,18 +42,7 @@ impl Vad {
             sum += x * x;
             if (prev >= 0.0) != (x >= 0.0) {
                 zc += 1;
-    #[test]
-    fn very_quiet_voice_level_is_not_discarded() {
-        let mut v = Vad::default();
-        for i in 0..50 {
-            let b: Vec<f32> = (0..BLOCK_SAMPLES)
-                .map(|n| 0.005 * ((i * BLOCK_SAMPLES + n) as f32 * 0.08).sin())
-                .collect();
-            v.push_block(&b);
-        }
-        assert!(!v.is_silence());
-    }
-}
+            }
             prev = x;
         }
         let rms = (sum / block.len() as f32).sqrt();

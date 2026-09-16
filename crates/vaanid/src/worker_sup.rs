@@ -420,6 +420,33 @@ mod tests {
         assert_eq!(parse_vad_ends("garbage"), None);
     }
 
+    #[test]
+    fn package_manifest_requires_matching_file_hash() {
+        let root = std::env::temp_dir().join(format!("vaani-model-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let model = root.join("weights.bin");
+        std::fs::write(&model, b"local test model").unwrap();
+        let hash = String::from_utf8(std::process::Command::new("sha256sum").arg(&model).output().unwrap().stdout).unwrap().split_whitespace().next().unwrap().to_string();
+        let manifest = vaani_core::model::ModelManifest {
+            schema_version: vaani_core::model::MODEL_SCHEMA_VERSION,
+            id: "test-model".into(), kind: vaani_core::model::ModelKind::Stt,
+            version: "1.0.0".into(), runtime: "test".into(), quantization: None,
+            languages: vec!["en".into()], files: vec![vaani_core::model::ModelFile { path: "weights.bin".into(), bytes: 16, sha256: hash }],
+            minimum_ram_mb: 1, license: "test".into(), capabilities: vec![],
+        };
+        std::fs::write(root.join("model.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert!(validate_model_package(root.to_str().unwrap()).is_ok());
+        let packages = discover_model_packages(root.parent().unwrap());
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].manifest.as_ref().unwrap().id, "test-model");
+        assert!(packages[0].error.is_none());
+        std::fs::write(&model, b"tampered model").unwrap();
+        assert!(validate_model_package(root.to_str().unwrap()).is_err());
+        assert!(discover_model_packages(root.parent().unwrap())[0].error.is_some());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     /// Hardware streaming test: requires CUDA GPU, the cozy CT2 model in
     /// ~/.local/share/vaani/models/cozy, the Cozy venv python, and an
     /// installed fw-server.py. Run explicitly after `./install.sh`:
@@ -547,7 +574,9 @@ pub fn model_path_for(model: &str) -> String {
         if std::path::Path::new(&direct).exists() {
             return Some(direct);
         }
-        None
+        discover_model_packages(std::path::Path::new(dir)).into_iter()
+            .find(|package| package.manifest.as_ref().is_some_and(|manifest| manifest.id == model) && package.error.is_none())
+            .map(|package| package.root.to_string_lossy().into_owned())
     };
     if let Ok(dir) = std::env::var("VAANI_MODELS_DIR") {
         if !dir.is_empty() {
@@ -561,6 +590,64 @@ pub fn model_path_for(model: &str) -> String {
         .unwrap_or_else(|_| format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into())));
     let dir = format!("{base}/vaani/models");
     lookup(&dir).unwrap_or_else(|| format!("{dir}/{model}.bin"))
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelPackageStatus {
+    pub root: std::path::PathBuf,
+    pub manifest: Option<vaani_core::model::ModelManifest>,
+    pub error: Option<String>,
+}
+
+/// Enumerate package directories without hiding invalid entries from doctor
+/// output. Only valid entries are eligible for id-based model selection.
+pub fn discover_model_packages(root: &std::path::Path) -> Vec<ModelPackageStatus> {
+    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
+    let mut packages = entries.filter_map(Result::ok)
+        .filter_map(|entry| entry.file_type().ok().filter(|kind| kind.is_dir()).map(|_| entry.path()))
+        .filter(|path| path.join("model.json").is_file())
+        .map(|path| {
+            let manifest = std::fs::read_to_string(path.join("model.json"))
+                .map_err(|e| format!("manifest read failed: {e}"))
+                .and_then(|json| vaani_core::model::ModelManifest::from_json(&json).map_err(|e| format!("manifest parse failed: {e}")))
+                .and_then(|manifest| { manifest.validate().map_err(|e| e.to_string()).map(|_| manifest) });
+            match manifest {
+                Ok(manifest) => {
+                    let error = validate_model_package(path.to_string_lossy().as_ref()).err().map(|e| e.to_string());
+                    ModelPackageStatus { root: path, manifest: Some(manifest), error }
+                }
+                Err(error) => ModelPackageStatus { root: path, manifest: None, error: Some(error) },
+            }
+        })
+        .collect::<Vec<_>>();
+    packages.sort_by(|left, right| left.root.cmp(&right.root));
+    packages
+}
+
+/// Validate an optional package manifest before an engine receives the model.
+/// Legacy single-file installs have no sidecar and remain supported; package
+/// installs are never allowed to run with missing, resized, or rehashed files.
+fn validate_model_package(path: &str) -> anyhow::Result<()> {
+    let model_path = std::path::Path::new(path);
+    let root = if model_path.is_dir() { model_path } else { model_path.parent().unwrap_or(model_path) };
+    let manifest_path = root.join("model.json");
+    if !manifest_path.is_file() { return Ok(()); }
+    let json = std::fs::read_to_string(&manifest_path).map_err(|e| anyhow::anyhow!("model manifest read failed: {e}"))?;
+    let manifest = vaani_core::model::ModelManifest::from_json(&json).map_err(|e| anyhow::anyhow!("model manifest parse failed: {e}"))?;
+    manifest.validate().map_err(|e| anyhow::anyhow!("model manifest validation failed: {e}"))?;
+    for file in &manifest.files {
+        let candidate = root.join(&file.path);
+        let metadata = std::fs::metadata(&candidate).map_err(|e| anyhow::anyhow!("model file {} unavailable: {e}", file.path))?;
+        if !metadata.is_file() || metadata.len() != file.bytes {
+            anyhow::bail!("model file {} has unexpected size", file.path);
+        }
+        let output = std::process::Command::new("sha256sum").arg(&candidate).output().map_err(|e| anyhow::anyhow!("sha256sum unavailable: {e}"))?;
+        if !output.status.success() { anyhow::bail!("sha256sum failed for model file {}", file.path); }
+        let hash_output = String::from_utf8_lossy(&output.stdout);
+        let actual = hash_output.split_whitespace().next().unwrap_or("");
+        if !actual.eq_ignore_ascii_case(&file.sha256) { anyhow::bail!("sha256 mismatch for model file {}", file.path); }
+    }
+    Ok(())
 }
 
 /// Transcribe complete utterance (stop-gated, max 120 s). Long audio uses
@@ -592,6 +679,7 @@ pub fn transcribe(
     // the fallback. Short-window accumulation is preview-only and must never
     // feed the final transcript (windows diverge; merging them makes salad).
     let resolved = model_path_for(model);
+    validate_model_package(&resolved)?;
     if server_idle_secs > 0 && std::path::Path::new(&resolved).is_dir() {
         let segs = segment(samples);
         let mut parts: Vec<String> = Vec::new();
@@ -663,6 +751,8 @@ fn run_once(
     vocab: &[String],
 ) -> anyhow::Result<Transcript> {
     let t0 = std::time::Instant::now();
+    let resolved = model_path_for(model);
+    validate_model_package(&resolved)?;
     let mut command = std::process::Command::new(worker_bin());
     if translate { command.arg("--translate"); }
     if !vocab.is_empty() {
@@ -672,7 +762,7 @@ fn run_once(
     }
     let mut child = command
         .arg("--model")
-        .arg(model_path_for(model))
+        .arg(resolved)
         .arg("--language")
         .arg(language)
         .arg("--threads")

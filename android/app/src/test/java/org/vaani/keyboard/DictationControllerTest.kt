@@ -1,0 +1,64 @@
+package org.vaani.keyboard
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DictationControllerTest {
+    @Test
+    fun staleResultCannotMutateNewSession() {
+        val controller = DictationController()
+        val old = controller.start()!!
+        controller.cancel()
+        controller.hide()
+        val current = controller.start()!!
+
+        assertTrue(!controller.result(old, "stale"))
+        assertEquals(DictationState.Starting, controller.state)
+        assertTrue(controller.ready(current))
+    }
+
+    @Test
+    fun releaseBeforeResultMovesThroughEndpointing() {
+        val controller = DictationController()
+        val token = controller.start()!!
+        controller.ready(token)
+
+        assertNull(controller.release(token))
+        assertEquals(DictationState.Endpointing, controller.state)
+        assertTrue(controller.finishEndpoint(token))
+        assertEquals(DictationState.Finalizing, controller.state)
+        assertTrue(controller.result(token, "hello"))
+        assertEquals(DictationState.Inserting("hello"), controller.state)
+    }
+
+    @Test
+    fun insertionFailureRetainsTextForRecovery() {
+        val controller = DictationController()
+        val token = controller.start()!!
+        controller.ready(token)
+        controller.result(token, "Hyprland notes")
+        assertEquals("Hyprland notes", controller.release(token))
+
+        assertTrue(controller.insertionFailed(token, "Insertion failed", "Hyprland notes"))
+        assertEquals(
+            DictationState.Failure(FailureKind.INSERTION, "Insertion failed", "Hyprland notes"),
+            controller.state,
+        )
+    }
+
+    @Test
+    fun retryCreatesFreshInsertionSession() {
+        val controller = DictationController()
+        val token = controller.start()!!
+        controller.ready(token)
+        controller.result(token, "recover me")
+        controller.release(token)
+        controller.insertionFailed(token, "Insertion failed", "recover me")
+
+        val retryToken = controller.retry("recover me")!!
+        assertTrue(retryToken != token)
+        assertEquals(DictationState.Inserting("recover me"), controller.state)
+    }
+}

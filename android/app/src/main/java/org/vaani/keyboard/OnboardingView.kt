@@ -227,7 +227,7 @@ class OnboardingView(
         )[page]
         body.text = listOf(
             "Vaani turns a thought into text in the field you already use. It never sends the message for you.",
-            "Audio is captured only while you hold Send and handed to Android's speech service. Vaani has no network permission and stores no recording.",
+            "Audio is captured only while you hold Send and handed to Android's speech service. Vaani stores no recording; network access is only for optional personalization sync.",
             "Enabling Vaani adds a keyboard; it does not replace your usual one. Switch keyboards anytime from Android's picker.",
             "Focus the field, choose Vaani, hold Send for about 220 ms, speak, then release. Text is inserted—never auto-sent."
         )[page]

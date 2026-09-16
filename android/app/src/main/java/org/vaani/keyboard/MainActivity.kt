@@ -15,6 +15,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Space
 import android.widget.TextView
+import android.text.InputType
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -26,6 +27,8 @@ class MainActivity : Activity() {
     private var activeScroll: ScrollView? = null
     private var onboardingView: OnboardingView? = null
     private var hasResumedOnce = false
+    private val personalization by lazy { PersonalizationStore(this) }
+    private val syncClient by lazy { FirebaseSyncClient(personalization) }
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -184,7 +187,7 @@ class MainActivity : Activity() {
         root.addView(statusRow(ui, "Microphone", if (ready.microphoneGranted) "Allowed" else "Needs access"))
         root.addView(statusRow(ui, "Vaani keyboard", if (ready.keyboardEnabled) "Enabled" else "Not enabled"))
         root.addView(ui.sectionTitle("Privacy"))
-        root.addView(ui.label("Vaani has no network permission. Audio is used by the device speech recognizer during an active dictation and is not stored by this app.", 14f, ui.palette.muted))
+        root.addView(ui.label("Audio is used by the device speech recognizer during an active dictation and is not stored by this app. Network access is used only for optional account sync.", 14f, ui.palette.muted))
         return root
     }
 
@@ -222,11 +225,93 @@ class MainActivity : Activity() {
         root.addView(ui.sectionTitle("Keyboard"))
         root.addView(ui.secondaryButton("Open Android keyboard settings") { openImeSettings() }, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(6) })
         root.addView(ui.secondaryButton("Choose keyboard now") { showKeyboardPicker() }, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(6) })
-        root.addView(ui.sectionTitle("Not available yet"))
-        root.addView(ui.label("Vocabulary, snippets, replacements, history, downloadable Vaani models, and coexisting overlay invocation are not wired in this build. They will appear only when their local backend contracts are ready.", 14f, ui.palette.muted))
+        root.addView(ui.sectionTitle("Personalization"))
+        root.addView(ui.label("These rules stay on this device and run before insertion. Word boundaries prevent accidental edits inside larger words.", 14f, ui.palette.muted))
+        addPersonalizationEditor(root, ui, "Vocabulary term", "Add term") { term, _ -> personalization.addVocabulary(term) }
+        addPersonalizationEditor(root, ui, "Spoken shortcut", "Expansion", "Add snippet") { trigger, value -> personalization.addSnippet(trigger, value) }
+        addPersonalizationEditor(root, ui, "Replace", "With", "Add replacement") { trigger, value -> personalization.addReplacement(trigger, value) }
+        addPersonalizationRows(root, ui, "Vocabulary", personalization.vocabulary(), PersonalizationStore.Kind.VOCABULARY)
+        addPersonalizationRows(root, ui, "Snippets", personalization.snippets(), PersonalizationStore.Kind.SNIPPET)
+        addPersonalizationRows(root, ui, "Replacements", personalization.replacements(), PersonalizationStore.Kind.REPLACEMENT)
+        addAccountSection(root, ui)
         root.addView(ui.sectionTitle("About"))
         root.addView(ui.meta("Vaani Android 0.1.0 · local-first dictation"))
         return root
+    }
+
+    private fun addAccountSection(root: LinearLayout, ui: Ui) {
+        root.addView(ui.sectionTitle("Optional sync"))
+        root.addView(ui.label("Vaani works fully offline. Sign in only if you want vocabulary, snippets, and replacements on another device; audio and dictations are never synced.", 14f, ui.palette.muted))
+        val email = EditText(this).apply {
+            hint = "Email"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            setSingleLine(true)
+        }
+        val password = EditText(this).apply {
+            hint = "Password"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+        }
+        root.addView(email, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(8) })
+        root.addView(password, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(6) })
+        val status = ui.meta(syncClient.email()?.let { "Signed in as $it" } ?: "Not signed in")
+        root.addView(status, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(8) })
+        root.addView(ui.primaryButton("Sign in") {
+            syncClient.signIn(email.text.toString(), password.text.toString()) { result ->
+                status.text = if (result.isSuccess) "Signed in — personalization is ready to sync" else "Sign-in failed; check your details or connection"
+                if (result.isSuccess) render()
+            }
+        }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
+        root.addView(ui.secondaryButton("Create account") {
+            syncClient.createAccount(email.text.toString(), password.text.toString()) { result ->
+                status.text = if (result.isSuccess) "Account created — personalization is ready to sync" else "Could not create account; check your details"
+                if (result.isSuccess) render()
+            }
+        }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
+        root.addView(ui.secondaryButton("Sync personalization now") {
+            syncClient.sync { result ->
+                status.text = result.fold(
+                    onSuccess = { "Synced ${it.uploaded} local records; merged ${it.downloaded} remote records" },
+                    onFailure = { "Sync unavailable; local personalization is unchanged" },
+                )
+            }
+        }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
+        if (syncClient.email() != null) root.addView(ui.secondaryButton("Sign out") { syncClient.signOut(); render() }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
+    }
+
+    private fun addPersonalizationEditor(
+        root: LinearLayout,
+        ui: Ui,
+        firstHint: String,
+        secondHint: String,
+        buttonText: String = secondHint,
+        save: (String, String) -> Boolean,
+    ) {
+        val first = EditText(this).apply { hint = firstHint; textSize = 16f; setSingleLine(true) }
+        val second = if (buttonText == secondHint) null else EditText(this).apply { hint = secondHint; textSize = 16f; setSingleLine(true) }
+        listOfNotNull(first, second).forEach { field ->
+            field.setTextColor(ui.ink)
+            field.setHintTextColor(ui.palette.muted)
+            field.background = ui.shape(ui.palette.surfaceRaised, ui.palette.line, 12)
+            field.setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
+            root.addView(field, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(6) })
+        }
+        root.addView(ui.secondaryButton(buttonText) {
+            if (save(first.text.toString(), second?.text?.toString().orEmpty())) render()
+            else first.error = "Enter a value up to 500 characters"
+        }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
+    }
+
+    private fun addPersonalizationRows(root: LinearLayout, ui: Ui, title: String, entries: List<PersonalizationEntry>, kind: PersonalizationStore.Kind) {
+        if (entries.isEmpty()) return
+        root.addView(ui.label(title, 15f).apply { typeface = android.graphics.Typeface.DEFAULT_BOLD; setPadding(0, ui.dp(14), 0, ui.dp(4)) })
+        entries.forEach { entry ->
+            val row = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+            val label = if (entry.value.isEmpty()) entry.trigger else "${entry.trigger}  →  ${entry.value}"
+            row.addView(ui.label(label, 14f), LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(ui.secondaryButton("Remove") { personalization.remove(kind, entry.id); render() }, LinearLayout.LayoutParams(ui.dp(96), ui.dp(44)))
+            root.addView(row)
+        }
     }
 
     private fun blockerTitle(blocker: ReadinessBlocker?) = when (blocker) {
