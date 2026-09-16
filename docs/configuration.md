@@ -10,7 +10,7 @@ saved `copy-only` keep that choice; restore the typing behavior with
 
 | Key | Values | Tradeoff |
 |---|---|---|
-| general.residency_profile | economy (default) / balanced / ready | Economy always exits sidecars after an operation; Balanced/Ready may retain supported sidecars for the configured TTL. |
+| general.residency_profile | economy (default) / balanced / ready | Economy exits sidecars after an operation; Balanced keeps supported sidecars warm for at least 60 seconds; Ready keeps them warm for up to 10 minutes. |
 | general.review_before_insertion | bool | Stricter control; window match ≠ same cursor field |
 | audio.device_selector | "" or stable source name | "" = PipeWire default each session; never numeric node ids |
 | audio.worker_threads | 1–16 (4) | Responsiveness vs CPU |

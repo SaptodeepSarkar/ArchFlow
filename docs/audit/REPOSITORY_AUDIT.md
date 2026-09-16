@@ -20,7 +20,7 @@ This is a source-tree audit of commit `9b1c581d` (`fix(android): distinguish ena
 | Sync/auth | Local sync records/repository, Firestore rules/emulator tests, and Android optional auth/provider bridge exist; production provider enablement and desktop adapters remain | EXTEND after local-first data model |
 | Models | Manifest plus user-local V5/cozy references; no model weights tracked | KEEP policy; formalize package validation |
 | Training | Historical V1–V5/V6 scripts, ignored datasets, checkpoints, and caches | ARCHIVE/document; exclude from active runtime |
-| Tests | 78 passing Rust tests plus one ignored hardware test, 7 Android policy/reducer tests, 5 connected Android tests, and 14 portable desktop tests; no native desktop test suite | KEEP coverage; ADD platform and contract tests |
+| Tests | 79 passing Rust tests plus one ignored hardware test, 7 Android policy/reducer tests, 5 connected Android tests, and 14 portable desktop tests; no native desktop test suite | KEEP coverage; ADD platform and contract tests |
 
 ## Keep / refactor / replace / archive / delete
 

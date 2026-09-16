@@ -328,12 +328,14 @@ impl Config {
     }
 
     /// Residency policy is authoritative. Economy never keeps an inference
-    /// sidecar alive; Balanced uses the configured TTL; Ready retains it up
-    /// to the configured safety cap.
+    /// sidecar alive; Balanced keeps it warm for at least 60 seconds; Ready
+    /// keeps it warm up to the configured 10-minute safety cap. A non-zero
+    /// configured TTL may shorten neither profile's minimum guarantee.
     pub fn effective_server_idle_secs(&self) -> u64 {
         match self.general.residency_profile.as_str() {
             "economy" => 0,
-            "balanced" | "ready" => self.recognition.server_idle_secs,
+            "balanced" => self.recognition.server_idle_secs.max(60),
+            "ready" => self.recognition.server_idle_secs.max(600),
             _ => 0,
         }
     }
@@ -552,6 +554,19 @@ mod tests {
         assert_eq!(c.cleanup.word_threshold, 0);
         assert_eq!(c.effective_server_idle_secs(), 0);
         assert!(!c.privacy.save_history);
+    }
+
+    #[test]
+    fn residency_profiles_have_explicit_warmth_guarantees() {
+        let mut c = Config::default();
+        c.general.residency_profile = "balanced".into();
+        assert_eq!(c.effective_server_idle_secs(), 60);
+        c.general.residency_profile = "ready".into();
+        assert_eq!(c.effective_server_idle_secs(), 600);
+        c.recognition.server_idle_secs = 120;
+        assert_eq!(c.effective_server_idle_secs(), 600);
+        c.general.residency_profile = "economy".into();
+        assert_eq!(c.effective_server_idle_secs(), 0);
     }
 
     #[test]

@@ -947,7 +947,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
                 snap.cfg.audio.worker_threads,
                 cuda,
                 &snap.cfg.cleanup.vocabulary,
-                snap.cfg.recognition.server_idle_secs,
+                snap.cfg.effective_server_idle_secs(),
             )
         })
         .await;
@@ -1090,7 +1090,7 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, ma
             cfg_snap.audio.worker_threads,
             cuda,
             &cfg_snap.cleanup.vocabulary,
-            cfg_snap.recognition.server_idle_secs,
+            cfg_snap.effective_server_idle_secs(),
         )?;
         Ok::<_, anyhow::Error>(result)
     })

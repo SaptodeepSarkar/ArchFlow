@@ -93,12 +93,16 @@ ColumnLayout {
                 font.bold: true
             }
             ComboBox {
-                model: ["economy"]
+                model: ["economy", "balanced", "ready"]
                 currentIndex: Math.max(0, ["economy", "balanced", "ready"].indexOf(settingsRoot.cfg.general ? settingsRoot.cfg.general.residency_profile : "economy"))
                 onActivated: settingsRoot.setKey("general.residency_profile", currentText)
             }
             Label {
-                text: "The model unloads after each dictation. Balanced and Ready residency are not implemented yet."
+                text: settingsRoot.cfg.general && settingsRoot.cfg.general.residency_profile === "ready"
+                    ? "Ready keeps the selected model warm for up to 10 minutes; it uses more memory."
+                    : settingsRoot.cfg.general && settingsRoot.cfg.general.residency_profile === "balanced"
+                        ? "Balanced keeps the model warm for at least 60 seconds, speeding up repeated dictation."
+                        : "Economy unloads the model after each dictation, saving inactive memory."
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
                 color: colors.muted
