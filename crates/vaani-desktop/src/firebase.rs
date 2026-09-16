@@ -56,7 +56,11 @@ impl<T: FirebaseTokenProvider> FirebaseRestProvider<T> {
             .unwrap_or_default();
         Ok(format!(
             "{}/v1/projects/{}/databases/{}/documents/users/{}/personalization{}",
-            self.base_url.trim_end_matches('/'), project, database, user, suffix
+            self.base_url.trim_end_matches('/'),
+            project,
+            database,
+            user,
+            suffix
         ))
     }
 
@@ -75,9 +79,15 @@ impl<T: FirebaseTokenProvider> FirebaseRestProvider<T> {
         Ok(())
     }
 
-    fn pull_page(&self, page_token: Option<&str>) -> Result<(Vec<PersonalizationRecord>, Option<String>), EngineError> {
+    fn pull_page(
+        &self,
+        page_token: Option<&str>,
+    ) -> Result<(Vec<PersonalizationRecord>, Option<String>), EngineError> {
         let token = self.auth_header()?;
-        let mut request = self.agent.get(self.document_url(None)?).header("Authorization", token);
+        let mut request = self
+            .agent
+            .get(self.document_url(None)?)
+            .header("Authorization", token);
         if let Some(page_token) = page_token {
             request = request.query("pageToken", page_token);
         }
@@ -118,7 +128,10 @@ impl<T: FirebaseTokenProvider> SyncProvider for FirebaseRestProvider<T> {
         Ok(())
     }
 
-    fn pull(&self, _cursor: Option<&str>) -> Result<(Vec<PersonalizationRecord>, Option<String>), EngineError> {
+    fn pull(
+        &self,
+        _cursor: Option<&str>,
+    ) -> Result<(Vec<PersonalizationRecord>, Option<String>), EngineError> {
         // A full bounded scan is intentional until a server-side updatedAt
         // query is introduced. Returning no opaque page cursor prevents an
         // expiring Firestore page token from skipping future edits.
@@ -177,13 +190,22 @@ fn firestore_fields(record: &PersonalizationRecord) -> Map<String, Value> {
     fields.insert("logical_clock".into(), integer_value(clock));
     fields.insert("writer_device_id".into(), string_value(writer));
     fields.insert("updated_at_ms".into(), integer_value(updated));
-    fields.insert("deleted_at_ms".into(), deleted.map_or_else(null_value, integer_value));
-    fields.insert("value".into(), value.map_or_else(null_value, |value| map_value(value)));
+    fields.insert(
+        "deleted_at_ms".into(),
+        deleted.map_or_else(null_value, integer_value),
+    );
+    fields.insert(
+        "value".into(),
+        value.map_or_else(null_value, |value| map_value(value)),
+    );
     fields
 }
 
 fn record_from_document(document: &Value) -> Result<Option<PersonalizationRecord>, EngineError> {
-    let fields = document.get("fields").and_then(Value::as_object).ok_or_else(|| network_error("Firestore document omitted fields"))?;
+    let fields = document
+        .get("fields")
+        .and_then(Value::as_object)
+        .ok_or_else(|| network_error("Firestore document omitted fields"))?;
     let entity = required_string(fields, "entity")?;
     let kind = match entity {
         "vocabulary" => SyncEntityKind::Vocabulary,
@@ -203,96 +225,225 @@ fn record_from_document(document: &Value) -> Result<Option<PersonalizationRecord
     let deleted_at_ms = optional_i64(fields.get("deleted_at_ms"))?;
     let value = fields.get("value").and_then(map_fields);
     let record = match (kind, deleted_at_ms, value) {
-        (SyncEntityKind::Vocabulary, None, Some(value)) => PersonalizationRecord::Vocabulary(SyncRecord {
-            schema_version, entity: kind, id: id.clone(), revision, logical_clock,
-            writer_device_id, updated_at_ms, deleted_at_ms,
-            value: Some(vaani_core::personalization::VocabularyEntry {
-                id, canonical: required_string(value, "canonical")?.to_owned(),
-                spoken_aliases: array_strings(value, "spoken_aliases")?,
-                category: optional_string(value.get("category"))?,
-                created_at_ms: required_i64(value, "created_at_ms")?,
-                updated_at_ms: required_i64(value, "updated_at_ms")?,
-            }),
-        }),
-        (SyncEntityKind::Snippet, None, Some(value)) => PersonalizationRecord::Snippet(SyncRecord {
-            schema_version, entity: kind, id: id.clone(), revision, logical_clock,
-            writer_device_id, updated_at_ms, deleted_at_ms,
-            value: Some(vaani_core::personalization::Snippet {
-                id, trigger: required_string(value, "trigger")?.to_owned(),
-                value: required_string(value, "value")?.to_owned(),
-                created_at_ms: required_i64(value, "created_at_ms")?,
-                updated_at_ms: required_i64(value, "updated_at_ms")?,
-            }),
-        }),
-        (SyncEntityKind::Replacement, None, Some(value)) => PersonalizationRecord::Replacement(SyncRecord {
-            schema_version, entity: kind, id: id.clone(), revision, logical_clock,
-            writer_device_id, updated_at_ms, deleted_at_ms,
-            value: Some(vaani_core::personalization::Replacement {
-                id, source: required_string(value, "source")?.to_owned(),
-                target: required_string(value, "target")?.to_owned(),
-                created_at_ms: required_i64(value, "created_at_ms")?,
-                updated_at_ms: required_i64(value, "updated_at_ms")?,
-            }),
-        }),
-        (SyncEntityKind::Vocabulary | SyncEntityKind::Snippet | SyncEntityKind::Replacement, Some(_), _) => tombstone(kind, id, revision, logical_clock, writer_device_id, updated_at_ms, deleted_at_ms),
+        (SyncEntityKind::Vocabulary, None, Some(value)) => {
+            PersonalizationRecord::Vocabulary(SyncRecord {
+                schema_version,
+                entity: kind,
+                id: id.clone(),
+                revision,
+                logical_clock,
+                writer_device_id,
+                updated_at_ms,
+                deleted_at_ms,
+                value: Some(vaani_core::personalization::VocabularyEntry {
+                    id,
+                    canonical: required_string(value, "canonical")?.to_owned(),
+                    spoken_aliases: array_strings(value, "spoken_aliases")?,
+                    category: optional_string(value.get("category"))?,
+                    created_at_ms: required_i64(value, "created_at_ms")?,
+                    updated_at_ms: required_i64(value, "updated_at_ms")?,
+                }),
+            })
+        }
+        (SyncEntityKind::Snippet, None, Some(value)) => {
+            PersonalizationRecord::Snippet(SyncRecord {
+                schema_version,
+                entity: kind,
+                id: id.clone(),
+                revision,
+                logical_clock,
+                writer_device_id,
+                updated_at_ms,
+                deleted_at_ms,
+                value: Some(vaani_core::personalization::Snippet {
+                    id,
+                    trigger: required_string(value, "trigger")?.to_owned(),
+                    value: required_string(value, "value")?.to_owned(),
+                    created_at_ms: required_i64(value, "created_at_ms")?,
+                    updated_at_ms: required_i64(value, "updated_at_ms")?,
+                }),
+            })
+        }
+        (SyncEntityKind::Replacement, None, Some(value)) => {
+            PersonalizationRecord::Replacement(SyncRecord {
+                schema_version,
+                entity: kind,
+                id: id.clone(),
+                revision,
+                logical_clock,
+                writer_device_id,
+                updated_at_ms,
+                deleted_at_ms,
+                value: Some(vaani_core::personalization::Replacement {
+                    id,
+                    source: required_string(value, "source")?.to_owned(),
+                    target: required_string(value, "target")?.to_owned(),
+                    created_at_ms: required_i64(value, "created_at_ms")?,
+                    updated_at_ms: required_i64(value, "updated_at_ms")?,
+                }),
+            })
+        }
+        (
+            SyncEntityKind::Vocabulary | SyncEntityKind::Snippet | SyncEntityKind::Replacement,
+            Some(_),
+            _,
+        ) => tombstone(
+            kind,
+            id,
+            revision,
+            logical_clock,
+            writer_device_id,
+            updated_at_ms,
+            deleted_at_ms,
+        ),
         _ => return Ok(None),
     };
     Ok(Some(record))
 }
 
-fn tombstone(kind: SyncEntityKind, id: String, revision: u64, logical_clock: u64, writer_device_id: String, updated_at_ms: i64, deleted_at_ms: Option<i64>) -> PersonalizationRecord {
+fn tombstone(
+    kind: SyncEntityKind,
+    id: String,
+    revision: u64,
+    logical_clock: u64,
+    writer_device_id: String,
+    updated_at_ms: i64,
+    deleted_at_ms: Option<i64>,
+) -> PersonalizationRecord {
     let deleted_at_ms = deleted_at_ms.unwrap_or(updated_at_ms);
     match kind {
-        SyncEntityKind::Vocabulary => PersonalizationRecord::Vocabulary(SyncRecord::<vaani_core::personalization::VocabularyEntry>::tombstone(kind, id, revision, logical_clock, writer_device_id, deleted_at_ms)),
-        SyncEntityKind::Snippet => PersonalizationRecord::Snippet(SyncRecord::<vaani_core::personalization::Snippet>::tombstone(kind, id, revision, logical_clock, writer_device_id, deleted_at_ms)),
-        SyncEntityKind::Replacement => PersonalizationRecord::Replacement(SyncRecord::<vaani_core::personalization::Replacement>::tombstone(kind, id, revision, logical_clock, writer_device_id, deleted_at_ms)),
+        SyncEntityKind::Vocabulary => PersonalizationRecord::Vocabulary(SyncRecord::<
+            vaani_core::personalization::VocabularyEntry,
+        >::tombstone(
+            kind,
+            id,
+            revision,
+            logical_clock,
+            writer_device_id,
+            deleted_at_ms,
+        )),
+        SyncEntityKind::Snippet => PersonalizationRecord::Snippet(SyncRecord::<
+            vaani_core::personalization::Snippet,
+        >::tombstone(
+            kind,
+            id,
+            revision,
+            logical_clock,
+            writer_device_id,
+            deleted_at_ms,
+        )),
+        SyncEntityKind::Replacement => PersonalizationRecord::Replacement(SyncRecord::<
+            vaani_core::personalization::Replacement,
+        >::tombstone(
+            kind,
+            id,
+            revision,
+            logical_clock,
+            writer_device_id,
+            deleted_at_ms,
+        )),
         SyncEntityKind::Preference => unreachable!(),
     }
 }
 
 fn safe_segment(value: &str) -> Result<&str, EngineError> {
-    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'(' | b')')) {
-        return Err(EngineError::new(EngineErrorKind::InvalidInput, "unsafe Firebase path segment"));
+    if value.is_empty()
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'(' | b')')
+        })
+    {
+        return Err(EngineError::new(
+            EngineErrorKind::InvalidInput,
+            "unsafe Firebase path segment",
+        ));
     }
     Ok(value)
 }
 
-fn network_error(message: impl Into<String>) -> EngineError { EngineError::new(EngineErrorKind::Unavailable, message) }
-fn string_value(value: impl AsRef<str>) -> Value { json!({ "stringValue": value.as_ref() }) }
-fn integer_value(value: impl ToString) -> Value { json!({ "integerValue": value.to_string() }) }
-fn null_value() -> Value { json!({ "nullValue": null }) }
-fn array_value(values: &[String]) -> Value { json!({ "arrayValue": { "values": values.iter().map(string_value).collect::<Vec<_>>() } }) }
-fn map_value(fields: Value) -> Value { json!({ "mapValue": { "fields": fields } }) }
+fn network_error(message: impl Into<String>) -> EngineError {
+    EngineError::new(EngineErrorKind::Unavailable, message)
+}
+fn string_value(value: impl AsRef<str>) -> Value {
+    json!({ "stringValue": value.as_ref() })
+}
+fn integer_value(value: impl ToString) -> Value {
+    json!({ "integerValue": value.to_string() })
+}
+fn null_value() -> Value {
+    json!({ "nullValue": null })
+}
+fn array_value(values: &[String]) -> Value {
+    json!({ "arrayValue": { "values": values.iter().map(string_value).collect::<Vec<_>>() } })
+}
+fn map_value(fields: Value) -> Value {
+    json!({ "mapValue": { "fields": fields } })
+}
 
 fn required_string<'a>(fields: &'a Map<String, Value>, key: &str) -> Result<&'a str, EngineError> {
-    fields.get(key).and_then(string_field).ok_or_else(|| network_error(format!("Firestore record missing {key}")))
+    fields
+        .get(key)
+        .and_then(string_field)
+        .ok_or_else(|| network_error(format!("Firestore record missing {key}")))
 }
 fn required_u64(fields: &Map<String, Value>, key: &str) -> Result<u64, EngineError> {
-    fields.get(key).and_then(integer_field).and_then(|value| value.parse().ok()).ok_or_else(|| network_error(format!("Firestore record has invalid {key}")))
+    fields
+        .get(key)
+        .and_then(integer_field)
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| network_error(format!("Firestore record has invalid {key}")))
 }
 fn required_i64(fields: &Map<String, Value>, key: &str) -> Result<i64, EngineError> {
-    fields.get(key).and_then(integer_field).and_then(|value| value.parse().ok()).ok_or_else(|| network_error(format!("Firestore record has invalid {key}")))
+    fields
+        .get(key)
+        .and_then(integer_field)
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| network_error(format!("Firestore record has invalid {key}")))
 }
 fn optional_i64(value: Option<&Value>) -> Result<Option<i64>, EngineError> {
     match value {
         None => Ok(None),
         Some(value) if value.get("nullValue").is_some() => Ok(None),
-        Some(value) => integer_field(value).and_then(|v| v.parse().ok()).map(Some).ok_or_else(|| network_error("Firestore record has invalid deletion time")),
+        Some(value) => integer_field(value)
+            .and_then(|v| v.parse().ok())
+            .map(Some)
+            .ok_or_else(|| network_error("Firestore record has invalid deletion time")),
     }
 }
 fn optional_string(value: Option<&Value>) -> Result<Option<String>, EngineError> {
     match value {
         None => Ok(None),
         Some(value) if value.get("nullValue").is_some() => Ok(None),
-        Some(value) => string_field(value).map(str::to_owned).map(Some).ok_or_else(|| network_error("Firestore record has invalid optional string")),
+        Some(value) => string_field(value)
+            .map(str::to_owned)
+            .map(Some)
+            .ok_or_else(|| network_error("Firestore record has invalid optional string")),
     }
 }
-fn string_field(value: &Value) -> Option<&str> { value.get("stringValue").and_then(Value::as_str) }
-fn integer_field(value: &Value) -> Option<&str> { value.get("integerValue").and_then(Value::as_str) }
-fn map_fields(value: &Value) -> Option<&Map<String, Value>> { value.get("mapValue")?.get("fields")?.as_object() }
+fn string_field(value: &Value) -> Option<&str> {
+    value.get("stringValue").and_then(Value::as_str)
+}
+fn integer_field(value: &Value) -> Option<&str> {
+    value.get("integerValue").and_then(Value::as_str)
+}
+fn map_fields(value: &Value) -> Option<&Map<String, Value>> {
+    value.get("mapValue")?.get("fields")?.as_object()
+}
 fn array_strings(fields: &Map<String, Value>, key: &str) -> Result<Vec<String>, EngineError> {
-    let values = fields.get(key).and_then(|value| value.get("arrayValue")).and_then(|value| value.get("values")).and_then(Value::as_array).cloned().unwrap_or_default();
-    values.iter().map(|value| string_field(value).map(str::to_owned).ok_or_else(|| network_error("Firestore aliases contain a non-string value"))).collect()
+    let values = fields
+        .get(key)
+        .and_then(|value| value.get("arrayValue"))
+        .and_then(|value| value.get("values"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    values
+        .iter()
+        .map(|value| {
+            string_field(value)
+                .map(str::to_owned)
+                .ok_or_else(|| network_error("Firestore aliases contain a non-string value"))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -302,20 +453,43 @@ mod tests {
 
     struct Session;
     impl FirebaseTokenProvider for Session {
-        fn user_id(&self) -> &str { "user-1" }
-        fn id_token(&self) -> Result<String, EngineError> { Ok("token".into()) }
+        fn user_id(&self) -> &str {
+            "user-1"
+        }
+        fn id_token(&self) -> Result<String, EngineError> {
+            Ok("token".into())
+        }
     }
 
     #[test]
     fn firestore_payload_preserves_tombstones_and_aliases() {
         let record = PersonalizationRecord::Vocabulary(SyncRecord::live(
-            SyncEntityKind::Vocabulary, "id-1".into(), 2, 4, "desktop".into(), 99,
-            VocabularyEntry { id: "id-1".into(), canonical: "Hyprland".into(), spoken_aliases: vec!["hyper land".into()], category: None, created_at_ms: 1, updated_at_ms: 99 },
+            SyncEntityKind::Vocabulary,
+            "id-1".into(),
+            2,
+            4,
+            "desktop".into(),
+            99,
+            VocabularyEntry {
+                id: "id-1".into(),
+                canonical: "Hyprland".into(),
+                spoken_aliases: vec!["hyper land".into()],
+                category: None,
+                created_at_ms: 1,
+                updated_at_ms: 99,
+            },
         ));
         let fields = firestore_fields(&record);
         assert_eq!(fields["entity"]["stringValue"], "vocabulary");
-        assert_eq!(fields["value"]["mapValue"]["fields"]["canonical"]["stringValue"], "Hyprland");
-        assert_eq!(fields["value"]["mapValue"]["fields"]["spoken_aliases"]["arrayValue"]["values"][0]["stringValue"], "hyper land");
+        assert_eq!(
+            fields["value"]["mapValue"]["fields"]["canonical"]["stringValue"],
+            "Hyprland"
+        );
+        assert_eq!(
+            fields["value"]["mapValue"]["fields"]["spoken_aliases"]["arrayValue"]["values"][0]
+                ["stringValue"],
+            "hyper land"
+        );
         let document = json!({ "fields": fields });
         let decoded = record_from_document(&document).unwrap().unwrap();
         assert_eq!(decoded, record);
@@ -329,8 +503,15 @@ mod tests {
 
     #[test]
     fn provider_uses_firestore_endpoint_shape() {
-        let provider = FirebaseRestProvider::new("arch-flow-vanni", Session).with_base_url("https://example.test");
+        let provider = FirebaseRestProvider::new("arch-flow-vanni", Session)
+            .with_base_url("https://example.test");
         assert_eq!(provider.document_url(Some("id-1")).unwrap(), "https://example.test/v1/projects/arch-flow-vanni/databases/(default)/documents/users/user-1/personalization/id-1");
-        let _ = Snippet { id: String::new(), trigger: String::new(), value: String::new(), created_at_ms: 0, updated_at_ms: 0 };
+        let _ = Snippet {
+            id: String::new(),
+            trigger: String::new(),
+            value: String::new(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        };
     }
 }

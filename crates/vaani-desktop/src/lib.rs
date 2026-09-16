@@ -8,12 +8,12 @@
 
 use vaani_core::engine::{EngineError, InsertOutcome};
 
-pub mod personalization;
 pub mod firebase;
+pub mod personalization;
 #[cfg(any(unix, windows))]
 pub mod platform;
-pub use personalization::PersonalizationRepository;
 pub use firebase::{FirebaseRestProvider, FirebaseTokenProvider};
+pub use personalization::PersonalizationRepository;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Invocation {

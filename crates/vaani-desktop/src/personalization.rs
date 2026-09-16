@@ -12,8 +12,8 @@ use vaani_core::personalization::{
     render, PersonalizationSnapshot, Replacement, Snippet, VocabularyEntry,
 };
 use vaani_core::sync::{
-    run_sync_cycle, JsonlStorage, PersonalizationRecord, StorageProvider, SyncCycle, SyncEntityKind,
-    SyncProvider, SyncRecord,
+    run_sync_cycle, JsonlStorage, PersonalizationRecord, StorageProvider, SyncCycle,
+    SyncEntityKind, SyncProvider, SyncRecord,
 };
 
 pub struct PersonalizationRepository {
@@ -205,20 +205,23 @@ mod tests {
             &self,
             _cursor: Option<&str>,
         ) -> Result<(Vec<PersonalizationRecord>, Option<String>), EngineError> {
-            Ok((self.remote.lock().unwrap().drain(..).collect(), Some("cursor-1".into())))
+            Ok((
+                self.remote.lock().unwrap().drain(..).collect(),
+                Some("cursor-1".into()),
+            ))
         }
     }
 
     #[test]
     fn desktop_repository_runs_provider_cycle_without_gating_local_rendering() {
-        let path = std::env::temp_dir().join(format!(
-            "vaani-desktop-sync-{}.jsonl",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("vaani-desktop-sync-{}.jsonl", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("outbox.jsonl"));
         let repository = PersonalizationRepository::open(&path, "desktop-sync-test").unwrap();
-        repository.add_snippet("my GitHub", "https://github.com/example/repo").unwrap();
+        repository
+            .add_snippet("my GitHub", "https://github.com/example/repo")
+            .unwrap();
         let remote_id = "remote-vocabulary".to_string();
         let remote = SyncRecord::live(
             SyncEntityKind::Vocabulary,
@@ -245,7 +248,10 @@ mod tests {
         assert_eq!(cycle.pushed, 1);
         assert_eq!(cycle.pulled, 1);
         assert_eq!(cursor.as_deref(), Some("cursor-1"));
-        assert_eq!(repository.render("my github is hyper land").unwrap(), "https://github.com/example/repo is Hyprland");
+        assert_eq!(
+            repository.render("my github is hyper land").unwrap(),
+            "https://github.com/example/repo is Hyprland"
+        );
         assert_eq!(provider.pushed.lock().unwrap().len(), 1);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("outbox.jsonl"));
