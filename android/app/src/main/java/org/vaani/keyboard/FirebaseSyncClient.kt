@@ -37,16 +37,18 @@ class FirebaseSyncClient(private val store: PersonalizationStore) {
 
     fun signOut() = auth?.signOut()
 
-    fun sync(done: (Result<SyncSummary>) -> Unit) {
+    fun sync(done: (Result<SyncSummary>) -> Unit) = syncTask().addOnCompleteListener { task ->
+        if (task.isSuccessful) done(Result.success(task.result))
+        else done(Result.failure(task.exception ?: IllegalStateException("Sync failed")))
+    }
+
+    /** Blocking entry point for a bounded background worker; never called by dictation. */
+    fun syncBlocking(): SyncSummary = Tasks.await(syncTask())
+
+    private fun syncTask(): Task<SyncSummary> {
         val user = auth?.currentUser
-        if (user == null) {
-            done(Result.failure(IllegalStateException("Sign in to sync personalization")))
-            return
-        }
-        val firestore = firestore ?: run {
-            done(Result.failure(offlineConfigError()))
-            return
-        }
+        requireNotNull(user) { "Sign in to sync personalization" }
+        val firestore = firestore ?: throw offlineConfigError()
         val collection = firestore.collection("users").document(user.uid).collection("personalization")
         val local = PersonalizationStore.Kind.entries.flatMap { kind ->
             store.syncEntries(kind).map { entry -> payload(kind, entry) }
@@ -62,16 +64,13 @@ class FirebaseSyncClient(private val store: PersonalizationStore) {
                 batch.commit()
             }
         }
-        chain.continueWithTask { collection.get() }.addOnCompleteListener { task ->
-            if (!task.isSuccessful) {
-                done(Result.failure(task.exception ?: IllegalStateException("Sync failed")))
-                return@addOnCompleteListener
-            }
+        return chain.continueWithTask { collection.get() }.continueWith { task ->
+            if (!task.isSuccessful) throw task.exception ?: IllegalStateException("Sync failed")
             var downloaded = 0
             task.result.documents.forEach { document ->
                 if (merge(document)) downloaded++
             }
-            done(Result.success(SyncSummary(local.size, downloaded)))
+            SyncSummary(local.size, downloaded)
         }
     }
 

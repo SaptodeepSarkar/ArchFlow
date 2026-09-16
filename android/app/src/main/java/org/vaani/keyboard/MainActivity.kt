@@ -36,6 +36,7 @@ class MainActivity : Activity() {
         if (!prefs.getBoolean("appearance_v3", false)) {
             prefs.edit().putBoolean("appearance_v3", true).putString("theme", "system").apply()
         }
+        SyncScheduler.ensureScheduled(this)
         render()
     }
 
@@ -261,13 +262,13 @@ class MainActivity : Activity() {
         root.addView(ui.primaryButton("Sign in") {
             syncClient.signIn(email.text.toString(), password.text.toString()) { result ->
                 status.text = if (result.isSuccess) "Signed in — personalization is ready to sync" else "Sign-in failed; check your details or connection"
-                if (result.isSuccess) render()
+                if (result.isSuccess) { SyncScheduler.ensureScheduled(this); render() }
             }
         }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
         root.addView(ui.secondaryButton("Create account") {
             syncClient.createAccount(email.text.toString(), password.text.toString()) { result ->
                 status.text = if (result.isSuccess) "Account created — personalization is ready to sync" else "Could not create account; check your details"
-                if (result.isSuccess) render()
+                if (result.isSuccess) { SyncScheduler.ensureScheduled(this); render() }
             }
         }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
         root.addView(ui.secondaryButton("Sync personalization now") {
@@ -278,7 +279,7 @@ class MainActivity : Activity() {
                 )
             }
         }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
-        if (syncClient.email() != null) root.addView(ui.secondaryButton("Sign out") { syncClient.signOut(); render() }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
+        if (syncClient.email() != null) root.addView(ui.secondaryButton("Sign out") { syncClient.signOut(); SyncScheduler.cancel(this); render() }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
     }
 
     private fun addPersonalizationEditor(

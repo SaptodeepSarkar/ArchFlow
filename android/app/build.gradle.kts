@@ -21,6 +21,7 @@ kotlin { jvmToolchain(17) }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.work:work-runtime:2.10.1")
     // BoM 33.x keeps the Android libraries compatible with Kotlin 2.0.21.
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-auth")
@@ -28,4 +29,5 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("com.google.guava:guava:32.1.3-android")
 }
