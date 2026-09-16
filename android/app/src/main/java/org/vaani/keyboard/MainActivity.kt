@@ -100,7 +100,7 @@ class MainActivity : Activity() {
                 setBackgroundColor(ui.paper)
             }
             onboardingView = OnboardingView(this, ::openImeSettings, ::showKeyboardPicker, ::requestMic) {
-                prefs.edit().putBoolean("onboarding_v2", true).apply()
+                prefs.edit().putBoolean("onboarding_v2", true).putInt("onboarding_step", 0).apply()
                 render()
             }
             scroll.addView(onboardingView)
