@@ -52,7 +52,9 @@ where
 
     /// Flush the final short capture chunk without dropping its samples.
     pub fn finish(&mut self) -> Result<Vec<AudioChunk>, EngineError> {
-        self.drain_blocks(true)
+        let chunks = self.drain_blocks(true)?;
+        self.vad.reset();
+        Ok(chunks)
     }
 
     pub fn vad(&self) -> &V {
@@ -716,6 +718,12 @@ mod tests {
         let tail = front_end.finish().unwrap();
         assert_eq!(tail.len(), 1);
         assert_eq!(tail[0].samples, vec![0.2_f32; 80]);
+
+        let next = front_end
+            .push(&vec![0.0_f32; vaani_core::vad::BLOCK_SAMPLES])
+            .unwrap();
+        assert_eq!(next.len(), 1);
+        assert!(!next[0].speech);
     }
 
     #[test]

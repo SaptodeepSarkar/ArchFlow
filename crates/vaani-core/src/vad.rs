@@ -92,6 +92,12 @@ impl crate::engine::VadEngine for Vad {
     fn is_silence(&self) -> bool {
         Vad::is_silence(self)
     }
+
+    fn reset(&mut self) {
+        self.hang = 0;
+        self.speech_blocks = 0;
+        self.total_blocks = 0;
+    }
 }
 
 /// Peak-normalised amplitude 0..1 for the overlay waveform (per block).

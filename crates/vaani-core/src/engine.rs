@@ -93,6 +93,7 @@ pub trait VadEngine: Send {
     fn engine_id(&self) -> &str;
     fn push_block(&mut self, block: &[f32]) -> Result<bool, EngineError>;
     fn is_silence(&self) -> bool;
+    fn reset(&mut self);
 }
 
 /// Replaceable audio preprocessor. Audio stays in memory and the output is
