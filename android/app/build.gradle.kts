@@ -1,7 +1,12 @@
 plugins {
     id("com.android.application")
-    id("com.google.gms.google-services")
     kotlin("android")
+}
+
+// Firebase configuration is user/project-local and must not be required for
+// a clean open-source checkout or for offline dictation builds.
+if (file("google-services.json").isFile) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android { namespace = "org.vaani.keyboard"; compileSdk = 35

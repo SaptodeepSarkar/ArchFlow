@@ -14,12 +14,13 @@ data class SyncSummary(val uploaded: Int, val downloaded: Int)
  * its payloads.
  */
 class FirebaseSyncClient(private val store: PersonalizationStore) {
-    private val auth = FirebaseAuth.getInstance()
-    private val firestore = FirebaseFirestore.getInstance()
+    private val auth: FirebaseAuth? = runCatching { FirebaseAuth.getInstance() }.getOrNull()
+    private val firestore: FirebaseFirestore? = runCatching { FirebaseFirestore.getInstance() }.getOrNull()
 
-    fun email(): String? = auth.currentUser?.email
+    fun email(): String? = auth?.currentUser?.email
 
     fun signIn(email: String, password: String, done: (Result<String>) -> Unit) {
+        val auth = auth ?: return done(Result.failure(offlineConfigError()))
         auth.signInWithEmailAndPassword(email.trim(), password).addOnCompleteListener { task ->
             if (task.isSuccessful) done(Result.success(auth.currentUser?.email.orEmpty()))
             else done(Result.failure(task.exception ?: IllegalStateException("Sign-in failed")))
@@ -27,18 +28,23 @@ class FirebaseSyncClient(private val store: PersonalizationStore) {
     }
 
     fun createAccount(email: String, password: String, done: (Result<String>) -> Unit) {
+        val auth = auth ?: return done(Result.failure(offlineConfigError()))
         auth.createUserWithEmailAndPassword(email.trim(), password).addOnCompleteListener { task ->
             if (task.isSuccessful) done(Result.success(auth.currentUser?.email.orEmpty()))
             else done(Result.failure(task.exception ?: IllegalStateException("Account creation failed")))
         }
     }
 
-    fun signOut() = auth.signOut()
+    fun signOut() = auth?.signOut()
 
     fun sync(done: (Result<SyncSummary>) -> Unit) {
-        val user = auth.currentUser
+        val user = auth?.currentUser
         if (user == null) {
             done(Result.failure(IllegalStateException("Sign in to sync personalization")))
+            return
+        }
+        val firestore = firestore ?: run {
+            done(Result.failure(offlineConfigError()))
             return
         }
         val collection = firestore.collection("users").document(user.uid).collection("personalization")
@@ -129,4 +135,6 @@ class FirebaseSyncClient(private val store: PersonalizationStore) {
         val writerDeviceId = document.getString("writer_device_id") ?: return false
         return store.mergeRemote(kind, id, trigger, replacement, revision, logicalClock, writerDeviceId, updated, deleted)
     }
+
+    private fun offlineConfigError() = IllegalStateException("Firebase sync is not configured for this build")
 }
