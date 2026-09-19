@@ -63,9 +63,10 @@ replacements in the shared JSONL schema and applies the same deterministic
 canonicalization/rendering rules. Windows accessibility, tray, clipboard, and
 editor insertion are now represented by a User32 clipboard-plus-paste adapter;
 when the paste dispatch is accepted, it reports “paste requested” while
-retaining the complete clipboard text rather than claiming editor acceptance;
-the complete Windows shell/tray and focused-editor integration still need to
-be connected.
+retaining the complete clipboard text rather than claiming editor acceptance.
+The Windows `run` entry point now composes the hotkey, capture, worker STT,
+overlay, tray, and session loop; runtime hardware validation and a richer
+settings surface remain release work.
 
 The current verification host has `wl-copy` and `wtype`, but not `xclip` or
 `xdotool`. X11 policy and adapter behavior are therefore contract-tested only;

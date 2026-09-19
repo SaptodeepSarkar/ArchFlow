@@ -462,6 +462,7 @@ pub struct WindowsAudioCapture {
     samples: Receiver<Vec<f32>>,
     message_thread: u32,
     pub sample_rate: u32,
+    pub source_sample_rate: u32,
     pub channels: u16,
 }
 
@@ -517,7 +518,8 @@ impl WindowsAudioCapture {
             stream,
             samples,
             message_thread,
-            sample_rate,
+            sample_rate: 16_000,
+            source_sample_rate: sample_rate,
             channels,
         })
     }
@@ -561,6 +563,7 @@ where
     f32: cpal::FromSample<T>,
 {
     let channels = config.channels as usize;
+    let source_sample_rate = config.sample_rate.0;
     device.build_input_stream(
         config,
         move |data: &[T], _| {
@@ -572,6 +575,7 @@ where
                     .sum::<f32>();
                 mono.push(sum / frame.len() as f32);
             }
+            let mono = resample_to_16khz(&mono, source_sample_rate);
             let _ = sender.try_send(mono);
             unsafe {
                 let _ = PostThreadMessageW(message_thread, WM_VAANI_AUDIO, 0, 0);
@@ -580,6 +584,22 @@ where
         error_callback,
         None,
     )
+}
+
+fn resample_to_16khz(samples: &[f32], source_rate: u32) -> Vec<f32> {
+    if samples.is_empty() || source_rate == 16_000 {
+        return samples.to_vec();
+    }
+    let output_len = ((samples.len() as u64 * 16_000) / source_rate as u64) as usize;
+    let mut output = Vec::with_capacity(output_len);
+    for index in 0..output_len {
+        let source_position = index as f64 * source_rate as f64 / 16_000.0;
+        let left = source_position.floor() as usize;
+        let right = (left + 1).min(samples.len() - 1);
+        let fraction = (source_position - left as f64) as f32;
+        output.push(samples[left] + (samples[right] - samples[left]) * fraction);
+    }
+    output
 }
 
 /// Event-driven Windows shell bridge. The caller supplies the already-wired

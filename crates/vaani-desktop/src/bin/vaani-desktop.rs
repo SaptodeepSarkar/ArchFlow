@@ -10,6 +10,18 @@ use vaani_desktop::{
     DesktopSyncClient, FirebaseEmailAuth, PersonalizationRepository, SecureSessionStore,
 };
 
+#[cfg(windows)]
+use vaani_core::engine::{FormatContext, LocalFormatter, NoopDenoiser};
+#[cfg(windows)]
+use vaani_core::vad::Vad;
+#[cfg(windows)]
+use vaani_desktop::platform::windows::{
+    GlobalHotkey, WindowsClipboard, WindowsInserter, WindowsOverlay, WindowsSessionLoop,
+    WindowsTray,
+};
+#[cfg(windows)]
+use vaani_desktop::{AudioFrontEnd, DesktopRuntime, DesktopSession, ShortcutSpec, WorkerSttEngine};
+
 fn env_required(name: &str) -> Result<String, EngineError> {
     std::env::var(name).map_err(|_| {
         EngineError::new(
@@ -149,6 +161,52 @@ fn print_doctor() {
     println!("sync: optional; local mode does not require an account");
 }
 
+#[cfg(windows)]
+fn run_windows_shell() -> Result<(), Box<dyn std::error::Error>> {
+    let worker_path = match std::env::var_os("VAANI_WORKER") {
+        Some(path) => PathBuf::from(path),
+        None => std::env::current_exe()?
+            .parent()
+            .map(|dir| dir.join("vaani-worker.exe"))
+            .ok_or("cannot determine worker location")?,
+    };
+    let model_path = env_required("VAANI_MODEL")?;
+    let language = std::env::var("VAANI_LANGUAGE").unwrap_or_else(|_| "en".into());
+    let threads = std::env::var("VAANI_THREADS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(4);
+    let shortcut = std::env::var("VAANI_SHORTCUT")
+        .map(|value| ShortcutSpec::parse(&value))
+        .unwrap_or_else(|_| Ok(ShortcutSpec::default()))?;
+    let hotkey = GlobalHotkey::register_spec(1, &shortcut)
+        .map_err(|error| format!("could not register Vaani shortcut: {error}"))?;
+    let overlay = WindowsOverlay::new()?;
+    let _tray = WindowsTray::attach(&overlay, 1)?;
+    let repository = repository()?;
+    let runtime = DesktopRuntime::new(
+        WorkerSttEngine::new(worker_path, model_path, language.clone(), threads),
+        LocalFormatter,
+        repository,
+        overlay,
+        WindowsInserter,
+        WindowsClipboard,
+    );
+    let session = DesktopSession::new(runtime, AudioFrontEnd::new(Vad::default(), NoopDenoiser));
+    let context = FormatContext {
+        application: None,
+        language,
+        personalization: PersonalizationSnapshot::default(),
+    };
+    let shell = WindowsSessionLoop::new(hotkey, session, context);
+    shell.run(|result| match result {
+        Ok(Some(_report)) => eprintln!("Vaani session delivered"),
+        Ok(None) => eprintln!("Vaani session contained no speech"),
+        Err(error) => eprintln!("Vaani session failed: {error}"),
+    })?;
+    Ok(())
+}
+
 fn personalization_menu(
     repository: &PersonalizationRepository,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -210,8 +268,17 @@ fn personalization_menu(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let command = std::env::args().nth(1).unwrap_or_else(|| "status".into());
+    let default_command = if cfg!(windows) { "run" } else { "status" };
+    let command = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| default_command.into());
     match command.as_str() {
+        "run" => {
+            #[cfg(windows)]
+            run_windows_shell()?;
+            #[cfg(not(windows))]
+            return Err("the desktop shell run command is only available on Windows".into());
+        }
         "login" => {
             let project = env_required("VAANI_FIREBASE_PROJECT")?;
             let api_key = env_required("VAANI_FIREBASE_API_KEY")?;
@@ -273,7 +340,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "personalize" => personalization_menu(&repository()?)?,
         _ => {
             return Err(
-                "usage: vaani-desktop [login|sync|sign-out|status|doctor|personalize]".into(),
+                "usage: vaani-desktop [run|login|sync|sign-out|status|doctor|personalize]".into(),
             )
         }
     }
