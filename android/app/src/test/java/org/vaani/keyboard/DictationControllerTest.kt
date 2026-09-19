@@ -66,6 +66,18 @@ class DictationControllerTest {
     }
 
     @Test
+    fun cancelBeforeFinalResultCannotInsertOrAcceptLateSpeech() {
+        val controller = DictationController()
+        val token = controller.start()!!
+        controller.ready(token)
+        controller.cancel()
+
+        assertEquals(DictationState.Cancelled, controller.state)
+        assertTrue(!controller.result(token, "must not insert"))
+        assertEquals(DictationState.Cancelled, controller.state)
+    }
+
+    @Test
     fun releaseBeforeResultMovesThroughEndpointing() {
         val controller = DictationController()
         val token = controller.start()!!
