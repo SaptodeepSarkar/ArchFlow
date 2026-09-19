@@ -5,7 +5,10 @@
 //! future UI Automation/clipboard implementation cannot silently become raw
 //! keystroke injection.
 
-use crate::{DeliveryReport, DesktopSession, FormatContext, ShortcutModifier, ShortcutSpec};
+use crate::{
+    DeliveryReport, DesktopSession, DesktopState, FormatContext, OverlayModel, OverlayPort,
+    ShortcutModifier, ShortcutSpec,
+};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 use std::ffi::c_int;
@@ -16,6 +19,23 @@ use vaani_core::engine::{EngineError, EngineErrorKind, InsertOutcome};
 
 const WM_HOTKEY: u32 = 0x0312;
 const WM_VAANI_AUDIO: u32 = 0x8001;
+const WM_VAANI_TRAY: u32 = 0x8002;
+const WM_CLOSE: u32 = 0x0010;
+const WM_DESTROY: u32 = 0x0002;
+const WS_EX_TOOLWINDOW: u32 = 0x00000080;
+const WS_EX_TOPMOST: u32 = 0x00000008;
+const WS_POPUP: u32 = 0x80000000;
+const SW_SHOW: i32 = 5;
+const SW_HIDE: i32 = 0;
+const SWP_NOSIZE: u32 = 0x0001;
+const SWP_NOACTIVATE: u32 = 0x0010;
+const HWND_TOPMOST: isize = -1;
+const NIM_ADD: u32 = 0;
+const NIM_DELETE: u32 = 2;
+const NIF_MESSAGE: u32 = 1;
+const NIF_ICON: u32 = 2;
+const NIF_TIP: u32 = 4;
+const IDI_APPLICATION: usize = 32512;
 const CF_UNICODETEXT: u32 = 13;
 const GMEM_MOVEABLE: u32 = 0x0002;
 const KEYEVENTF_KEYUP: u32 = 0x0002;
@@ -40,6 +60,41 @@ extern "system" {
     fn GetMessageW(message: *mut Message, hwnd: *mut std::ffi::c_void, min: u32, max: u32) -> i32;
     fn TranslateMessage(message: *const Message) -> i32;
     fn DispatchMessageW(message: *const Message) -> isize;
+    fn DefWindowProcW(
+        hwnd: *mut std::ffi::c_void,
+        message: u32,
+        w_param: usize,
+        l_param: isize,
+    ) -> isize;
+    fn RegisterClassW(class: *const WindowClass) -> u16;
+    fn CreateWindowExW(
+        ex_style: u32,
+        class_name: *const u16,
+        window_name: *const u16,
+        style: u32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        parent: *mut std::ffi::c_void,
+        menu: *mut std::ffi::c_void,
+        instance: *mut std::ffi::c_void,
+        param: *mut std::ffi::c_void,
+    ) -> *mut std::ffi::c_void;
+    fn DestroyWindow(hwnd: *mut std::ffi::c_void) -> i32;
+    fn ShowWindow(hwnd: *mut std::ffi::c_void, command: i32) -> i32;
+    fn SetWindowPos(
+        hwnd: *mut std::ffi::c_void,
+        insert_after: *mut std::ffi::c_void,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        flags: u32,
+    ) -> i32;
+    fn SetWindowTextW(hwnd: *mut std::ffi::c_void, text: *const u16) -> i32;
+    fn LoadIconW(instance: *mut std::ffi::c_void, name: *const u16) -> *mut std::ffi::c_void;
+    fn GetModuleHandleW(name: *const u16) -> *mut std::ffi::c_void;
     fn GetCurrentThreadId() -> u32;
     fn PostThreadMessageW(thread_id: u32, message: u32, w_param: usize, l_param: isize) -> i32;
     fn GetForegroundWindow() -> *mut std::ffi::c_void;
@@ -53,6 +108,46 @@ extern "system" {
     fn GlobalUnlock(memory: *mut std::ffi::c_void) -> i32;
     fn GlobalFree(memory: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
     fn SendInput(count: u32, inputs: *mut Input, size: c_int) -> u32;
+}
+
+#[link(name = "shell32")]
+extern "system" {
+    fn Shell_NotifyIconW(message: u32, data: *mut NotifyIconData) -> i32;
+}
+
+#[repr(C)]
+struct WindowClass {
+    style: u32,
+    window_proc:
+        Option<unsafe extern "system" fn(*mut std::ffi::c_void, u32, usize, isize) -> isize>,
+    class_extra: i32,
+    window_extra: i32,
+    instance: *mut std::ffi::c_void,
+    icon: *mut std::ffi::c_void,
+    cursor: *mut std::ffi::c_void,
+    background: *mut std::ffi::c_void,
+    menu_name: *const u16,
+    class_name: *const u16,
+}
+
+unsafe extern "system" fn overlay_window_proc(
+    hwnd: *mut std::ffi::c_void,
+    message: u32,
+    w_param: usize,
+    l_param: isize,
+) -> isize {
+    if message == WM_CLOSE {
+        let _ = DestroyWindow(hwnd);
+        return 0;
+    }
+    if message == WM_DESTROY {
+        return 0;
+    }
+    DefWindowProcW(hwnd, message, w_param, l_param)
+}
+
+fn wide(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 #[repr(C)]
@@ -153,6 +248,202 @@ impl Drop for GlobalHotkey {
     fn drop(&mut self) {
         unsafe {
             let _ = UnregisterHotKey(std::ptr::null_mut(), self.id);
+        }
+    }
+}
+
+/// Minimal topmost Win32 overlay implementing the portable overlay contract.
+/// The shell remains responsible for creating it on the message-loop thread.
+pub struct WindowsOverlay {
+    hwnd: usize,
+}
+
+impl WindowsOverlay {
+    pub fn new() -> Result<Self, EngineError> {
+        let class_name = wide("VaaniOverlayWindow");
+        let instance = unsafe { GetModuleHandleW(null_mut()) };
+        let class = WindowClass {
+            style: 0,
+            window_proc: Some(overlay_window_proc),
+            class_extra: 0,
+            window_extra: 0,
+            instance,
+            icon: null_mut(),
+            cursor: null_mut(),
+            background: null_mut(),
+            menu_name: null_mut(),
+            class_name: class_name.as_ptr(),
+        };
+        unsafe {
+            let _ = RegisterClassW(&class);
+        }
+        let title = wide("Vaani");
+        let window = unsafe {
+            CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                class_name.as_ptr(),
+                title.as_ptr(),
+                WS_POPUP,
+                40,
+                40,
+                620,
+                96,
+                null_mut(),
+                null_mut(),
+                instance,
+                null_mut(),
+            )
+        };
+        if window.is_null() {
+            return Err(EngineError::new(
+                EngineErrorKind::Unavailable,
+                "could not create Windows Vaani overlay",
+            ));
+        }
+        Ok(Self {
+            hwnd: window as usize,
+        })
+    }
+
+    fn hwnd(&self) -> *mut std::ffi::c_void {
+        self.hwnd as *mut std::ffi::c_void
+    }
+}
+
+unsafe impl Send for WindowsOverlay {}
+unsafe impl Sync for WindowsOverlay {}
+
+impl OverlayPort for WindowsOverlay {
+    fn render(&self, model: &OverlayModel) {
+        let state = match model.state {
+            DesktopState::Hidden => "Hidden",
+            DesktopState::Listening => "Listening",
+            DesktopState::Finishing => "Finishing",
+            DesktopState::Delivering => "Delivering",
+            DesktopState::Failure => "Failure",
+        };
+        let mut text = format!("Vaani · {state}");
+        if !model.preview.is_empty() {
+            text.push_str("\n");
+            text.push_str(&model.preview);
+        } else if !model.message.is_empty() {
+            text.push_str("\n");
+            text.push_str(&model.message);
+        }
+        let title = wide(&text);
+        unsafe {
+            let _ = SetWindowTextW(self.hwnd(), title.as_ptr());
+            let _ = SetWindowPos(
+                self.hwnd(),
+                HWND_TOPMOST as *mut std::ffi::c_void,
+                40,
+                40,
+                620,
+                96,
+                SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+            let _ = ShowWindow(self.hwnd(), SW_SHOW);
+        }
+    }
+
+    fn hide(&self) {
+        unsafe {
+            let _ = ShowWindow(self.hwnd(), SW_HIDE);
+        }
+    }
+}
+
+impl Drop for WindowsOverlay {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = DestroyWindow(self.hwnd());
+        }
+    }
+}
+
+#[repr(C)]
+struct NotifyIconData {
+    cb_size: u32,
+    hwnd: *mut std::ffi::c_void,
+    id: u32,
+    flags: u32,
+    callback_message: u32,
+    icon: *mut std::ffi::c_void,
+    tip: [u16; 128],
+    state: u32,
+    state_mask: u32,
+    info: [u16; 256],
+    version: u32,
+    info_title: [u16; 64],
+    info_flags: u32,
+    guid: [u8; 16],
+    balloon_icon: *mut std::ffi::c_void,
+}
+
+/// Tray registration for a Windows shell. Tray callbacks arrive as
+/// `WM_VAANI_TRAY` messages in `GlobalHotkey::run_messages`.
+pub struct WindowsTray {
+    hwnd: usize,
+    id: u32,
+}
+
+impl WindowsTray {
+    pub fn attach(overlay: &WindowsOverlay, id: u32) -> Result<Self, EngineError> {
+        let mut tip = [0u16; 128];
+        let label = wide("Vaani");
+        let tip_len = label.len().min(tip.len());
+        tip[..tip_len].copy_from_slice(&label[..tip_len]);
+        let mut data = NotifyIconData {
+            cb_size: size_of::<NotifyIconData>() as u32,
+            hwnd: overlay.hwnd(),
+            id,
+            flags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
+            callback_message: WM_VAANI_TRAY,
+            icon: unsafe { LoadIconW(null_mut(), IDI_APPLICATION as *const u16) },
+            tip,
+            state: 0,
+            state_mask: 0,
+            info: [0; 256],
+            version: 0,
+            info_title: [0; 64],
+            info_flags: 0,
+            guid: [0; 16],
+            balloon_icon: null_mut(),
+        };
+        if unsafe { Shell_NotifyIconW(NIM_ADD, &mut data) } == 0 {
+            return Err(EngineError::new(
+                EngineErrorKind::Unavailable,
+                "could not attach Vaani Windows tray icon",
+            ));
+        }
+        Ok(Self {
+            hwnd: overlay.hwnd as usize,
+            id,
+        })
+    }
+}
+
+impl Drop for WindowsTray {
+    fn drop(&mut self) {
+        let mut data = NotifyIconData {
+            cb_size: size_of::<NotifyIconData>() as u32,
+            hwnd: self.hwnd as *mut std::ffi::c_void,
+            id: self.id,
+            flags: 0,
+            callback_message: 0,
+            icon: null_mut(),
+            tip: [0; 128],
+            state: 0,
+            state_mask: 0,
+            info: [0; 256],
+            version: 0,
+            info_title: [0; 64],
+            info_flags: 0,
+            guid: [0; 16],
+            balloon_icon: null_mut(),
+        };
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_DELETE, &mut data);
         }
     }
 }
