@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -77,6 +78,41 @@ class MainActivityNavigationInstrumentedTest {
             assertTrue(restoredScroll.scrollY > 0)
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
+            prefs.edit().putBoolean("onboarding_v2", wasOnboardingComplete).commit()
+        }
+    }
+
+    @Test
+    fun personalizeSurfaceAddsVocabularyThroughItsEditor() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val prefs = context.getSharedPreferences("vaani", Context.MODE_PRIVATE)
+        val wasOnboardingComplete = prefs.getBoolean("onboarding_v2", false)
+        context.deleteDatabase("vaani_personalization.db")
+        prefs.edit().putBoolean("onboarding_v2", true).commit()
+
+        val activity = instrumentation.startActivitySync(
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+        )
+        try {
+            instrumentation.waitForIdleSync()
+            instrumentation.runOnMainSync {
+                buttons(activity.window.decorView).first { it.text.toString().contains("Personalize") }.performClick()
+            }
+            instrumentation.waitForIdleSync()
+            val fields = collect(activity.window.decorView).filterIsInstance<EditText>()
+            val term = fields.first { it.hint.toString() == "Vocabulary term" }
+            val aliases = fields.first { it.hint.toString().contains("Spoken aliases") }
+            instrumentation.runOnMainSync {
+                term.setText("Vaani")
+                aliases.setText("vaani")
+                buttons(activity.window.decorView).first { it.text.toString() == "Add vocabulary" }.performClick()
+            }
+            instrumentation.waitForIdleSync()
+            assertTrue(textViews(activity.window.decorView).any { it.text.toString().contains("Vaani") })
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+            context.deleteDatabase("vaani_personalization.db")
             prefs.edit().putBoolean("onboarding_v2", wasOnboardingComplete).commit()
         }
     }
