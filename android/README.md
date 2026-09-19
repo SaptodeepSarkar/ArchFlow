@@ -37,4 +37,7 @@ The Android IME cannot connect to the Linux daemon's Unix socket across OS bound
 
 ## UI/UX implementation status
 
-The approved IME-first V1 redesign is documented in [`docs/ui-ux/PHASE_2_REPORT.md`](docs/ui-ux/PHASE_2_REPORT.md). The app now has a readiness-led Home/Settings shell, verified four-step onboarding, inset-aware system bars, semantic tokens, explicit dictation states, and insertion-failure recovery. The future coexisting overlay remains intentionally unimplemented until its Android integration and privacy contract are approved.
+The app has a Material Compose four-step onboarding flow, a readiness-led
+Home/Settings shell, explicit dictation states, and insertion-failure recovery.
+The future coexisting overlay remains intentionally unimplemented until its
+Android integration and privacy contract are approved.
