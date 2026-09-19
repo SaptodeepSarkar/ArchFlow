@@ -12,6 +12,17 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 
+/**
+ * Button base used by the keyboard's touch-customized controls.
+ *
+ * Several keyboard controls add press-and-hold or cursor-scrub behavior with
+ * an OnTouchListener. Keeping performClick explicit preserves the semantic
+ * click path used by accessibility services and by keyboard automation.
+ */
+class AccessibleButton(context: Context) : Button(context) {
+    override fun performClick(): Boolean = super.performClick()
+}
+
 data class Palette(
     val paper: Int,
     val surface: Int,
@@ -87,7 +98,7 @@ class Ui(private val context: Context) {
 
     fun button(value: String, click: () -> Unit) = primaryButton(value, click)
 
-    private fun baseButton(value: CharSequence, click: () -> Unit) = Button(context).apply {
+    private fun baseButton(value: CharSequence, click: () -> Unit) = AccessibleButton(context).apply {
         text = value
         textSize = 15f
         isAllCaps = false
@@ -99,7 +110,7 @@ class Ui(private val context: Context) {
         setOnClickListener { click() }
     }
 
-    fun key(value: String, click: () -> Unit) = Button(context).apply {
+    fun key(value: String, click: () -> Unit) = AccessibleButton(context).apply {
         text = value
         textSize = 16f
         isAllCaps = false
