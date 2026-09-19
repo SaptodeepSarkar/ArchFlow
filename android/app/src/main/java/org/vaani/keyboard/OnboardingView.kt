@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.provider.Settings
 import android.animation.ValueAnimator
 import android.graphics.Canvas
@@ -297,14 +298,16 @@ private class OnboardingSignal @JvmOverloads constructor(
         paint.color = ui.palette.muted
         canvas.drawText("A SMALL PREVIEW OF THE RHYTHM", 18f * d, 28f * d, paint)
 
-        paint.textSize = 22f * d
+        val compact = height < 150f * d
+        paint.textSize = if (compact) 19f * d else 22f * d
         paint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
         paint.color = ui.ink
-        canvas.drawText("speak", 18f * d, 66f * d, paint)
+        val wordBaseline = if (compact) 58f else 66f
+        canvas.drawText("speak", 18f * d, wordBaseline * d, paint)
         paint.color = ui.palette.accent
-        canvas.drawText("→", 86f * d, 66f * d, paint)
+        canvas.drawText("→", (if (compact) 78f else 86f) * d, wordBaseline * d, paint)
         paint.color = ui.ink
-        canvas.drawText("text", 118f * d, 66f * d, paint)
+        canvas.drawText("text", (if (compact) 106f else 118f) * d, wordBaseline * d, paint)
 
         val pulse = (kotlin.math.sin(phase * Math.PI * 2).toFloat() + 1f) * .5f
         paint.color = ui.palette.accent
@@ -315,11 +318,11 @@ private class OnboardingSignal @JvmOverloads constructor(
         val barWidth = 5f * d
         val gap = 10f * d
         val startX = 18f * d
-        val baseline = height - 22f * d
+        val baseline = height - (if (compact) 14f else 22f) * d
         val heights = floatArrayOf(.35f, .72f, .48f, .9f, .55f, .78f, .42f, .64f, .3f)
         heights.forEachIndexed { index, base ->
             val wave = kotlin.math.sin(phase * Math.PI * 2 + index * .75).toFloat()
-            val barHeight = (12f + (base + wave * .12f).coerceIn(.16f, .95f) * 30f) * d
+            val barHeight = ((if (compact) 5f else 12f) + (base + wave * .12f).coerceIn(.16f, .95f) * (if (compact) 16f else 30f)) * d
             paint.color = if (index == 4) ui.palette.accent else ui.palette.ready
             canvas.drawRoundRect(
                 startX + index * gap,
@@ -359,11 +362,12 @@ class OnboardingView(
     private lateinit var back: android.widget.Button
     private var testField: EditText? = null
     private var testAction: android.widget.Button? = null
+    private val landscape get() = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     init {
         orientation = VERTICAL
         setBackgroundColor(ui.paper)
-        setPadding(ui.dp(20), ui.dp(12), ui.dp(20), ui.dp(20))
+        setPadding(ui.dp(20), ui.dp(if (landscape) 6 else 12), ui.dp(20), ui.dp(if (landscape) 10 else 20))
         build()
         update()
         prefs.registerOnSharedPreferenceChangeListener(this)
@@ -456,16 +460,16 @@ class OnboardingView(
         }
         addView(progressTrack)
         title = ui.title("")
-        addView(title, LayoutParams(-1, -2).apply { topMargin = ui.dp(22) })
+        addView(title, LayoutParams(-1, -2).apply { topMargin = ui.dp(if (landscape) 8 else 22) })
         body = ui.label("", 16f, ui.palette.muted)
-        addView(body, LayoutParams(-1, -2).apply { bottomMargin = ui.dp(14) })
+        addView(body, LayoutParams(-1, -2).apply { bottomMargin = ui.dp(if (landscape) 8 else 14) })
         visualHost = LinearLayout(context).apply { orientation = VERTICAL; gravity = Gravity.CENTER_VERTICAL }
-        addView(visualHost, LayoutParams(-1, ui.dp(176)).apply { bottomMargin = ui.dp(14) })
+        addView(visualHost, LayoutParams(-1, ui.dp(if (landscape) 116 else 176)).apply { bottomMargin = ui.dp(if (landscape) 8 else 14) })
         addView(Space(context), LayoutParams(1, 0, 1f))
         next = ui.primaryButton(context.getString(R.string.onboarding_continue)) { next() }
-        addView(next, LayoutParams(-1, ui.dp(52)))
+        addView(next, LayoutParams(-1, ui.dp(if (landscape) 46 else 52)))
         back = ui.secondaryButton(context.getString(R.string.onboarding_back)) { if (page > 0) { page--; persistPage(); update(animated = true) } }
-        addView(back, LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(8) })
+        addView(back, LayoutParams(-1, ui.dp(if (landscape) 46 else 52)).apply { topMargin = ui.dp(if (landscape) 4 else 8) })
     }
 
     private fun persistPage() = prefs.edit().putInt("onboarding_step", page).apply()
@@ -498,10 +502,11 @@ class OnboardingView(
         }
     }
 
-    private fun keyboardSelected(): Boolean = Settings.Secure.getString(
-        context.contentResolver,
-        Settings.Secure.DEFAULT_INPUT_METHOD,
-    ) == android.content.ComponentName(context, VaaniKeyboardService::class.java).flattenToShortString()
+    private fun keyboardSelected(): Boolean {
+        val selected = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        return android.content.ComponentName.unflattenFromString(selected) ==
+            android.content.ComponentName(context, VaaniKeyboardService::class.java)
+    }
 
     private fun update(animated: Boolean = false) {
         if (animated && isLaidOut && ValueAnimator.areAnimatorsEnabled()) {
@@ -555,9 +560,9 @@ class OnboardingView(
                 visualHost.addView(OnboardingSignal(context, ui), LayoutParams(-1, -1))
             }
             1 -> {
-                visualHost.addView(FlowMark(context, ui), LayoutParams(-1, ui.dp(74)))
+                visualHost.addView(FlowMark(context, ui), LayoutParams(-1, ui.dp(if (landscape) 54 else 74)))
                 val label = if (mic) "Microphone ready" else "Microphone permission needed"
-                visualHost.addView(ui.pill(if (mic) ui.palette.ready else ui.palette.surfaceRaised, if (mic) 0xffffffff.toInt() else ui.ink, label), LayoutParams(-2, ui.dp(32)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = ui.dp(8) })
+                visualHost.addView(ui.pill(if (mic) ui.palette.ready else ui.palette.surfaceRaised, if (mic) 0xffffffff.toInt() else ui.ink, label), LayoutParams(-2, ui.dp(30)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = ui.dp(if (landscape) 4 else 8) })
             }
             2 -> {
                 val paperwork = LinearLayout(context).apply {
@@ -567,18 +572,18 @@ class OnboardingView(
                 }
                 listOf("1  ENABLE" to (if (ime) "Done" else "Android settings"), "2  CHOOSE" to "Keyboard picker", "3  SWITCH" to "Anytime").forEachIndexed { index, item ->
                     val card = ui.surfaceCard().apply {
-                        setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(8))
+                        setPadding(ui.dp(10), ui.dp(if (landscape) 6 else 10), ui.dp(10), ui.dp(if (landscape) 6 else 8))
                         rotation = if (index == 0) -1.2f else if (index == 2) 1.2f else 0f
                         contentDescription = "${item.first}: ${item.second}"
                     }
                     card.addView(ui.meta(item.first))
                     card.addView(ui.label(item.second, 12f))
-                    paperwork.addView(card, LinearLayout.LayoutParams(0, ui.dp(78), 1f).apply {
+                    paperwork.addView(card, LinearLayout.LayoutParams(0, ui.dp(if (landscape) 66 else 78), 1f).apply {
                         marginStart = if (index == 0) 0 else ui.dp(4)
                     })
                 }
-                visualHost.addView(paperwork, LayoutParams(-1, ui.dp(100)))
-                visualHost.addView(ui.meta(if (ime) "Vaani is enabled · your keyboard stays yours" else "One Android settings step"), LayoutParams(-1, ui.dp(28)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+                visualHost.addView(paperwork, LayoutParams(-1, ui.dp(if (landscape) 78 else 100)))
+                visualHost.addView(ui.meta(if (ime) "Vaani is enabled · your keyboard stays yours" else "One Android settings step"), LayoutParams(-1, ui.dp(if (landscape) 24 else 28)).apply { gravity = Gravity.CENTER_HORIZONTAL })
             }
             3 -> {
                 val field = EditText(context).apply {
@@ -592,7 +597,6 @@ class OnboardingView(
                     contentDescription = "Test dictation field"
                 }
                 testField = field
-                visualHost.addView(field, LayoutParams(-1, ui.dp(64)))
                 testAction = ui.secondaryButton(when {
                     tested -> "Test complete"
                     selected -> "Show Vaani keyboard"
@@ -600,11 +604,20 @@ class OnboardingView(
                 }) {
                     if (!prefs.getBoolean("first_dictation_complete", false)) openKeyboardForTest()
                 }
-                visualHost.addView(testAction, LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(8) })
-                if (!tested) visualHost.addView(
-                    ui.meta("Complete the rehearsal to finish setup. You can come back here anytime."),
-                    LayoutParams(-1, ui.dp(36)).apply { topMargin = ui.dp(8) },
-                )
+                if (landscape) {
+                    val rehearsalRow = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
+                    rehearsalRow.addView(field, LinearLayout.LayoutParams(0, ui.dp(56), 1f))
+                    rehearsalRow.addView(testAction, LinearLayout.LayoutParams(0, ui.dp(46), .8f).apply { marginStart = ui.dp(8) })
+                    visualHost.addView(rehearsalRow, LayoutParams(-1, ui.dp(60)))
+                    if (!tested) visualHost.addView(ui.meta("Complete the rehearsal to finish setup."), LayoutParams(-1, ui.dp(24)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+                } else {
+                    visualHost.addView(field, LayoutParams(-1, ui.dp(64)))
+                    visualHost.addView(testAction, LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(8) })
+                    if (!tested) visualHost.addView(
+                        ui.meta("Complete the rehearsal to finish setup. You can come back here anytime."),
+                        LayoutParams(-1, ui.dp(36)).apply { topMargin = ui.dp(8) },
+                    )
+                }
                 if (selected && !tested) post { showRehearsalKeyboardIfReady() }
             }
         }

@@ -88,10 +88,11 @@ class MainActivity : Activity() {
         return imm.enabledInputMethodList.any { it.packageName == packageName && it.serviceName == VaaniKeyboardService::class.java.name }
     }
 
-    private fun keyboardSelected(): Boolean = Settings.Secure.getString(
-        contentResolver,
-        Settings.Secure.DEFAULT_INPUT_METHOD,
-    ) == android.content.ComponentName(this, VaaniKeyboardService::class.java).flattenToShortString()
+    private fun keyboardSelected(): Boolean {
+        val selected = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        return android.content.ComponentName.unflattenFromString(selected) ==
+            android.content.ComponentName(this, VaaniKeyboardService::class.java)
+    }
 
     private fun recognizerAvailable() = android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
 
