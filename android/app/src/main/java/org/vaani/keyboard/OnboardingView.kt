@@ -164,22 +164,41 @@ class OnboardingView(
         if (page != 3 || !keyboardSelected() || prefs.getBoolean("first_dictation_complete", false)) return
         val field = testField ?: return
         field.requestFocus()
+        requestRehearsalIme(field, 0)
+    }
+
+    /**
+     * Android can reject the first show request while the IME picker or the
+     * activity window is settling. Retry a small, bounded number of times;
+     * if the selected IME still cannot be shown, put the user back in the
+     * system picker instead of leaving an apparently dead rehearsal screen.
+     */
+    private fun requestRehearsalIme(field: EditText, attempt: Int) {
         field.postDelayed({
+            if (page != 3 || testField !== field || !field.isAttachedToWindow) return@postDelayed
+            // showSoftInput is ignored while the host window is not focused;
+            // this happens briefly when returning from the IME picker.
+            if (!field.hasWindowFocus()) {
+                if (attempt < 5) requestRehearsalIme(field, attempt + 1)
+                else (context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showInputMethodPicker()
+                return@postDelayed
+            }
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
             imm.restartInput(field)
-            // This is an explicit user action (the rehearsal button).  Some
-            // Android 15 IME implementations reject SHOW_IMPLICIT while the
-            // picker is dismissing, leaving the selected keyboard invisible.
             (context as? android.app.Activity)?.window?.setSoftInputMode(
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
                     WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE,
             )
-            val shown = imm.showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
-            if (!shown) imm.toggleSoftInput(android.view.inputmethod.InputMethodManager.SHOW_FORCED, 0)
-            // Android 11+ routes IME visibility through window insets; this
-            // complements the legacy manager call after an IME-picker return.
+            // Android 11+ routes IME visibility through window insets; pair
+            // it with the legacy call for older and picker-backed IMEs.
             ViewCompat.getWindowInsetsController(field)?.show(WindowInsetsCompat.Type.ime())
-        }, 120L)
+            val shown = imm.showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            if (!shown && attempt < 5) {
+                requestRehearsalIme(field, attempt + 1)
+            } else if (!shown) {
+                imm.showInputMethodPicker()
+            }
+        }, if (attempt == 0) 120L else 260L)
     }
 
     private fun build() {
