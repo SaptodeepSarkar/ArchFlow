@@ -109,6 +109,21 @@ private class VaaniOrb @JvmOverloads constructor(
         val cy = height / 2f
         val radius = minOf(width, height) * .38f
         val lift = kotlin.math.sin(phase * Math.PI * 2).toFloat() * 1.5f * d
+
+        // A compact depth study: the orb should read as a physical touchstone,
+        // not as another flat icon. The shadow, rim light, and moving filament
+        // remain legible even when the system is in dark mode.
+        paint.shader = null
+        paint.style = Paint.Style.FILL
+        paint.color = 0x55000000
+        canvas.drawOval(
+            cx - radius * .72f,
+            cy + radius * .78f,
+            cx + radius * .72f,
+            cy + radius * 1.05f,
+            paint,
+        )
+
         paint.style = Paint.Style.FILL
         paint.shader = RadialGradient(
             cx - radius * .34f,
@@ -121,11 +136,23 @@ private class VaaniOrb @JvmOverloads constructor(
         canvas.drawCircle(cx, cy + lift, radius, paint)
         paint.shader = null
 
+        paint.color = 0x35fff9e8
+        canvas.drawOval(
+            cx - radius * .62f,
+            cy - radius * .72f + lift,
+            cx - radius * .05f,
+            cy - radius * .18f + lift,
+            paint,
+        )
+
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 2f * d
         paint.strokeCap = Paint.Cap.ROUND
         paint.color = ui.palette.accent
         canvas.drawArc(cx - radius - 3f * d, cy - radius - 3f * d, cx + radius + 3f * d, cy + radius + 3f * d, phase * 360f, 110f, false, paint)
+        paint.color = Ui.BRAND_SAGE
+        paint.strokeWidth = 1f * d
+        canvas.drawArc(cx - radius - 6f * d, cy - radius - 6f * d, cx + radius + 6f * d, cy + radius + 6f * d, 180f + phase * 240f, 58f, false, paint)
 
         paint.style = Paint.Style.FILL
         paint.color = 0xfffff9e8.toInt()
@@ -134,6 +161,23 @@ private class VaaniOrb @JvmOverloads constructor(
         paint.textSize = radius * 1.05f
         canvas.drawText("V", cx, cy + radius * .38f + lift, paint)
         paint.textAlign = Paint.Align.LEFT
+        paint.color = Ui.BRAND_CREAM
+        paint.alpha = 210
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.5f * d
+        val filament = Path().apply {
+            moveTo(cx - radius * .55f, cy + radius * .1f + lift)
+            cubicTo(
+                cx - radius * .12f,
+                cy - radius * .45f + lift,
+                cx + radius * .1f,
+                cy + radius * .52f + lift,
+                cx + radius * .6f,
+                cy - radius * .05f + lift,
+            )
+        }
+        canvas.drawPath(filament, paint)
+        paint.alpha = 255
     }
 }
 
@@ -363,8 +407,8 @@ class OnboardingView(
 
     private fun build() {
         val header = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
-        header.addView(VaaniOrb(context, ui), LinearLayout.LayoutParams(ui.dp(46), ui.dp(46)))
-        header.addView(ui.label("Vaani", 20f).apply { typeface = Typeface.DEFAULT_BOLD }, LinearLayout.LayoutParams(0, ui.dp(40), 1f).apply { marginStart = ui.dp(10) })
+        header.addView(VaaniOrb(context, ui), LinearLayout.LayoutParams(ui.dp(58), ui.dp(58)))
+        header.addView(ui.label("Vaani", 20f).apply { typeface = Typeface.DEFAULT_BOLD }, LinearLayout.LayoutParams(0, ui.dp(48), 1f).apply { marginStart = ui.dp(10) })
         progress = ui.meta("1 of 4")
         header.addView(progress)
         addView(header)
