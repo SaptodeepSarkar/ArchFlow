@@ -24,7 +24,7 @@ class MainActivityNavigationInstrumentedTest {
         prefs.edit().putBoolean("onboarding_v2", true).commit()
 
         val activity = instrumentation.startActivitySync(
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
         )
         try {
             instrumentation.waitForIdleSync()
@@ -56,7 +56,7 @@ class MainActivityNavigationInstrumentedTest {
             .commit()
 
         val activity = instrumentation.startActivitySync(
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
         )
         try {
             instrumentation.waitForIdleSync()
@@ -79,7 +79,7 @@ class MainActivityNavigationInstrumentedTest {
     }
 
     @Test
-    fun finalOnboardingPageHasARecoveryPathWithoutDictation() {
+    fun finalOnboardingPageRequiresDictationBeforeFinishing() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val prefs = context.getSharedPreferences("vaani", Context.MODE_PRIVATE)
@@ -92,11 +92,13 @@ class MainActivityNavigationInstrumentedTest {
             .putBoolean("first_dictation_complete", false)
             .commit()
         val activity = instrumentation.startActivitySync(
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
         )
         try {
             instrumentation.waitForIdleSync()
-            assertTrue(buttons(activity.window.decorView).any { it.text.toString() == "Skip rehearsal for now" })
+            assertTrue(buttons(activity.window.decorView).none { it.text.toString() == "Skip rehearsal for now" })
+            assertTrue(buttons(activity.window.decorView).none { it.text.toString() == "Finish setup" })
+            assertTrue(textViews(activity.window.decorView).any { it.text.toString().contains("Complete the rehearsal") })
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
             prefs.edit()
