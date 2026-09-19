@@ -180,13 +180,27 @@ class MainActivity : Activity() {
 
     private fun home(ui: Ui): LinearLayout {
         val root = ui.screenColumn()
-        root.addView(ui.title("Vaani"))
-        root.addView(ui.label("System-wide dictation, kept close to the text field.", 17f, ui.palette.muted))
+        root.addView(ui.meta("CONTROL CENTER"))
+        root.addView(ui.title("Speak. Vaani types.", 30f))
+        root.addView(ui.label("A private voice layer for every text field on your device.", 17f, ui.palette.muted))
         val ready = readiness()
         val status = ui.surfaceCard()
-        status.addView(ui.meta(if (ready.ready) "READY" else "SETUP"))
+        val statusHeader = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        statusHeader.addView(
+            ui.pill(
+                if (ready.ready) ui.palette.ready else ui.palette.surfaceRaised,
+                if (ready.ready) 0xffffffff.toInt() else ui.ink,
+                if (ready.ready) "READY TO SPEAK" else "SETUP NEEDED",
+            ),
+            LinearLayout.LayoutParams(0, ui.dp(30), 1f),
+        )
+        statusHeader.addView(ui.meta(selectedLanguageName()), LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(12) })
+        status.addView(statusHeader)
         status.addView(ui.label(if (ready.ready) "Ready to dictate" else blockerTitle(ready.nextBlocker), 22f).apply { typeface = android.graphics.Typeface.DEFAULT_BOLD })
         status.addView(ui.label(if (ready.ready) "${selectedLanguageName()} · device speech · Vaani keyboard" else blockerBody(ready.nextBlocker), 14f, ui.palette.muted))
+        if (ready.ready) {
+            status.addView(ui.label("Hold Send while you speak. Release to place the text; Cancel keeps the field unchanged.", 14f, ui.palette.muted), LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(10) })
+        }
         val testField = if (ready.ready) EditText(this).apply {
             hint = "Dictate something here"
             textSize = 16f
@@ -214,8 +228,19 @@ class MainActivity : Activity() {
         status.addView(action, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(12) })
         root.addView(status, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(20) })
         val flow = ui.surfaceCard()
-        flow.addView(ui.label("The working path", 17f).apply { typeface = android.graphics.Typeface.DEFAULT_BOLD })
-        flow.addView(ui.label("Focus a text field → choose Vaani → hold Send → speak → release. Vaani inserts text and stays out of the way.", 14f, ui.palette.muted))
+        flow.addView(ui.label("The Vaani rhythm", 17f).apply { typeface = android.graphics.Typeface.DEFAULT_BOLD })
+        flow.addView(ui.label("Five seconds from thought to text.", 14f, ui.palette.muted))
+        val steps = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        listOf("01" to "Focus", "02" to "Hold Send", "03" to "Release").forEachIndexed { index, (number, label) ->
+            val step = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(ui.meta(number))
+                addView(ui.label(label, 13f).apply { typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL) })
+            }
+            steps.addView(step, LinearLayout.LayoutParams(0, -2, 1f))
+            if (index < 2) steps.addView(ui.label("→", 16f, ui.palette.accent), LinearLayout.LayoutParams(ui.dp(20), -2))
+        }
+        flow.addView(steps, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(12) })
         root.addView(flow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(12) })
         root.addView(ui.sectionTitle("Quick status"))
         root.addView(statusRow(ui, "Speech service", if (ready.recognizerAvailable) "Available on this device" else "Unavailable"))
@@ -275,9 +300,11 @@ class MainActivity : Activity() {
 
     private fun personalize(ui: Ui): LinearLayout {
         val root = ui.screenColumn()
+        root.addView(ui.meta("YOUR VOICE, YOUR RULES"))
         root.addView(ui.title("Personalize"))
         root.addView(ui.label("Teach Vaani the words and shortcuts that make your writing yours.", 16f, ui.palette.muted))
         root.addView(ui.label("These rules stay on this device and run before insertion. Word boundaries prevent accidental edits inside larger words.", 14f, ui.palette.muted), LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(16) })
+        root.addView(ui.sectionTitle("Build your dictionary"))
         addPersonalizationEditor(root, ui, "Vocabulary term", "Spoken aliases (comma-separated)", "Add vocabulary") { term, aliases ->
             personalization.addVocabulary(term, aliases.split(',').map(String::trim))
         }
@@ -342,17 +369,31 @@ class MainActivity : Activity() {
     ) {
         val first = EditText(this).apply { hint = firstHint; textSize = 16f; setSingleLine(true) }
         val second = if (buttonText == secondHint) null else EditText(this).apply { hint = secondHint; textSize = 16f; setSingleLine(true) }
+        val card = ui.surfaceCard()
+        val sectionLabel = when (buttonText) {
+            "Add vocabulary" -> "Names and terms"
+            "Add snippet" -> "Shortcuts that expand"
+            else -> "Words to replace"
+        }
+        val helper = when (buttonText) {
+            "Add vocabulary" -> "Give the recognizer a reliable spelling for a name or product term."
+            "Add snippet" -> "Say a short trigger and insert a longer phrase."
+            else -> "Keep a predictable correction local to this device."
+        }
+        card.addView(ui.label(sectionLabel, 17f).apply { typeface = android.graphics.Typeface.DEFAULT_BOLD })
+        card.addView(ui.meta(helper))
         listOfNotNull(first, second).forEach { field ->
             field.setTextColor(ui.ink)
             field.setHintTextColor(ui.palette.muted)
             field.background = ui.shape(ui.palette.surfaceRaised, ui.palette.line, 12)
             field.setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
-            root.addView(field, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(6) })
+            card.addView(field, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(10) })
         }
-        root.addView(ui.secondaryButton(buttonText) {
+        card.addView(ui.secondaryButton(buttonText) {
             if (save(first.text.toString(), second?.text?.toString().orEmpty())) render()
             else first.error = "Enter a value up to 500 characters"
-        }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(6) })
+        }, LinearLayout.LayoutParams(-1, ui.dp(48)).apply { topMargin = ui.dp(10) })
+        root.addView(card, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(10) })
     }
 
     private fun addPersonalizationRows(root: LinearLayout, ui: Ui, title: String, entries: List<PersonalizationEntry>, kind: PersonalizationStore.Kind) {
