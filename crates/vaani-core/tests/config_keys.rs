@@ -16,6 +16,16 @@ fn whitelist_accepts_known_keys() {
         c.set_key("general.residency_profile", "balanced").unwrap(),
         "balanced"
     );
+    assert_eq!(
+        c.set_key("insertion.app_override", "code=review").unwrap(),
+        "code=review"
+    );
+    assert_eq!(c.insertion_mode_for("code-editor"), "review");
+    assert_eq!(
+        c.set_key("insertion.app_override", "code=none").unwrap(),
+        "code=none"
+    );
+    assert_eq!(c.insertion_mode_for("code-editor"), "automatic");
 }
 
 #[test]
@@ -28,6 +38,8 @@ fn rejects_unknown_and_bad_values() {
     assert!(c.set_key("cleanup.endpoint", "ftp://x").is_err());
     assert!(c.set_key("hacker.key", "1").is_err());
     assert!(c.set_key("recognition.language", "auto").is_err());
+    assert!(c.set_key("insertion.app_override", "=review").is_err());
+    assert!(c.set_key("insertion.app_override", "code=unsafe").is_err());
 }
 
 #[test]

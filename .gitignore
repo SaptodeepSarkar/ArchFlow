@@ -6,6 +6,9 @@ native/worker/whisper.cpp/
 models/*.bin
 models/*.pt
 *.log
+firepit-log.txt
+firebase/node_modules/
+firebase/firestore-debug.log
 docs/screenshots/
 .vaani/
 .hf_cache

@@ -1,15 +1,34 @@
 package org.vaani.keyboard
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.google.android.material.button.MaterialButton
+
+/**
+ * Button base used by the keyboard's touch-customized controls.
+ *
+ * Several keyboard controls add press-and-hold or cursor-scrub behavior with
+ * an OnTouchListener. Keeping performClick explicit preserves the semantic
+ * click path used by accessibility services and by keyboard automation.
+ */
+@SuppressLint("AppCompatCustomView")
+class AccessibleButton(context: Context) : Button(context) {
+    override fun performClick(): Boolean = super.performClick()
+}
+
+private class MaterialAccessibleButton(context: Context) : MaterialButton(context) {
+    override fun performClick(): Boolean = super.performClick()
+}
 
 data class Palette(
     val paper: Int,
@@ -76,21 +95,33 @@ class Ui(private val context: Context) {
 
     fun primaryButton(value: CharSequence, click: () -> Unit) = baseButton(value, click).apply {
         setTextColor(palette.accentText)
-        background = shape(palette.accent, palette.accent, 16)
+        if (this is MaterialButton) {
+            backgroundTintList = ColorStateList.valueOf(palette.accent)
+            strokeColor = ColorStateList.valueOf(palette.accent)
+            strokeWidth = dp(1)
+            cornerRadius = dp(16)
+        } else background = shape(palette.accent, palette.accent, 16)
     }
 
     fun secondaryButton(value: CharSequence, click: () -> Unit) = baseButton(value, click).apply {
         setTextColor(palette.ink)
-        background = shape(palette.surface, palette.line, 16)
+        if (this is MaterialButton) {
+            backgroundTintList = ColorStateList.valueOf(palette.surface)
+            strokeColor = ColorStateList.valueOf(palette.line)
+            strokeWidth = dp(1)
+            cornerRadius = dp(16)
+        } else background = shape(palette.surface, palette.line, 16)
     }
 
     fun button(value: String, click: () -> Unit) = primaryButton(value, click)
 
-    private fun baseButton(value: CharSequence, click: () -> Unit) = Button(context).apply {
+    private fun baseButton(value: CharSequence, click: () -> Unit): Button =
+        (if (context is VaaniKeyboardService) AccessibleButton(context) else MaterialAccessibleButton(context)).apply {
         text = value
         textSize = 15f
         isAllCaps = false
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        letterSpacing = 0f
         minHeight = dp(52)
         minimumHeight = dp(52)
         setPadding(dp(16), dp(10), dp(16), dp(10))
@@ -98,7 +129,7 @@ class Ui(private val context: Context) {
         setOnClickListener { click() }
     }
 
-    fun key(value: String, click: () -> Unit) = Button(context).apply {
+    fun key(value: String, click: () -> Unit) = AccessibleButton(context).apply {
         text = value
         textSize = 16f
         isAllCaps = false
@@ -110,7 +141,11 @@ class Ui(private val context: Context) {
         setPadding(0, dp(6), 0, dp(6))
         stateListAnimator = null
         background = shape(palette.surface, palette.line, 12)
-        setOnClickListener { click() }
+        isHapticFeedbackEnabled = true
+        setOnClickListener {
+            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            click()
+        }
     }
 
     fun controlKey(value: String, click: () -> Unit) = key(value, click).apply {

@@ -93,12 +93,16 @@ ColumnLayout {
                 font.bold: true
             }
             ComboBox {
-                model: ["economy"]
+                model: ["economy", "balanced", "ready"]
                 currentIndex: Math.max(0, ["economy", "balanced", "ready"].indexOf(settingsRoot.cfg.general ? settingsRoot.cfg.general.residency_profile : "economy"))
                 onActivated: settingsRoot.setKey("general.residency_profile", currentText)
             }
             Label {
-                text: "The model unloads after each dictation. Balanced and Ready residency are not implemented yet."
+                text: settingsRoot.cfg.general && settingsRoot.cfg.general.residency_profile === "ready"
+                    ? "Ready keeps the selected model warm for up to 10 minutes; it uses more memory."
+                    : settingsRoot.cfg.general && settingsRoot.cfg.general.residency_profile === "balanced"
+                        ? "Balanced keeps the model warm for at least 60 seconds, speeding up repeated dictation."
+                        : "Economy unloads the model after each dictation, saving inactive memory."
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
                 color: colors.muted
@@ -107,6 +111,74 @@ ColumnLayout {
                 text: "Review before insertion"
                 checked: settingsRoot.cfg.general ? settingsRoot.cfg.general.review_before_insertion : false
                 onToggled: settingsRoot.setKey("general.review_before_insertion", checked ? "true" : "false")
+            }
+            Label {
+                text: "Delivery mode"
+                font.bold: true
+            }
+            ComboBox {
+                model: ["automatic", "review", "copy-only"]
+                currentIndex: Math.max(0, ["automatic", "review", "copy-only"].indexOf(settingsRoot.cfg.insertion ? settingsRoot.cfg.insertion.mode : "automatic"))
+                onActivated: settingsRoot.setKey("insertion.mode", currentText)
+            }
+            Label {
+                text: settingsRoot.cfg.insertion && settingsRoot.cfg.insertion.mode === "copy-only"
+                    ? "Copy-only keeps the complete result on the clipboard."
+                    : settingsRoot.cfg.insertion && settingsRoot.cfg.insertion.mode === "review"
+                        ? "Review pauses before insertion so you can confirm the focused field."
+                        : "Automatic types after a final focus check; terminals and shell-like text remain copy-only."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                color: colors.muted
+            }
+            Label {
+                text: "App overrides"
+                font.bold: true
+            }
+            Label {
+                text: "Match a focused app-id substring and choose a safer delivery mode."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                color: colors.muted
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                TextField {
+                    id: overridePattern
+                    Layout.fillWidth: true
+                    placeholderText: "App id, e.g. code or firefox"
+                }
+                ComboBox {
+                    id: overrideMode
+                    model: ["automatic", "review", "copy-only"]
+                }
+                Button {
+                    text: "Save"
+                    onClicked: {
+                        if (overridePattern.text.trim().length > 0) {
+                            settingsRoot.setKey("insertion.app_override", overridePattern.text.trim() + "=" + overrideMode.currentText)
+                            overridePattern.text = ""
+                        }
+                    }
+                }
+            }
+            Repeater {
+                model: settingsRoot.cfg.insertion && settingsRoot.cfg.insertion.app_overrides
+                    ? Object.keys(settingsRoot.cfg.insertion.app_overrides)
+                    : []
+                delegate: RowLayout {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    Label {
+                        text: modelData + " → " + settingsRoot.cfg.insertion.app_overrides[modelData]
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+                    Button {
+                        text: "Remove"
+                        onClicked: settingsRoot.setKey("insertion.app_override", modelData + "=none")
+                    }
+                }
             }
         }
 
@@ -157,9 +229,24 @@ ColumnLayout {
                 font.bold: true
             }
             ComboBox {
-                model: ["tiny", "base", "base.en", "small"]
-                currentIndex: Math.max(0, ["tiny", "base", "base.en", "small"].indexOf(settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.model : "base"))
+                model: ["tiny", "base", "base.en", "small", "cozy", "v5"]
+                currentIndex: Math.max(0, ["tiny", "base", "base.en", "small", "cozy", "v5"].indexOf(settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.model : "base"))
                 onActivated: settingsRoot.setKey("recognition.model", currentText)
+            }
+            Label {
+                text: "Live preview model"
+                font.bold: true
+            }
+            ComboBox {
+                model: ["tiny", "base", "base.en", "small", "cozy", "v5"]
+                currentIndex: Math.max(0, ["tiny", "base", "base.en", "small", "cozy", "v5"].indexOf(settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.live_model : "base"))
+                onActivated: settingsRoot.setKey("recognition.live_model", currentText)
+            }
+            Label {
+                text: "Preview text is provisional; final insertion always uses the selected final model."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                color: colors.muted
             }
             Label {
                 text: "Language (explicit setting; auto-detection fails on short utterances)"
@@ -178,6 +265,22 @@ ColumnLayout {
                 model: ["cpu", "cuda"]
                 currentIndex: (settingsRoot.cfg.recognition && settingsRoot.cfg.recognition.device === "cuda") ? 1 : 0
                 onActivated: settingsRoot.setKey("recognition.device", currentText)
+            }
+            Label {
+                text: "Inference sidecar idle limit (seconds)"
+                font.bold: true
+            }
+            SpinBox {
+                from: 0
+                to: 600
+                value: settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.server_idle_secs : 0
+                onValueModified: settingsRoot.setKey("recognition.server_idle_secs", String(value))
+            }
+            Label {
+                text: "Economy always unloads after use. Balanced enforces at least 60 seconds; Ready enforces up to 10 minutes."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                color: colors.muted
             }
             CheckBox {
                 text: "Translate to English (opt-in)"

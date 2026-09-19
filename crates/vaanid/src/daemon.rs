@@ -16,6 +16,7 @@ use tokio::sync::{broadcast, Mutex};
 use vaani_core::config::Config;
 use vaani_core::protocol::{Event, Request, RequestKind, Response};
 use vaani_core::state::{Session, State};
+use vaani_core::sync::StorageProvider;
 
 #[derive(Clone)]
 struct Pending {
@@ -25,6 +26,7 @@ struct Pending {
 
 struct Shared {
     cfg: Config,
+    personalization: vaani_core::personalization::PersonalizationSnapshot,
     session: Session,
     seq: u64,
     capture: Option<CaptureHandle>,
@@ -92,8 +94,21 @@ pub async fn run() -> anyhow::Result<()> {
     tracing::info!(sock = %sock.display(), "listening");
 
     let (tx, _rx) = broadcast::channel::<Event>(256);
-let shared = Arc::new(Mutex::new(Shared {
-         cfg: Config::load(),
+    let mut cfg = Config::load();
+    let mut personalization = vaani_core::personalization::PersonalizationSnapshot::default();
+    if let Ok(store) = vaani_core::sync::JsonlStorage::open(paths::personalization_path(), "linux") {
+        if let Ok(snapshot) = store.personalization() {
+            personalization = snapshot;
+            for term in personalization.vocabulary.iter().flat_map(|entry| std::iter::once(entry.canonical.as_str()).chain(entry.spoken_aliases.iter().map(String::as_str))) {
+                if !cfg.cleanup.vocabulary.iter().any(|existing| existing.eq_ignore_ascii_case(&term)) {
+                    cfg.cleanup.vocabulary.push(term.to_string());
+                }
+            }
+        }
+    }
+    let shared = Arc::new(Mutex::new(Shared {
+         cfg,
+         personalization,
          session: Session::new(0),
          seq: 0,
          capture: None,
@@ -506,11 +521,28 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
                 return Response { ok: false, message: Some("key/value too large".into()), ..resp_ok(&rid, &g.session, None, None) };
             }
             let mut g = shared.lock().await;
+            let previous = g.cfg.clone();
             match g.cfg.set_key(&key, &value) {
-                Ok(canonical) => match g.cfg.save() {
-                    Ok(()) => resp_ok(&rid, &g.session, Some("saved".into()), Some(serde_json::json!({"key": key, "value": canonical}))),
-                    Err(e) => Response { ok: false, message: Some(format!("save failed: {e}")), ..resp_ok(&rid, &g.session, None, None) },
-                },
+                Ok(canonical) => {
+                    let selected_model = match key.as_str() {
+                        "recognition.model" => Some(g.cfg.recognition.model.as_str()),
+                        "recognition.live_model" => Some(g.cfg.recognition.live_model.as_str()),
+                        _ => None,
+                    };
+                    if let Some(model) = selected_model {
+                        if let Err(error) = worker_sup::validate_model_selection(model) {
+                            g.cfg = previous;
+                            return Response { ok: false, message: Some(format!("model activation rejected: {error}")), ..resp_ok(&rid, &g.session, None, None) };
+                        }
+                    }
+                    match g.cfg.save() {
+                        Ok(()) => resp_ok(&rid, &g.session, Some("saved".into()), Some(serde_json::json!({"key": key, "value": canonical}))),
+                        Err(e) => {
+                            g.cfg = previous;
+                            Response { ok: false, message: Some(format!("save failed: {e}")), ..resp_ok(&rid, &g.session, None, None) }
+                        }
+                    }
+                }
                 Err(e) => Response { ok: false, message: Some(e), ..resp_ok(&rid, &g.session, None, None) },
             }
         }
@@ -915,7 +947,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
                 snap.cfg.audio.worker_threads,
                 cuda,
                 &snap.cfg.cleanup.vocabulary,
-                snap.cfg.recognition.server_idle_secs,
+                snap.cfg.effective_server_idle_secs(),
             )
         })
         .await;
@@ -1058,7 +1090,7 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, ma
             cfg_snap.audio.worker_threads,
             cuda,
             &cfg_snap.cleanup.vocabulary,
-            cfg_snap.recognition.server_idle_secs,
+            cfg_snap.effective_server_idle_secs(),
         )?;
         Ok::<_, anyhow::Error>(result)
     })
@@ -1101,7 +1133,7 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, ma
             // Optional cleanup on finish (non-live only): endpoint-based
             // "clean" mode, or local-LLM "stream" mode for transcripts at or
             // above the word threshold. Raw fallback on any failure.
-let mut final_text = t.text.clone();
+            let mut final_text = vaani_core::personalization::render(&t.text, &g.personalization);
             let stream_wanted = g.cfg.cleanup.mode == "stream";
             if g.cfg.cleanup.mode == "clean" || stream_wanted {
                 let _ = g.session.transition(State::Cleaning);
@@ -1297,6 +1329,13 @@ async fn doctor() -> serde_json::Value {
     checks.insert("whisper-cli-cuda", serde_json::json!(bin("whisper-cli-cuda")));
     checks.insert("vad-speech-segments", serde_json::json!(bin("vad-speech-segments")));
     checks.insert("curl-cleanup", serde_json::json!(bin("curl")));
+    let package_status = worker_sup::discover_model_packages(&paths::models_dir());
+    checks.insert("model_packages", serde_json::json!(package_status.iter().map(|package| serde_json::json!({
+        "root": package.root.display().to_string(),
+        "id": package.manifest.as_ref().map(|manifest| manifest.id.as_str()),
+        "valid": package.error.is_none(),
+        "error": package.error.as_deref(),
+    })).collect::<Vec<_>>()));
     let models = std::fs::read_dir(paths::models_dir())
         .map(|d| d.count())
         .unwrap_or(0);

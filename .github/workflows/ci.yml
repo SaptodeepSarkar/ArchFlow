@@ -1,0 +1,81 @@
+name: Vaani CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check new portable desktop crate formatting
+        run: cargo fmt --manifest-path crates/vaani-desktop/Cargo.toml -- --check
+      - name: Test workspace
+        run: cargo test --workspace --locked
+
+  android:
+    name: Android unit tests, build, lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon
+      - name: Android lint
+        run: ./gradlew :app:lintDebug --no-daemon
+
+  windows-core:
+    name: Portable core on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test portable core
+        run: cargo test -p vaani-core -p vaani-desktop --locked
+      - name: Build Windows desktop companion
+        run: cargo build -p vaani-desktop --release --locked
+      - name: Publish Windows desktop companion artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vaani-desktop-windows-x86_64
+          path: target/release/vaani-desktop.exe
+          if-no-files-found: error
+
+  firestore-rules:
+    name: Firestore emulator rules
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: firebase
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: firebase/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install rules test dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run rules against the emulator
+        run: npx firebase emulators:exec --project vaani-rules-test --only firestore "npm test"
