@@ -274,6 +274,7 @@ private fun OnboardingScaffold(
     onFinish: () -> Unit,
 ) {
     val compact = LocalView.current.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val reducedMotion = !ValueAnimator.areAnimatorsEnabled()
     val scroll = rememberScrollState()
     Surface(modifier = Modifier.fillMaxSize(), color = VaaniBackground) {
         Column(
@@ -288,7 +289,11 @@ private fun OnboardingScaffold(
                 AnimatedContent(
                     targetState = page,
                     transitionSpec = {
-                        (slideInHorizontally { it / 8 } + fadeIn()).togetherWith(slideOutHorizontally { -it / 8 } + fadeOut()) using SizeTransform(clip = false)
+                        if (reducedMotion) {
+                            fadeIn() togetherWith fadeOut()
+                        } else {
+                            (slideInHorizontally { it / 8 } + fadeIn()).togetherWith(slideOutHorizontally { -it / 8 } + fadeOut()) using SizeTransform(clip = false)
+                        }
                     },
                     label = "onboarding step",
                 ) { step ->
