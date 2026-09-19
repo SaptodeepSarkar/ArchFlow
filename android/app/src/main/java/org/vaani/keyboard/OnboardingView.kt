@@ -79,11 +79,23 @@ private class VaaniOrb @JvmOverloads constructor(
 ) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var phase = 0f
+    private var stage = 0
     private var animator: ValueAnimator? = null
 
     init {
         contentDescription = "Vaani voice pebble"
         isFocusable = false
+    }
+
+    fun setStage(value: Int) {
+        stage = value.coerceIn(0, 3)
+        contentDescription = when (stage) {
+            1 -> "Vaani voice pebble, microphone step"
+            2 -> "Vaani voice pebble, keyboard step"
+            3 -> "Vaani voice pebble, rehearsal step"
+            else -> "Vaani voice pebble"
+        }
+        invalidate()
     }
 
     override fun onAttachedToWindow() {
@@ -148,11 +160,33 @@ private class VaaniOrb @JvmOverloads constructor(
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 2f * d
         paint.strokeCap = Paint.Cap.ROUND
-        paint.color = ui.palette.accent
+        paint.color = when (stage) {
+            1 -> ui.palette.ready
+            2 -> Ui.BRAND_SAGE
+            3 -> ui.palette.accent
+            else -> ui.palette.accent
+        }
         canvas.drawArc(cx - radius - 3f * d, cy - radius - 3f * d, cx + radius + 3f * d, cy + radius + 3f * d, phase * 360f, 110f, false, paint)
         paint.color = Ui.BRAND_SAGE
         paint.strokeWidth = 1f * d
         canvas.drawArc(cx - radius - 6f * d, cy - radius - 6f * d, cx + radius + 6f * d, cy + radius + 6f * d, 180f + phase * 240f, 58f, false, paint)
+
+        if (stage == 1 || stage == 3) {
+            paint.color = if (stage == 1) ui.palette.ready else ui.palette.accent
+            paint.alpha = 70
+            paint.strokeWidth = 1f * d
+            val swell = (0.82f + kotlin.math.sin(phase * Math.PI * 2).toFloat() * .08f) * radius
+            canvas.drawCircle(cx, cy + lift, swell, paint)
+            canvas.drawCircle(cx, cy + lift, swell + 5f * d, paint)
+            paint.alpha = 255
+        } else if (stage == 2) {
+            paint.style = Paint.Style.FILL
+            paint.color = Ui.BRAND_SAGE
+            val dotY = cy + radius * .76f
+            for (index in -1..1) {
+                canvas.drawCircle(cx + index * 7f * d, dotY, 2f * d, paint)
+            }
+        }
 
         paint.style = Paint.Style.FILL
         paint.color = 0xfffff9e8.toInt()
@@ -320,6 +354,7 @@ class OnboardingView(
     private lateinit var title: TextView
     private lateinit var body: TextView
     private lateinit var visualHost: LinearLayout
+    private lateinit var brandOrb: VaaniOrb
     private lateinit var next: android.widget.Button
     private lateinit var back: android.widget.Button
     private var testField: EditText? = null
@@ -407,7 +442,8 @@ class OnboardingView(
 
     private fun build() {
         val header = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
-        header.addView(VaaniOrb(context, ui), LinearLayout.LayoutParams(ui.dp(58), ui.dp(58)))
+        brandOrb = VaaniOrb(context, ui)
+        header.addView(brandOrb, LinearLayout.LayoutParams(ui.dp(58), ui.dp(58)))
         header.addView(ui.label("Vaani", 20f).apply { typeface = Typeface.DEFAULT_BOLD }, LinearLayout.LayoutParams(0, ui.dp(48), 1f).apply { marginStart = ui.dp(10) })
         progress = ui.meta("1 of 4")
         header.addView(progress)
@@ -488,6 +524,7 @@ class OnboardingView(
     }
 
     private fun renderContent() {
+        brandOrb.setStage(page)
         val mic = hasMic()
         val ime = keyboardEnabled()
         val selected = keyboardSelected()
