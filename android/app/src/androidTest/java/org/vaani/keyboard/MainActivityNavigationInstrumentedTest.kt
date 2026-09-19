@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -41,6 +42,39 @@ class MainActivityNavigationInstrumentedTest {
             instrumentation.runOnMainSync { personalize.performClick() }
             instrumentation.waitForIdleSync()
             assertTrue(textViews(activity.window.decorView).any { it.text.toString() == "Personalize" })
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+            prefs.edit().putBoolean("onboarding_v2", wasOnboardingComplete).commit()
+        }
+    }
+
+    @Test
+    fun longSurfaceRestoresTabAndScrollAfterRecreation() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val prefs = context.getSharedPreferences("vaani", Context.MODE_PRIVATE)
+        val wasOnboardingComplete = prefs.getBoolean("onboarding_v2", false)
+        prefs.edit().putBoolean("onboarding_v2", true).commit()
+
+        var activity = instrumentation.startActivitySync(
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+        )
+        try {
+            instrumentation.waitForIdleSync()
+            instrumentation.runOnMainSync {
+                buttons(activity.window.decorView).first { it.text.toString().contains("Personalize") }.performClick()
+            }
+            instrumentation.waitForIdleSync()
+            val scroll = collect(activity.window.decorView).filterIsInstance<ScrollView>().single()
+            instrumentation.runOnMainSync { scroll.scrollTo(0, 600) }
+            instrumentation.waitForIdleSync()
+            assertTrue(scroll.scrollY > 0)
+
+            instrumentation.runOnMainSync { activity.recreate() }
+            instrumentation.waitForIdleSync()
+            val restoredScroll = collect(activity.window.decorView).filterIsInstance<ScrollView>().single()
+            assertTrue(textViews(activity.window.decorView).any { it.text.toString() == "Personalize" })
+            assertTrue(restoredScroll.scrollY > 0)
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
             prefs.edit().putBoolean("onboarding_v2", wasOnboardingComplete).commit()

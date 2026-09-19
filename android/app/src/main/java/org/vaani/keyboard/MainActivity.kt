@@ -36,6 +36,7 @@ class MainActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         activeTab = state?.getInt("active_tab") ?: 0
+        scrollY = state?.getInt("scroll_y") ?: 0
         if (!prefs.getBoolean("appearance_v3", false)) {
             prefs.edit().putBoolean("appearance_v3", true).putString("theme", "system").apply()
         }
@@ -45,6 +46,7 @@ class MainActivity : Activity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("active_tab", activeTab)
+        outState.putInt("scroll_y", activeScroll?.scrollY ?: scrollY)
         super.onSaveInstanceState(outState)
     }
 
