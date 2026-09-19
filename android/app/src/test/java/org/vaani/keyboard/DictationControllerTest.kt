@@ -37,6 +37,12 @@ class DictationControllerTest {
     }
 
     @Test
+    fun imeSelectionAcceptsAndroidRelativeComponentNames() {
+        assertTrue(InputMethodSelection.matches("org.vaani.keyboard/.VaaniKeyboardService", "org.vaani.keyboard", "org.vaani.keyboard.VaaniKeyboardService"))
+        assertTrue(!InputMethodSelection.matches("com.google.android.inputmethod.latin/.LatinIME", "org.vaani.keyboard", "org.vaani.keyboard.VaaniKeyboardService"))
+    }
+
+    @Test
     fun speechFailuresKeepRecognizerAndMicrophoneRecoveryDistinct() {
         assertEquals(
             FailureKind.RECOGNIZER_UNAVAILABLE,

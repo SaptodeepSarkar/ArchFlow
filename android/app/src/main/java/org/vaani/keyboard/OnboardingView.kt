@@ -504,8 +504,11 @@ class OnboardingView(
 
     private fun keyboardSelected(): Boolean {
         val selected = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
-        return android.content.ComponentName.unflattenFromString(selected) ==
-            android.content.ComponentName(context, VaaniKeyboardService::class.java)
+        return InputMethodSelection.matches(
+            selected,
+            context.packageName,
+            VaaniKeyboardService::class.java.name,
+        )
     }
 
     private fun update(animated: Boolean = false) {
