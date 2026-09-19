@@ -76,6 +76,9 @@ On Windows, `WindowsAudioCapture` uses the default WASAPI input device through
 memory, and exposes those blocks to the same `AudioFrontEnd` contract. Device
 selection, session timing, and delivery remain shell responsibilities; no
 audio is serialized or passed through process arguments.
+`WindowsSessionLoop` supplies the event-driven shell bridge: User32 hotkey and
+audio notifications share one message loop, capture starts/stops with the
+toggle, and completed sessions call `finish_if_speech` before delivery.
 
 `FirebaseRestProvider` can push and pull those records through Firestore using
 an injected ID-token provider; it never owns credentials or participates in the

@@ -5,7 +5,7 @@
 //! future UI Automation/clipboard implementation cannot silently become raw
 //! keystroke injection.
 
-use crate::{ShortcutModifier, ShortcutSpec};
+use crate::{DeliveryReport, DesktopSession, FormatContext, ShortcutModifier, ShortcutSpec};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 use std::ffi::c_int;
@@ -15,6 +15,7 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use vaani_core::engine::{EngineError, EngineErrorKind, InsertOutcome};
 
 const WM_HOTKEY: u32 = 0x0312;
+const WM_VAANI_AUDIO: u32 = 0x8001;
 const CF_UNICODETEXT: u32 = 13;
 const GMEM_MOVEABLE: u32 = 0x0002;
 const KEYEVENTF_KEYUP: u32 = 0x0002;
@@ -39,6 +40,8 @@ extern "system" {
     fn GetMessageW(message: *mut Message, hwnd: *mut std::ffi::c_void, min: u32, max: u32) -> i32;
     fn TranslateMessage(message: *const Message) -> i32;
     fn DispatchMessageW(message: *const Message) -> isize;
+    fn GetCurrentThreadId() -> u32;
+    fn PostThreadMessageW(thread_id: u32, message: u32, w_param: usize, l_param: isize) -> i32;
     fn GetForegroundWindow() -> *mut std::ffi::c_void;
     fn GetClassNameW(hwnd: *mut std::ffi::c_void, class_name: *mut u16, max_count: i32) -> i32;
     fn OpenClipboard(owner: *mut std::ffi::c_void) -> i32;
@@ -104,6 +107,16 @@ impl GlobalHotkey {
     }
 
     pub fn run<F: FnMut()>(&self, mut on_hotkey: F) -> Result<(), String> {
+        self.run_messages(|message| {
+            if message == WM_HOTKEY {
+                on_hotkey();
+            }
+        })
+    }
+
+    /// Run the User32 message loop and expose both hotkey and application
+    /// messages to an event-driven shell.
+    pub fn run_messages<F: FnMut(u32)>(&self, mut on_message: F) -> Result<(), String> {
         let _ = (self.modifiers, self.key);
         loop {
             let mut message = Message {
@@ -124,7 +137,9 @@ impl GlobalHotkey {
                 return Ok(());
             }
             if message.message == WM_HOTKEY && message.w_param == self.id as usize {
-                on_hotkey();
+                on_message(WM_HOTKEY);
+            } else if message.message == WM_VAANI_AUDIO {
+                on_message(WM_VAANI_AUDIO);
             }
             unsafe {
                 TranslateMessage(&message);
@@ -154,6 +169,7 @@ pub struct WindowsClipboard;
 pub struct WindowsAudioCapture {
     stream: Stream,
     samples: Receiver<Vec<f32>>,
+    message_thread: u32,
     pub sample_rate: u32,
     pub channels: u16,
 }
@@ -177,18 +193,20 @@ impl WindowsAudioCapture {
         let channels = supported.channels();
         let config: StreamConfig = supported.clone().into();
         let (sender, samples) = mpsc::sync_channel(8);
+        let message_thread = unsafe { GetCurrentThreadId() };
+        let notify_thread = message_thread;
         let error_callback = |error| {
             let _ = error;
         };
         let stream = match supported.sample_format() {
             SampleFormat::F32 => {
-                build_input_stream::<f32>(&device, &config, sender, error_callback)
+                build_input_stream::<f32>(&device, &config, sender, notify_thread, error_callback)
             }
             SampleFormat::I16 => {
-                build_input_stream::<i16>(&device, &config, sender, error_callback)
+                build_input_stream::<i16>(&device, &config, sender, notify_thread, error_callback)
             }
             SampleFormat::U16 => {
-                build_input_stream::<u16>(&device, &config, sender, error_callback)
+                build_input_stream::<u16>(&device, &config, sender, notify_thread, error_callback)
             }
             _format => Err(cpal::BuildStreamError::StreamConfigNotSupported),
         }
@@ -207,6 +225,7 @@ impl WindowsAudioCapture {
         Ok(Self {
             stream,
             samples,
+            message_thread,
             sample_rate,
             channels,
         })
@@ -225,8 +244,16 @@ impl WindowsAudioCapture {
         }
     }
 
+    fn drain_blocks(&self) -> Result<Vec<Vec<f32>>, EngineError> {
+        let mut blocks = Vec::new();
+        while let Some(block) = self.try_next_block()? {
+            blocks.push(block);
+        }
+        Ok(blocks)
+    }
+
     pub fn is_running(&self) -> bool {
-        let _ = &self.stream;
+        let _ = (&self.stream, self.message_thread);
         true
     }
 }
@@ -235,6 +262,7 @@ fn build_input_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,
     sender: mpsc::SyncSender<Vec<f32>>,
+    message_thread: u32,
     error_callback: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<Stream, cpal::BuildStreamError>
 where
@@ -254,10 +282,112 @@ where
                 mono.push(sum / frame.len() as f32);
             }
             let _ = sender.try_send(mono);
+            unsafe {
+                let _ = PostThreadMessageW(message_thread, WM_VAANI_AUDIO, 0, 0);
+            }
         },
         error_callback,
         None,
     )
+}
+
+/// Event-driven Windows shell bridge. The caller supplies the already-wired
+/// portable session; this bridge owns only the User32 hotkey loop and the
+/// WASAPI capture lifetime.
+pub struct WindowsSessionLoop<S, F, P, O, I, C, V, D> {
+    hotkey: GlobalHotkey,
+    session: DesktopSession<S, F, P, O, I, C, V, D>,
+    context: FormatContext,
+    capture: Option<WindowsAudioCapture>,
+}
+
+impl<S, F, P, O, I, C, V, D> WindowsSessionLoop<S, F, P, O, I, C, V, D>
+where
+    S: vaani_core::engine::SttEngine,
+    F: vaani_core::engine::FormatterEngine,
+    P: vaani_core::engine::PersonalizationProvider,
+    O: crate::OverlayPort,
+    I: crate::DirectInserter,
+    C: crate::ClipboardPort,
+    V: vaani_core::engine::VadEngine,
+    D: vaani_core::engine::DenoiserEngine,
+{
+    pub fn new(
+        hotkey: GlobalHotkey,
+        session: DesktopSession<S, F, P, O, I, C, V, D>,
+        context: FormatContext,
+    ) -> Self {
+        Self {
+            hotkey,
+            session,
+            context,
+            capture: None,
+        }
+    }
+
+    pub fn run(
+        self,
+        mut on_result: impl FnMut(Result<Option<DeliveryReport>, EngineError>),
+    ) -> Result<(), String> {
+        let Self {
+            hotkey,
+            mut session,
+            context,
+            mut capture,
+        } = self;
+        hotkey.run_messages(move |message| match message {
+            WM_HOTKEY => Self::toggle_parts(&mut session, &context, &mut capture, &mut on_result),
+            WM_VAANI_AUDIO => {
+                if let Err(error) = Self::drain_parts(&mut session, &mut capture) {
+                    let _ = session.cancel();
+                    capture = None;
+                    on_result(Err(error));
+                }
+            }
+            _ => {}
+        })
+    }
+
+    fn toggle_parts(
+        session: &mut DesktopSession<S, F, P, O, I, C, V, D>,
+        context: &FormatContext,
+        capture: &mut Option<WindowsAudioCapture>,
+        on_result: &mut impl FnMut(Result<Option<DeliveryReport>, EngineError>),
+    ) {
+        if capture.is_some() {
+            let result = Self::drain_parts(session, capture).and_then(|()| {
+                *capture = None;
+                session.finish_if_speech(context.clone())
+            });
+            on_result(result);
+            return;
+        }
+        let next_capture = match WindowsAudioCapture::start() {
+            Ok(capture) => capture,
+            Err(error) => {
+                on_result(Err(error));
+                return;
+            }
+        };
+        if let Err(error) = session.start() {
+            on_result(Err(error));
+            return;
+        }
+        *capture = Some(next_capture);
+    }
+
+    fn drain_parts(
+        session: &mut DesktopSession<S, F, P, O, I, C, V, D>,
+        capture: &mut Option<WindowsAudioCapture>,
+    ) -> Result<(), EngineError> {
+        let Some(capture) = capture.as_ref() else {
+            return Ok(());
+        };
+        for block in capture.drain_blocks()? {
+            session.push_audio(&block)?;
+        }
+        Ok(())
+    }
 }
 
 impl crate::ClipboardPort for WindowsClipboard {
