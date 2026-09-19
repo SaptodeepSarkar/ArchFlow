@@ -153,6 +153,15 @@ class VaaniKeyboardService : InputMethodService() {
     }
 
     private fun transition(next: DictationState, message: String? = null) {
+        prefs.edit().putString("dictation_ui_state", when (next) {
+            DictationState.Hidden -> "hidden"
+            DictationState.Starting -> "starting"
+            is DictationState.Listening -> "listening"
+            DictationState.Endpointing, DictationState.Finalizing, is DictationState.Inserting -> "processing"
+            DictationState.Success -> "success"
+            DictationState.Cancelled -> "cancelled"
+            is DictationState.Failure -> "failure"
+        }).apply()
         if (!::status.isInitialized) return
         when (next) {
             DictationState.Hidden -> {

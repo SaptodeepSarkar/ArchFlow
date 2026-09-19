@@ -20,18 +20,27 @@ import android.text.InputType
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("vaani", 0) }
     private var activeTab = 0
     private var scrollY = 0
     private var activeScroll: ScrollView? = null
-    private var onboardingView: OnboardingView? = null
+    private var onboardingView: OnboardingComposeView? = null
     private var homeTestField: EditText? = null
     private var pendingHomeKeyboard = false
     private var hasResumedOnce = false
     private val personalization by lazy { PersonalizationStore(this) }
     private val syncClient by lazy { FirebaseSyncClient(personalization) }
+    private val microphonePermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+        prefs.edit()
+            .putBoolean("microphone_requested", true)
+            .putBoolean("microphone_granted", checkMic())
+            .apply()
+        render()
+    }
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -63,14 +72,6 @@ class MainActivity : Activity() {
                 homeTestField?.let { showHomeImeWithRetry(it, 0) }
             }
         } else onboardingView?.refreshExternalState()
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, results)
-        if (requestCode == REQUEST_MIC) {
-            prefs.edit().putBoolean("microphone_requested", true).putBoolean("microphone_granted", checkMic()).apply()
-            render()
-        }
     }
 
     private fun configureWindow(window: Window) {
@@ -114,7 +115,7 @@ class MainActivity : Activity() {
                 isFillViewport = true
                 setBackgroundColor(ui.paper)
             }
-            onboardingView = OnboardingView(this, ::openImeSettings, ::showKeyboardPicker, ::requestMic) {
+            onboardingView = OnboardingComposeView(this, ::openImeSettings, ::showKeyboardPicker, ::requestMic, ::openAppSettings) {
                 prefs.edit().putBoolean("onboarding_v2", true).putInt("onboarding_step", 0).apply()
                 render()
             }
@@ -456,6 +457,10 @@ class MainActivity : Activity() {
 
     private fun showKeyboardPicker() = (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showInputMethodPicker()
 
+    private fun openAppSettings() = startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.parse("package:$packageName")
+    })
+
     /** Android may drop focus while the IME picker is being dismissed. */
     private fun showHomeImeWithRetry(field: EditText, attempt: Int) {
         field.postDelayed({
@@ -483,13 +488,9 @@ class MainActivity : Activity() {
         if (checkMic()) {
             render()
         } else if (microphoneNeedsSettings()) {
-            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:$packageName")
-            })
+            openAppSettings()
         } else {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MIC)
+            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
-
-    companion object { private const val REQUEST_MIC = 42 }
 }

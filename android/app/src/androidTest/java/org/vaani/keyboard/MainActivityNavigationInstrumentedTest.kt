@@ -124,6 +124,7 @@ class MainActivityNavigationInstrumentedTest {
         val prefs = context.getSharedPreferences("vaani", Context.MODE_PRIVATE)
         val previousComplete = prefs.getBoolean("onboarding_v2", false)
         val previousStep = prefs.getInt("onboarding_step", 0)
+        val device = UiDevice.getInstance(instrumentation)
         prefs.edit()
             .putBoolean("onboarding_v2", false)
             .putInt("onboarding_step", 0)
@@ -134,15 +135,11 @@ class MainActivityNavigationInstrumentedTest {
         )
         try {
             instrumentation.waitForIdleSync()
-            val continueButton = buttons(activity.window.decorView)
-                .first { it.text.toString() == "Continue" }
-            instrumentation.runOnMainSync { continueButton.performClick() }
-            // Onboarding swaps the content through a 400 ms fade/slide.
-            SystemClock.sleep(500)
-            instrumentation.waitForIdleSync()
+            device.findObject(By.text("Continue")).click()
+            device.waitForIdle()
 
-            assertTrue(textViews(activity.window.decorView).any { it.text.toString() == "2 of 4" })
-            assertTrue(textViews(activity.window.decorView).any { it.text.toString().contains("microphone", ignoreCase = true) })
+            assertTrue(device.hasObject(By.text("2 of 4")))
+            assertTrue(device.hasObject(By.textContains("Microphone")))
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
             prefs.edit()
@@ -170,9 +167,10 @@ class MainActivityNavigationInstrumentedTest {
         )
         try {
             instrumentation.waitForIdleSync()
-            assertTrue(buttons(activity.window.decorView).none { it.text.toString() == "Skip rehearsal for now" })
-            assertTrue(buttons(activity.window.decorView).none { it.text.toString() == "Finish setup" })
-            assertTrue(textViews(activity.window.decorView).any { it.text.toString().contains("Complete the rehearsal") })
+            val device = UiDevice.getInstance(instrumentation)
+            assertTrue(!device.hasObject(By.text("Skip rehearsal for now")))
+            assertTrue(device.hasObject(By.text("Finish setup")))
+            assertTrue(device.hasObject(By.textContains("Hold Send")))
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
             prefs.edit()

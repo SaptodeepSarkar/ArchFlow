@@ -1,7 +1,7 @@
 # Android UI screenshot sweep
 
-Captured from the debug APK on `Pixel_16_Play(AVD) - API 35` using ADB on
-2026-09-19. The sweep covers the four onboarding moments, permission recovery,
+Captured from the Compose Material 3 debug APK on `Pixel_16_Play(AVD) - API 35`
+using ADB on 2026-09-20. The sweep covers the four onboarding moments, permission recovery,
 Android keyboard setup/picker screens, the real Vaani keyboard, and the three
 main app surfaces at multiple scroll positions.
 
