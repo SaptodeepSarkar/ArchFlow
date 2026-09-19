@@ -549,17 +549,23 @@ where
     }
 
     pub fn finish(&mut self, context: FormatContext) -> Result<DeliveryReport, EngineError> {
-        let session_id = self.active_session().ok_or_else(|| {
-            EngineError::new(
-                vaani_core::engine::EngineErrorKind::Cancelled,
-                "no active desktop session",
-            )
-        })?;
-        for chunk in self.audio.finish()? {
-            self.speech_seen |= chunk.speech;
-            self.runtime.feed_audio_chunk(session_id, chunk)?;
-        }
+        let session_id = self.flush_audio()?;
         self.runtime.finish(session_id, context)
+    }
+
+    /// Flush pending audio, but cancel without final STT or insertion when the
+    /// utterance contains no VAD-positive block. `None` is a normal silent
+    /// completion, not an error.
+    pub fn finish_if_speech(
+        &mut self,
+        context: FormatContext,
+    ) -> Result<Option<DeliveryReport>, EngineError> {
+        let session_id = self.flush_audio()?;
+        if !self.speech_seen {
+            self.runtime.cancel(session_id)?;
+            return Ok(None);
+        }
+        self.runtime.finish(session_id, context).map(Some)
     }
 
     pub fn cancel(&mut self) -> Result<(), EngineError> {
@@ -572,6 +578,20 @@ where
         self.audio.reset();
         self.speech_seen = false;
         Ok(())
+    }
+
+    fn flush_audio(&mut self) -> Result<SessionId, EngineError> {
+        let session_id = self.active_session().ok_or_else(|| {
+            EngineError::new(
+                vaani_core::engine::EngineErrorKind::Cancelled,
+                "no active desktop session",
+            )
+        })?;
+        for chunk in self.audio.finish()? {
+            self.speech_seen |= chunk.speech;
+            self.runtime.feed_audio_chunk(session_id, chunk)?;
+        }
+        Ok(session_id)
     }
 }
 
@@ -1095,7 +1115,16 @@ mod tests {
             .push_audio(&[0.0_f32; vaani_core::vad::BLOCK_SAMPLES])
             .unwrap();
         assert!(!session.speech_seen());
-        session.cancel().unwrap();
+        let silent = session
+            .finish_if_speech(FormatContext {
+                application: None,
+                language: "en".into(),
+                personalization: PersonalizationSnapshot::default(),
+            })
+            .unwrap();
+        assert_eq!(silent, None);
+        assert_eq!(session.active_session(), None);
+        assert_eq!(inserted.lock().unwrap().len(), 1);
     }
 
     #[test]

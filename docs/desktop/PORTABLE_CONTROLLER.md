@@ -33,6 +33,9 @@ arbitrary capture chunks, finish, or cancel without duplicating lifecycle
 plumbing.
 The session also exposes `speech_seen` so a shell can avoid finalizing a
 silence-only utterance and thereby avoid phantom recognizer output.
+`finish_if_speech` makes that policy atomic: silence cancels the STT session
+and returns no delivery report, while speech follows the normal finalization
+and insertion path.
 
 `ShortcutSpec` is the shared validated invocation format. It accepts
 case-insensitive `CTRL`, `ALT`, `SHIFT`, and `SUPER` modifiers plus a bounded
