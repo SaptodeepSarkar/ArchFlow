@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.provider.Settings
 import android.animation.ValueAnimator
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
@@ -15,6 +16,7 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Space
@@ -321,15 +323,30 @@ class OnboardingView(
         visualHost.removeAllViews()
         when (page) {
             0 -> {
-                visualHost.background = ui.shape(ui.palette.surface, ui.palette.line, 20)
-                visualHost.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), ui.dp(10))
-                visualHost.addView(ImageView(context).apply {
-                    setImageResource(R.drawable.vaani_v)
-                    scaleType = ImageView.ScaleType.CENTER_INSIDE
-                    contentDescription = "Large pine-green Vaani V mark"
-                }, LayoutParams(-1, 0, 1f))
-                visualHost.addView(ui.meta("LOCAL AUDIO PIPELINE · READY"), LayoutParams(-1, ui.dp(24)).apply { gravity = Gravity.CENTER_HORIZONTAL })
-                visualHost.addView(ReadinessPulse(context, ui), LayoutParams(-1, ui.dp(44)))
+                val hero = FrameLayout(context).apply {
+                    background = ui.shape(ui.palette.surface, ui.palette.line, 20)
+                    clipToOutline = true
+                }
+                hero.addView(ImageView(context).apply {
+                    setImageResource(R.drawable.vaani_onboarding_banner)
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    contentDescription = "A quiet sunlit path representing private, effortless dictation"
+                }, FrameLayout.LayoutParams(-1, -1))
+                hero.addView(View(context).apply {
+                    setBackgroundColor(0x990d1714.toInt())
+                }, FrameLayout.LayoutParams(-1, -1))
+                val heroCopy = LinearLayout(context).apply {
+                    orientation = VERTICAL
+                    gravity = Gravity.BOTTOM
+                    setPadding(ui.dp(18), ui.dp(14), ui.dp(18), ui.dp(14))
+                }
+                heroCopy.addView(ui.label("LOCAL AUDIO PIPELINE", 13f, Color.WHITE))
+                heroCopy.addView(ui.label("Speak naturally. Keep your place.", 17f, Color.WHITE).apply {
+                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                })
+                heroCopy.addView(ui.label("Private by default · text stays yours", 12f, 0xffe7eee8.toInt()))
+                hero.addView(heroCopy, FrameLayout.LayoutParams(-1, -1))
+                visualHost.addView(hero, LayoutParams(-1, -1))
             }
             1 -> {
                 visualHost.addView(FlowMark(context, ui), LayoutParams(-1, ui.dp(74)))
