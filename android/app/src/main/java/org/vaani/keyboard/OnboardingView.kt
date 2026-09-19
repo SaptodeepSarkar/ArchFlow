@@ -7,7 +7,6 @@ import android.content.SharedPreferences
 import android.provider.Settings
 import android.animation.ValueAnimator
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
@@ -16,7 +15,6 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.EditText
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Space
@@ -109,6 +107,90 @@ private class ReadinessPulse @JvmOverloads constructor(
             val barHeight = height * (base + pulse).coerceAtMost(.95f)
             canvas.drawRoundRect(index * gap + gap * .35f, height - barHeight, index * gap + gap * .65f, height.toFloat(), gap * .15f, gap * .15f, paint)
         }
+    }
+}
+
+/** An animated, illustrative preview of the speak-to-text interaction. */
+private class OnboardingSignal @JvmOverloads constructor(
+    context: Context,
+    private val ui: Ui = Ui(context),
+) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var phase = 0f
+    private var animator: ValueAnimator? = null
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (!ValueAnimator.areAnimatorsEnabled()) return
+        animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 2200
+            repeatCount = ValueAnimator.INFINITE
+            addUpdateListener { phase = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        animator?.cancel()
+        animator = null
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val d = resources.displayMetrics.density
+        val radius = 20f * d
+        paint.style = Paint.Style.FILL
+        paint.color = ui.palette.surface
+        canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radius, radius, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = d
+        paint.color = ui.palette.line
+        canvas.drawRoundRect(.5f * d, .5f * d, width - .5f * d, height - .5f * d, radius, radius, paint)
+
+        paint.style = Paint.Style.FILL
+        paint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        paint.textSize = 12f * d
+        paint.color = ui.palette.muted
+        canvas.drawText("A SMALL PREVIEW OF THE RHYTHM", 18f * d, 28f * d, paint)
+
+        paint.textSize = 22f * d
+        paint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        paint.color = ui.ink
+        canvas.drawText("speak", 18f * d, 66f * d, paint)
+        paint.color = ui.palette.accent
+        canvas.drawText("→", 86f * d, 66f * d, paint)
+        paint.color = ui.ink
+        canvas.drawText("text", 118f * d, 66f * d, paint)
+
+        val pulse = (kotlin.math.sin(phase * Math.PI * 2).toFloat() + 1f) * .5f
+        paint.color = ui.palette.accent
+        canvas.drawCircle(width - 30f * d, 26f * d, (6f + pulse * 3f) * d, paint)
+        paint.color = ui.palette.ready
+        canvas.drawCircle(width - 30f * d, 26f * d, 3f * d, paint)
+
+        val barWidth = 5f * d
+        val gap = 10f * d
+        val startX = 18f * d
+        val baseline = height - 22f * d
+        val heights = floatArrayOf(.35f, .72f, .48f, .9f, .55f, .78f, .42f, .64f, .3f)
+        heights.forEachIndexed { index, base ->
+            val wave = kotlin.math.sin(phase * Math.PI * 2 + index * .75).toFloat()
+            val barHeight = (12f + (base + wave * .12f).coerceIn(.16f, .95f) * 30f) * d
+            paint.color = if (index == 4) ui.palette.accent else ui.palette.ready
+            canvas.drawRoundRect(
+                startX + index * gap,
+                baseline - barHeight,
+                startX + index * gap + barWidth,
+                baseline,
+                barWidth,
+                barWidth,
+                paint,
+            )
+        }
+        paint.color = ui.palette.muted
+        paint.textSize = 12f * d
+        paint.typeface = Typeface.DEFAULT
+        canvas.drawText("hold · speak · release", width - 146f * d, baseline + 1f * d, paint)
     }
 }
 
@@ -323,30 +405,7 @@ class OnboardingView(
         visualHost.removeAllViews()
         when (page) {
             0 -> {
-                val hero = FrameLayout(context).apply {
-                    background = ui.shape(ui.palette.surface, ui.palette.line, 20)
-                    clipToOutline = true
-                }
-                hero.addView(ImageView(context).apply {
-                    setImageResource(R.drawable.vaani_onboarding_banner)
-                    scaleType = ImageView.ScaleType.CENTER_CROP
-                    contentDescription = "A quiet sunlit path representing private, effortless dictation"
-                }, FrameLayout.LayoutParams(-1, -1))
-                hero.addView(View(context).apply {
-                    setBackgroundColor(0x990d1714.toInt())
-                }, FrameLayout.LayoutParams(-1, -1))
-                val heroCopy = LinearLayout(context).apply {
-                    orientation = VERTICAL
-                    gravity = Gravity.BOTTOM
-                    setPadding(ui.dp(18), ui.dp(14), ui.dp(18), ui.dp(14))
-                }
-                heroCopy.addView(ui.label("LOCAL AUDIO PIPELINE", 13f, Color.WHITE))
-                heroCopy.addView(ui.label("Speak naturally. Keep your place.", 17f, Color.WHITE).apply {
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
-                })
-                heroCopy.addView(ui.label("Private by default · text stays yours", 12f, 0xffe7eee8.toInt()))
-                hero.addView(heroCopy, FrameLayout.LayoutParams(-1, -1))
-                visualHost.addView(hero, LayoutParams(-1, -1))
+                visualHost.addView(OnboardingSignal(context, ui), LayoutParams(-1, -1))
             }
             1 -> {
                 visualHost.addView(FlowMark(context, ui), LayoutParams(-1, ui.dp(74)))
