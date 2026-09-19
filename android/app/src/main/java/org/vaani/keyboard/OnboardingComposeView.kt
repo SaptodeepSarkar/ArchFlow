@@ -120,9 +120,7 @@ class OnboardingComposeView(
     private val done: () -> Unit,
 ) : android.widget.FrameLayout(context), SharedPreferences.OnSharedPreferenceChangeListener {
     private val prefs = context.getSharedPreferences("vaani", Context.MODE_PRIVATE)
-    private var page by mutableIntStateOf(prefs.getInt("onboarding_step", 0).coerceIn(0, 3))
-    private var refreshToken by mutableIntStateOf(0)
-    private var permissionRequesting by mutableStateOf(false)
+    private var state by mutableStateOf(readState())
     private var rehearsalField: EditText? = null
     private val composeView = ComposeView(context)
 
@@ -131,21 +129,12 @@ class OnboardingComposeView(
         addView(composeView, LayoutParams(-1, -1))
         composeView.setContent {
             VaaniTheme {
-                val refresh = refreshToken
-                if (refresh < 0) return@VaaniTheme
                 OnboardingScaffold(
-                    page = page,
-                    microphoneReady = hasMicrophone(),
-                    microphoneDenied = microphoneWasDenied(),
-                    microphoneRequesting = permissionRequesting,
-                    keyboardEnabled = keyboardEnabled(),
-                    keyboardSelected = keyboardSelected(),
-                    rehearsalComplete = prefs.getBoolean("first_dictation_complete", false),
-                    dictationStatus = prefs.getString("dictation_ui_state", "hidden") ?: "hidden",
+                    state = state,
                     onContinue = ::next,
                     onBack = ::previous,
                     onRequestMicrophone = {
-                        permissionRequesting = true
+                        state = state.withMicrophoneRequesting(true)
                         requestMicrophone()
                     },
                     onOpenAppSettings = openAppSettings,
@@ -168,18 +157,17 @@ class OnboardingComposeView(
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         if (key == "first_dictation_complete" || key == "microphone_granted" || key == "microphone_requested" || key == "dictation_ui_state") {
-            post { permissionRequesting = false; refreshToken++ }
+            post { state = readState() }
         }
     }
 
     fun refreshExternalState() {
-        permissionRequesting = false
-        refreshToken++
-        if (page == 3) showRehearsalKeyboardIfReady()
+        state = readState()
+        if (state.page == 3) showRehearsalKeyboardIfReady()
     }
 
     fun showRehearsalKeyboardIfReady() {
-        if (page != 3 || !keyboardSelected() || prefs.getBoolean("first_dictation_complete", false)) return
+        if (state !is OnboardingState.Rehearsal || !keyboardSelected() || prefs.getBoolean("first_dictation_complete", false)) return
         val field = rehearsalField ?: return
         field.postDelayed({
             if (field.isAttachedToWindow) requestRehearsalIme(field, 0)
@@ -205,7 +193,7 @@ class OnboardingComposeView(
     }
 
     private fun next() {
-        when (page) {
+        when (state.page) {
             0 -> moveTo(1)
             1 -> if (hasMicrophone()) moveTo(2) else requestMicrophone()
             2 -> when {
@@ -218,12 +206,13 @@ class OnboardingComposeView(
     }
 
     private fun previous() {
-        if (page > 0) moveTo(page - 1)
+        if (state.page > 0) moveTo(state.page - 1)
     }
 
     private fun moveTo(nextPage: Int) {
-        page = nextPage.coerceIn(0, 3)
+        val page = nextPage.coerceIn(0, 3)
         prefs.edit().putInt("onboarding_step", page).apply()
+        state = readState()
     }
 
     private fun hasMicrophone() = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -246,6 +235,32 @@ class OnboardingComposeView(
             else -> { field.requestFocus(); postDelayed(enableKeyboard, 180L) }
         }
     }
+
+    private fun readState(): OnboardingState {
+        return when (prefs.getInt("onboarding_step", 0).coerceIn(0, 3)) {
+            0 -> OnboardingState.Welcome()
+            1 -> OnboardingState.Microphone(
+                ready = hasMicrophone(),
+                denied = microphoneWasDenied(),
+                requesting = false,
+            )
+            2 -> OnboardingState.Keyboard(
+                enabled = keyboardEnabled(),
+                selected = keyboardSelected(),
+            )
+            else -> OnboardingState.Rehearsal(
+                enabled = keyboardEnabled(),
+                selected = keyboardSelected(),
+                complete = prefs.getBoolean("first_dictation_complete", false),
+                dictationStatus = prefs.getString("dictation_ui_state", "hidden") ?: "hidden",
+            )
+        }
+    }
+
+    private fun OnboardingState.withMicrophoneRequesting(requesting: Boolean): OnboardingState = when (this) {
+        is OnboardingState.Microphone -> copy(requesting = requesting)
+        else -> this
+    }
 }
 
 @Composable
@@ -255,14 +270,7 @@ private fun VaaniTheme(content: @Composable () -> Unit) {
 
 @Composable
 private fun OnboardingScaffold(
-    page: Int,
-    microphoneReady: Boolean,
-    microphoneDenied: Boolean,
-    microphoneRequesting: Boolean,
-    keyboardEnabled: Boolean,
-    keyboardSelected: Boolean,
-    rehearsalComplete: Boolean,
-    dictationStatus: String,
+    state: OnboardingState,
     onContinue: () -> Unit,
     onBack: () -> Unit,
     onRequestMicrophone: () -> Unit,
@@ -273,6 +281,10 @@ private fun OnboardingScaffold(
     onFieldReady: (EditText) -> Unit,
     onFinish: () -> Unit,
 ) {
+    val page = state.page
+    val microphone = state as? OnboardingState.Microphone
+    val keyboard = state as? OnboardingState.Keyboard
+    val rehearsal = state as? OnboardingState.Rehearsal
     val compact = LocalView.current.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val reducedMotion = !ValueAnimator.areAnimatorsEnabled()
     val scroll = rememberScrollState()
@@ -299,20 +311,20 @@ private fun OnboardingScaffold(
                 ) { step ->
                     when (step) {
                         0 -> WelcomeStep(compact)
-                        1 -> MicrophoneStep(microphoneReady, microphoneDenied, microphoneRequesting, onRequestMicrophone, onOpenAppSettings, compact)
-                        2 -> KeyboardStep(keyboardEnabled, keyboardSelected, onEnableKeyboard, onChooseKeyboard, onShowKeyboard, compact)
-                        else -> RehearsalStep(rehearsalComplete, dictationStatus, keyboardEnabled, keyboardSelected, onShowKeyboard, onFieldReady, compact)
+                        1 -> MicrophoneStep(microphone?.ready == true, microphone?.denied == true, microphone?.requesting == true, onRequestMicrophone, onOpenAppSettings, compact)
+                        2 -> KeyboardStep(keyboard?.enabled == true, keyboard?.selected == true, onEnableKeyboard, onChooseKeyboard, onShowKeyboard, compact)
+                        else -> RehearsalStep(rehearsal?.complete == true, rehearsal?.dictationStatus ?: "hidden", rehearsal?.enabled == true, rehearsal?.selected == true, onShowKeyboard, onFieldReady, compact)
                     }
                 }
                 Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
             }
             BottomActionArea(
                 page = page,
-                microphoneReady = microphoneReady,
-                microphoneRequesting = microphoneRequesting,
-                keyboardEnabled = keyboardEnabled,
-                keyboardSelected = keyboardSelected,
-                rehearsalComplete = rehearsalComplete,
+                microphoneReady = microphone?.ready == true,
+                microphoneRequesting = microphone?.requesting == true,
+                keyboardEnabled = keyboard?.enabled == true,
+                keyboardSelected = keyboard?.selected == true,
+                rehearsalComplete = rehearsal?.complete == true,
                 onContinue = onContinue,
                 onBack = onBack,
                 onFinish = onFinish,
