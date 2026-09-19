@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.Vaani" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.Vaani" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#E7A43B</item>
         <item name="android:windowActionModeOverlay">true</item>

@@ -9,13 +9,14 @@ import android.animation.ValueAnimator
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.EditText
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
@@ -68,6 +69,71 @@ private class FlowMark @JvmOverloads constructor(
             canvas.drawPath(path, paint)
         }
         paint.style = Paint.Style.FILL
+    }
+}
+
+/** Vaani's persistent touchstone: a softly lit, voice-shaped brand pebble. */
+private class VaaniOrb @JvmOverloads constructor(
+    context: Context,
+    private val ui: Ui = Ui(context),
+) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var phase = 0f
+    private var animator: ValueAnimator? = null
+
+    init {
+        contentDescription = "Vaani voice pebble"
+        isFocusable = false
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (!ValueAnimator.areAnimatorsEnabled()) return
+        animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 3600
+            repeatCount = ValueAnimator.INFINITE
+            addUpdateListener { phase = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        animator?.cancel()
+        animator = null
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val d = resources.displayMetrics.density
+        val cx = width / 2f
+        val cy = height / 2f
+        val radius = minOf(width, height) * .38f
+        val lift = kotlin.math.sin(phase * Math.PI * 2).toFloat() * 1.5f * d
+        paint.style = Paint.Style.FILL
+        paint.shader = RadialGradient(
+            cx - radius * .34f,
+            cy - radius * .42f + lift,
+            radius * 1.25f,
+            intArrayOf(0xffffe4a8.toInt(), ui.palette.accent, Ui.BRAND_FOREST),
+            floatArrayOf(0f, .48f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        canvas.drawCircle(cx, cy + lift, radius, paint)
+        paint.shader = null
+
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 2f * d
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.color = ui.palette.accent
+        canvas.drawArc(cx - radius - 3f * d, cy - radius - 3f * d, cx + radius + 3f * d, cy + radius + 3f * d, phase * 360f, 110f, false, paint)
+
+        paint.style = Paint.Style.FILL
+        paint.color = 0xfffff9e8.toInt()
+        paint.textAlign = Paint.Align.CENTER
+        paint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        paint.textSize = radius * 1.05f
+        canvas.drawText("V", cx, cy + radius * .38f + lift, paint)
+        paint.textAlign = Paint.Align.LEFT
     }
 }
 
@@ -297,7 +363,7 @@ class OnboardingView(
 
     private fun build() {
         val header = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
-        header.addView(ImageView(context).apply { setImageResource(R.drawable.vaani_v); contentDescription = "Vaani green V" }, LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)))
+        header.addView(VaaniOrb(context, ui), LinearLayout.LayoutParams(ui.dp(46), ui.dp(46)))
         header.addView(ui.label("Vaani", 20f).apply { typeface = Typeface.DEFAULT_BOLD }, LinearLayout.LayoutParams(0, ui.dp(40), 1f).apply { marginStart = ui.dp(10) })
         progress = ui.meta("1 of 4")
         header.addView(progress)
