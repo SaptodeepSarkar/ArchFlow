@@ -268,6 +268,11 @@ impl Default for Config {
 
 impl Config {
     pub fn config_path() -> PathBuf {
+        #[cfg(windows)]
+        let base = std::env::var("APPDATA")
+            .or_else(|_| std::env::var("LOCALAPPDATA"))
+            .unwrap_or_else(|_| ".".into());
+        #[cfg(not(windows))]
         let base = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
             format!("{}/.config", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
         });

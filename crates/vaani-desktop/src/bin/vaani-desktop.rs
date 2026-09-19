@@ -3,6 +3,7 @@
 
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
+use vaani_core::config::Config;
 use vaani_core::engine::EngineError;
 use vaani_core::personalization::PersonalizationSnapshot;
 use vaani_core::sync::SyncEntityKind;
@@ -104,6 +105,28 @@ fn print_snapshot(snapshot: PersonalizationSnapshot) {
     }
 }
 
+fn print_settings() {
+    let config = Config::load();
+    println!("config: {}", Config::config_path().display());
+    println!("residency: {}", config.general.residency_profile);
+    println!("language: {}", config.recognition.language);
+    println!("model: {}", config.recognition.model);
+    println!("device: {}", config.recognition.device);
+    println!("insertion: {}", config.insertion.mode);
+    println!("worker_threads: {}", config.audio.worker_threads);
+    println!("privacy.save_history: {}", config.privacy.save_history);
+}
+
+fn set_setting(key: &str, value: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = Config::load();
+    let canonical = config
+        .set_key(key, value)
+        .map_err(|error| format!("invalid setting {key}: {error}"))?;
+    config.save()?;
+    println!("{key}={canonical}");
+    Ok(())
+}
+
 fn command_available(name: &str) -> bool {
     let Some(path_value) = std::env::var_os("PATH") else {
         return false;
@@ -171,11 +194,12 @@ fn run_windows_shell() -> Result<(), Box<dyn std::error::Error>> {
             .ok_or("cannot determine worker location")?,
     };
     let model_path = env_required("VAANI_MODEL")?;
-    let language = std::env::var("VAANI_LANGUAGE").unwrap_or_else(|_| "en".into());
+    let config = Config::load();
+    let language = std::env::var("VAANI_LANGUAGE").unwrap_or(config.recognition.language);
     let threads = std::env::var("VAANI_THREADS")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(4);
+        .unwrap_or(config.audio.worker_threads);
     let shortcut = std::env::var("VAANI_SHORTCUT")
         .map(|value| ShortcutSpec::parse(&value))
         .unwrap_or_else(|_| Ok(ShortcutSpec::default()))?;
@@ -279,6 +303,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(not(windows))]
             return Err("the desktop shell run command is only available on Windows".into());
         }
+        "settings" => print_settings(),
+        "config-get" => println!("{}", toml::to_string_pretty(&Config::load())?),
+        "config-set" => {
+            let key = std::env::args().nth(2).ok_or("config-set requires a key")?;
+            let value = std::env::args().nth(3).ok_or("config-set requires a value")?;
+            set_setting(&key, &value)?;
+        }
         "login" => {
             let project = env_required("VAANI_FIREBASE_PROJECT")?;
             let api_key = env_required("VAANI_FIREBASE_API_KEY")?;
@@ -340,7 +371,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "personalize" => personalization_menu(&repository()?)?,
         _ => {
             return Err(
-                "usage: vaani-desktop [run|login|sync|sign-out|status|doctor|personalize]".into(),
+                "usage: vaani-desktop [run|settings|config-get|config-set KEY VALUE|login|sync|sign-out|status|doctor|personalize]".into(),
             )
         }
     }

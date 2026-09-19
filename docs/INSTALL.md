@@ -41,6 +41,9 @@ Hyprland after changing bindings. `install.sh` never edits unrelated dotfiles.
 The same installation places `vaani-desktop` beside the daemon and CLI. Use
 `vaani-desktop status`, `vaani-desktop personalize`, and the optional
 `login`/`sync` commands for desktop-local personalization and account sync.
+Use `vaani-desktop settings`, `config-get`, and validated `config-set KEY VALUE`
+for the shared local configuration. On Windows this lives under the user's
+`APPDATA`/`LOCALAPPDATA` Vaani directory.
 
 The Windows CI run publishes a `vaani-desktop-windows-x86_64` artifact. The
 companion provides local personalization, secure-session and optional sync
