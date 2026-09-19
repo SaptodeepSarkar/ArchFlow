@@ -1,6 +1,7 @@
 package org.vaani.keyboard
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -199,6 +200,7 @@ class VaaniKeyboardService : InputMethodService() {
         }
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun showKeys(message: String? = null, recoveryAction: (() -> Unit)? = null) {
         dictationController.hide()
         transition(DictationState.Hidden, message)
@@ -348,6 +350,7 @@ class VaaniKeyboardService : InputMethodService() {
         connection.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0, 0))
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun enableRepeatDelete(button: Button) {
         button.setOnTouchListener { view, event ->
             when (event.actionMasked) {
@@ -365,6 +368,7 @@ class VaaniKeyboardService : InputMethodService() {
         }
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun enableCursorScrub(button: Button) {
         var downX = 0f
         var start = -1
@@ -388,6 +392,7 @@ class VaaniKeyboardService : InputMethodService() {
         }
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun characterKey(row: LinearLayout, character: Char) {
         val number = "1234567890".getOrNull("qwertyuiop".indexOf(character.lowercaseChar()))
         val shown = if (shifted && !symbols) character.uppercaseChar().toString() else character.toString()

@@ -1,6 +1,7 @@
 package org.vaani.keyboard
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.provider.Settings
@@ -21,7 +22,10 @@ import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
-private class FlowMark(context: Context, private val ui: Ui) : View(context) {
+private class FlowMark @JvmOverloads constructor(
+    context: Context,
+    private val ui: Ui = Ui(context),
+) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val paths = Array(3) { Path() }
     private var phase = 0f
@@ -68,7 +72,10 @@ private class FlowMark(context: Context, private val ui: Ui) : View(context) {
 }
 
 /** A restrained readiness pulse; it is visual feedback, never simulated audio. */
-private class ReadinessPulse(context: Context, private val ui: Ui) : View(context) {
+private class ReadinessPulse @JvmOverloads constructor(
+    context: Context,
+    private val ui: Ui = Ui(context),
+) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var phase = 0f
     private var animator: ValueAnimator? = null
@@ -103,6 +110,7 @@ private class ReadinessPulse(context: Context, private val ui: Ui) : View(contex
     }
 }
 
+@SuppressLint("ViewConstructor")
 class OnboardingView(
     context: Context,
     private val enableKeyboard: () -> Unit,
