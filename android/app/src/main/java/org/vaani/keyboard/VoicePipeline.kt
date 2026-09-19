@@ -25,6 +25,18 @@ interface PcmSttEngine {
  * be added without coupling it to the keyboard or microphone lifecycle. */
 interface CleanupEngine { fun clean(raw: String): String }
 
+/** Keeps platform recognizer failures distinguishable at the reducer boundary. */
+object SpeechFailureClassifier {
+    fun classify(message: String): FailureKind {
+        val normalized = message.lowercase()
+        return when {
+            "unavailable" in normalized || "speech settings" in normalized -> FailureKind.RECOGNIZER_UNAVAILABLE
+            "microphone" in normalized || "audio" in normalized -> FailureKind.MICROPHONE
+            else -> FailureKind.RECOGNITION
+        }
+    }
+}
+
 /** Uses Android's on-device recognizer preference; it never sends text to a Vaani server. */
 class OnDeviceSttEngine(private val context: Context, private val languageTag: String = Locale.getDefault().toLanguageTag(), private val level: (Float) -> Unit = {}, private val ready: () -> Unit = {}) : SttEngine {
     private var recognizer: SpeechRecognizer? = null

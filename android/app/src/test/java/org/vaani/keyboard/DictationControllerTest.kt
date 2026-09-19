@@ -37,6 +37,16 @@ class DictationControllerTest {
     }
 
     @Test
+    fun speechFailuresKeepRecognizerAndMicrophoneRecoveryDistinct() {
+        assertEquals(
+            FailureKind.RECOGNIZER_UNAVAILABLE,
+            SpeechFailureClassifier.classify("On-device speech is unavailable; check speech settings"),
+        )
+        assertEquals(FailureKind.MICROPHONE, SpeechFailureClassifier.classify("microphone audio could not start"))
+        assertEquals(FailureKind.RECOGNITION, SpeechFailureClassifier.classify("Speech recognition error (7)"))
+    }
+
+    @Test
     fun staleResultCannotMutateNewSession() {
         val controller = DictationController()
         val old = controller.start()!!

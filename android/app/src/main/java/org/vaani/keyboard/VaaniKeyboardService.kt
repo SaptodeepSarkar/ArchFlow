@@ -476,7 +476,9 @@ class VaaniKeyboardService : InputMethodService() {
             showKeys(getString(R.string.status_password)); return
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            showKeys(getString(R.string.status_permission_off), ::openMicrophoneSettings); return
+            val token = dictationController.start() ?: return
+            fail(token, FailureKind.PERMISSION, getString(R.string.status_permission_off))
+            return
         }
         val token = dictationController.start() ?: return
         transition(dictationController.state)
@@ -492,13 +494,18 @@ class VaaniKeyboardService : InputMethodService() {
         engine?.start({ raw ->
             if (!dictationController.isActive(token)) return@start
             handler.removeCallbacks(timeout)
-            val personalized = personalization.render(raw)
-            val finalText = LocalConservativeCleanup(prefs.getBoolean("cleanup", true)).clean(personalized)
+            val finalText = try {
+                val personalized = personalization.render(raw)
+                LocalConservativeCleanup(prefs.getBoolean("cleanup", true)).clean(personalized)
+            } catch (_: RuntimeException) {
+                fail(token, FailureKind.FORMATTER, "Could not format the recognition result")
+                return@start
+            }
             engine?.cancel(); engine = null
             val deliverNow = dictationController.result(token, finalText)
             if (deliverNow) deliver(finalText, token) else transition(dictationController.state)
         }, { error ->
-            fail(token, FailureKind.RECOGNITION, error)
+            fail(token, SpeechFailureClassifier.classify(error), error)
         })
     }
 
@@ -553,7 +560,16 @@ class VaaniKeyboardService : InputMethodService() {
         if (!dictationController.failed(token, kind, message, recoverableText)) return
         val failure = dictationController.state as DictationState.Failure
         transition(failure)
-        if (failure.recoverableText != null) showFailure(failure) else showKeys(failure.message)
+        if (failure.recoverableText != null) {
+            showFailure(failure)
+        } else {
+            val recovery = when (failure.kind) {
+                FailureKind.PERMISSION, FailureKind.MICROPHONE -> ::openMicrophoneSettings
+                FailureKind.RECOGNIZER_UNAVAILABLE -> ::openSpeechSettings
+                else -> null
+            }
+            showKeys(failure.message, recovery)
+        }
     }
 
     private fun normalSend() {
@@ -567,6 +583,10 @@ class VaaniKeyboardService : InputMethodService() {
                 .setData(Uri.parse(MicrophonePermissionPolicy.appSettingsPackageUri(packageName)))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
+    }
+
+    private fun openSpeechSettings() {
+        startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     private fun cancelVoice() {

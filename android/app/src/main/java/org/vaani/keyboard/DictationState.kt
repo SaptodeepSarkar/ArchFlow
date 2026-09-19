@@ -22,7 +22,9 @@ enum class FailureKind {
     RECOGNIZER_UNAVAILABLE,
     RECOGNITION,
     TIMEOUT,
+    FORMATTER,
     INSERTION,
+    RUNTIME,
 }
 
 data class AppReadiness(
