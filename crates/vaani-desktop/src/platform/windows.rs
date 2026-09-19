@@ -22,6 +22,9 @@ const WM_VAANI_AUDIO: u32 = 0x8001;
 const WM_VAANI_TRAY: u32 = 0x8002;
 const WM_CLOSE: u32 = 0x0010;
 const WM_DESTROY: u32 = 0x0002;
+const WM_LBUTTONUP: u32 = 0x0202;
+const WM_LBUTTONDBLCLK: u32 = 0x0203;
+const WM_RBUTTONUP: u32 = 0x0205;
 const WS_EX_TOOLWINDOW: u32 = 0x00000080;
 const WS_EX_TOPMOST: u32 = 0x00000008;
 const WS_POPUP: u32 = 0x80000000;
@@ -177,6 +180,20 @@ pub struct GlobalHotkey {
     key: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrayEvent {
+    PrimaryClick,
+    DoubleClick,
+    SecondaryClick,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WindowsMessage {
+    Hotkey,
+    Audio,
+    Tray(TrayEvent),
+}
+
 impl GlobalHotkey {
     pub fn register(id: c_int, modifiers: u32, key: u32) -> Result<Self, String> {
         let registered = unsafe { RegisterHotKey(std::ptr::null_mut(), id, modifiers, key) };
@@ -212,6 +229,14 @@ impl GlobalHotkey {
     /// Run the User32 message loop and expose both hotkey and application
     /// messages to an event-driven shell.
     pub fn run_messages<F: FnMut(u32)>(&self, mut on_message: F) -> Result<(), String> {
+        self.run_events(|event| match event {
+            WindowsMessage::Hotkey => on_message(WM_HOTKEY),
+            WindowsMessage::Audio => on_message(WM_VAANI_AUDIO),
+            WindowsMessage::Tray(_) => on_message(WM_VAANI_TRAY),
+        })
+    }
+
+    pub fn run_events<F: FnMut(WindowsMessage)>(&self, mut on_event: F) -> Result<(), String> {
         let _ = (self.modifiers, self.key);
         loop {
             let mut message = Message {
@@ -232,9 +257,19 @@ impl GlobalHotkey {
                 return Ok(());
             }
             if message.message == WM_HOTKEY && message.w_param == self.id as usize {
-                on_message(WM_HOTKEY);
+                on_event(WindowsMessage::Hotkey);
             } else if message.message == WM_VAANI_AUDIO {
-                on_message(WM_VAANI_AUDIO);
+                on_event(WindowsMessage::Audio);
+            } else if message.message == WM_VAANI_TRAY {
+                let event = match message.l_param as u32 {
+                    WM_LBUTTONUP => Some(TrayEvent::PrimaryClick),
+                    WM_LBUTTONDBLCLK => Some(TrayEvent::DoubleClick),
+                    WM_RBUTTONUP => Some(TrayEvent::SecondaryClick),
+                    _ => None,
+                };
+                if let Some(event) = event {
+                    on_event(WindowsMessage::Tray(event));
+                }
             }
             unsafe {
                 TranslateMessage(&message);
@@ -646,16 +681,18 @@ where
             context,
             mut capture,
         } = self;
-        hotkey.run_messages(move |message| match message {
-            WM_HOTKEY => Self::toggle_parts(&mut session, &context, &mut capture, &mut on_result),
-            WM_VAANI_AUDIO => {
+        hotkey.run_events(move |event| match event {
+            WindowsMessage::Hotkey | WindowsMessage::Tray(TrayEvent::PrimaryClick) => {
+                Self::toggle_parts(&mut session, &context, &mut capture, &mut on_result)
+            }
+            WindowsMessage::Audio => {
                 if let Err(error) = Self::drain_parts(&mut session, &mut capture) {
                     let _ = session.cancel();
                     capture = None;
                     on_result(Err(error));
                 }
             }
-            _ => {}
+            WindowsMessage::Tray(TrayEvent::DoubleClick | TrayEvent::SecondaryClick) => {}
         })
     }
 

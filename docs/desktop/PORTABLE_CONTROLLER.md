@@ -79,7 +79,8 @@ selection, session timing, and delivery remain shell responsibilities; no
 audio is serialized or passed through process arguments.
 `WindowsSessionLoop` supplies the event-driven shell bridge: User32 hotkey and
 audio notifications share one message loop, capture starts/stops with the
-toggle, and completed sessions call `finish_if_speech` before delivery.
+toggle, the tray's primary click follows the same toggle path, and completed
+sessions call `finish_if_speech` before delivery.
 `WindowsOverlay` implements the shared overlay contract as a topmost tool
 window, and `WindowsTray` registers a Shell_NotifyIcon callback on that same
 window. They are presentation adapters only; they never transition the core
