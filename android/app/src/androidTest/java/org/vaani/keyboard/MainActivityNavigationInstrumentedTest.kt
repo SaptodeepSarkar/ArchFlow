@@ -2,6 +2,7 @@ package org.vaani.keyboard
 
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -39,6 +40,41 @@ class MainActivityNavigationInstrumentedTest {
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
             prefs.edit().putBoolean("onboarding_v2", wasOnboardingComplete).commit()
+        }
+    }
+
+    @Test
+    fun onboardingContinueAdvancesFromIntroToMicrophonePage() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val prefs = context.getSharedPreferences("vaani", Context.MODE_PRIVATE)
+        val previousComplete = prefs.getBoolean("onboarding_v2", false)
+        val previousStep = prefs.getInt("onboarding_step", 0)
+        prefs.edit()
+            .putBoolean("onboarding_v2", false)
+            .putInt("onboarding_step", 0)
+            .commit()
+
+        val activity = instrumentation.startActivitySync(
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        try {
+            instrumentation.waitForIdleSync()
+            val continueButton = buttons(activity.window.decorView)
+                .first { it.text.toString() == "Continue" }
+            instrumentation.runOnMainSync { continueButton.performClick() }
+            // Onboarding swaps the content through a 400 ms fade/slide.
+            SystemClock.sleep(500)
+            instrumentation.waitForIdleSync()
+
+            assertTrue(textViews(activity.window.decorView).any { it.text.toString() == "2 of 4" })
+            assertTrue(textViews(activity.window.decorView).any { it.text.toString().contains("microphone", ignoreCase = true) })
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+            prefs.edit()
+                .putBoolean("onboarding_v2", previousComplete)
+                .putInt("onboarding_step", previousStep)
+                .commit()
         }
     }
 
