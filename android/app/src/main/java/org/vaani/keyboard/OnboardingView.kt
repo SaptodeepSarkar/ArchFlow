@@ -164,7 +164,16 @@ class OnboardingView(
         if (page != 3 || !keyboardSelected() || prefs.getBoolean("first_dictation_complete", false)) return
         val field = testField ?: return
         field.requestFocus()
-        requestRehearsalIme(field, 0)
+        // A freshly rebuilt Activity can have focus without having completed
+        // the same editor interaction that normally summons an IME. Recreate
+        // that interaction once, then let the bounded visibility retry handle
+        // picker/window settling.
+        field.postDelayed({
+            if (page == 3 && testField === field && field.isAttachedToWindow) {
+                field.performClick()
+                requestRehearsalIme(field, 0)
+            }
+        }, 180L)
     }
 
     /**
@@ -185,6 +194,7 @@ class OnboardingView(
             }
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
             imm.restartInput(field)
+            field.performClick()
             (context as? android.app.Activity)?.window?.setSoftInputMode(
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
                     WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE,

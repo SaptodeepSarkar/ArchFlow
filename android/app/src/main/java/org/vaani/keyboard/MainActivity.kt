@@ -27,6 +27,8 @@ class MainActivity : Activity() {
     private var scrollY = 0
     private var activeScroll: ScrollView? = null
     private var onboardingView: OnboardingView? = null
+    private var homeTestField: EditText? = null
+    private var pendingHomeKeyboard = false
     private var hasResumedOnce = false
     private val personalization by lazy { PersonalizationStore(this) }
     private val syncClient by lazy { FirebaseSyncClient(personalization) }
@@ -52,7 +54,13 @@ class MainActivity : Activity() {
             hasResumedOnce = true
             return
         }
-        if (prefs.getBoolean("onboarding_v2", false)) render() else onboardingView?.refreshExternalState()
+        if (prefs.getBoolean("onboarding_v2", false)) {
+            render()
+            if (pendingHomeKeyboard) {
+                pendingHomeKeyboard = false
+                homeTestField?.let { showHomeImeWithRetry(it, 0) }
+            }
+        } else onboardingView?.refreshExternalState()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
@@ -92,6 +100,7 @@ class MainActivity : Activity() {
     private fun render() {
         configureWindow(window)
         scrollY = activeScroll?.scrollY ?: scrollY
+        homeTestField = null
         if (!prefs.getBoolean("onboarding_v2", false)) {
             val ui = Ui(this)
             val scroll = ScrollView(this).apply {
@@ -187,16 +196,19 @@ class MainActivity : Activity() {
             setPadding(ui.dp(14), ui.dp(10), ui.dp(14), ui.dp(10))
             contentDescription = "Vaani test dictation field"
         } else null
+        homeTestField = testField
         if (testField != null) {
             status.addView(testField, LinearLayout.LayoutParams(-1, ui.dp(56)).apply { topMargin = ui.dp(12) })
         }
         val action = if (ready.ready) ui.primaryButton("Choose Vaani and dictate") {
             testField?.let { field ->
+                pendingHomeKeyboard = true
                 field.requestFocus()
-                (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
-                    .showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
-                ViewCompat.getWindowInsetsController(field)?.show(WindowInsetsCompat.Type.ime())
-                field.postDelayed({ showKeyboardPicker() }, 180)
+                showHomeImeWithRetry(field, 0)
+                field.postDelayed({
+                    showKeyboardPicker()
+                    field.postDelayed({ showHomeImeWithRetry(field, 0) }, 700L)
+                }, 180L)
             }
         } else ui.primaryButton(blockerAction(ready.nextBlocker)) { runBlocker(ready.nextBlocker) }
         status.addView(action, LinearLayout.LayoutParams(-1, ui.dp(52)).apply { topMargin = ui.dp(12) })
@@ -396,6 +408,23 @@ class MainActivity : Activity() {
     private fun openImeSettings() = startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
 
     private fun showKeyboardPicker() = (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showInputMethodPicker()
+
+    /** Android may drop focus while the IME picker is being dismissed. */
+    private fun showHomeImeWithRetry(field: EditText, attempt: Int) {
+        field.postDelayed({
+            if (field !== homeTestField || !field.isAttachedToWindow) return@postDelayed
+            if (!field.hasWindowFocus()) {
+                if (attempt < 5) showHomeImeWithRetry(field, attempt + 1)
+                return@postDelayed
+            }
+            field.requestFocus()
+            ViewCompat.getWindowInsetsController(field)?.show(WindowInsetsCompat.Type.ime())
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            if (!imm.showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT) && attempt < 5) {
+                showHomeImeWithRetry(field, attempt + 1)
+            }
+        }, if (attempt == 0) 120L else 260L)
+    }
 
     private fun microphoneNeedsSettings() = MicrophonePermissionPolicy.requiresAppSettings(
         prefs.getBoolean("microphone_requested", false),
