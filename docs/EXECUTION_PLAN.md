@@ -22,7 +22,7 @@ Add manifest discovery/checksum/capability validation and benchmark registration
 
 ## Phase 4 — Android product completion
 
-Refactor the IME around the explicit dictation state machine, preserve recoverable text on insertion failure, complete keyboard behavior, and connect onboarding/home/personalization/settings. **Current slice verified:** onboarding progression, IME visibility/selection, password guard, permission recovery, personalization UI/migration, editor actions, haptics, and emulator smoke coverage. Full live speech/insertion and broader lifecycle/accessibility coverage remain.
+Refactor the IME around the explicit dictation state machine, preserve recoverable text on insertion failure, complete keyboard behavior, and connect onboarding/home/personalization/settings. **Current slice verified:** onboarding progression, IME visibility/selection, password guard, permission recovery, personalization UI/migration and editor flow, editor actions, haptics, activity recreation with scroll restoration, responsive landscape layout, screenshot QA, and emulator smoke coverage. Full live speech/insertion and broader accessibility coverage remain.
 
 ## Phase 5 — optional local-first sync
 
