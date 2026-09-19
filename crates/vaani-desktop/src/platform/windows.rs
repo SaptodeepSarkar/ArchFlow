@@ -6,9 +6,12 @@
 //! keystroke injection.
 
 use crate::{ShortcutModifier, ShortcutSpec};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{SampleFormat, Stream, StreamConfig};
 use std::ffi::c_int;
 use std::mem::size_of;
 use std::ptr::null_mut;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use vaani_core::engine::{EngineError, EngineErrorKind, InsertOutcome};
 
 const WM_HOTKEY: u32 = 0x0312;
@@ -142,6 +145,120 @@ impl Drop for GlobalHotkey {
 /// Windows clipboard adapter. Text is copied through the Win32 clipboard API
 /// from memory; it is never placed in a command line or shell invocation.
 pub struct WindowsClipboard;
+
+/// WASAPI microphone capture for a Windows shell.
+///
+/// The callback only forwards bounded in-memory PCM blocks. A shell drains
+/// them and passes the samples to `AudioFrontEnd`; no audio is serialized,
+/// logged, or passed through a process argument.
+pub struct WindowsAudioCapture {
+    stream: Stream,
+    samples: Receiver<Vec<f32>>,
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+
+impl WindowsAudioCapture {
+    pub fn start() -> Result<Self, EngineError> {
+        let host = cpal::default_host();
+        let device = host.default_input_device().ok_or_else(|| {
+            EngineError::new(
+                EngineErrorKind::Unavailable,
+                "Windows has no default microphone",
+            )
+        })?;
+        let supported = device.default_input_config().map_err(|error| {
+            EngineError::new(
+                EngineErrorKind::Unavailable,
+                format!("Windows microphone format unavailable: {error}"),
+            )
+        })?;
+        let sample_rate = supported.sample_rate().0;
+        let channels = supported.channels();
+        let config: StreamConfig = supported.clone().into();
+        let (sender, samples) = mpsc::sync_channel(8);
+        let error_callback = |error| {
+            let _ = error;
+        };
+        let stream = match supported.sample_format() {
+            SampleFormat::F32 => {
+                build_input_stream::<f32>(&device, &config, sender, error_callback)
+            }
+            SampleFormat::I16 => {
+                build_input_stream::<i16>(&device, &config, sender, error_callback)
+            }
+            SampleFormat::U16 => {
+                build_input_stream::<u16>(&device, &config, sender, error_callback)
+            }
+            _format => Err(cpal::BuildStreamError::StreamConfigNotSupported),
+        }
+        .map_err(|error| {
+            EngineError::new(
+                EngineErrorKind::Unavailable,
+                format!("Windows microphone stream unavailable: {error}"),
+            )
+        })?;
+        stream.play().map_err(|error| {
+            EngineError::new(
+                EngineErrorKind::Runtime,
+                format!("Windows microphone could not start: {error}"),
+            )
+        })?;
+        Ok(Self {
+            stream,
+            samples,
+            sample_rate,
+            channels,
+        })
+    }
+
+    /// Drain at most one callback block. The caller owns session timing and
+    /// forwards each returned block to the shared audio front-end.
+    pub fn try_next_block(&self) -> Result<Option<Vec<f32>>, EngineError> {
+        match self.samples.try_recv() {
+            Ok(samples) => Ok(Some(samples)),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => Err(EngineError::new(
+                EngineErrorKind::Runtime,
+                "Windows microphone stream ended",
+            )),
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        let _ = &self.stream;
+        true
+    }
+}
+
+fn build_input_stream<T>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    sender: mpsc::SyncSender<Vec<f32>>,
+    error_callback: impl FnMut(cpal::StreamError) + Send + 'static,
+) -> Result<Stream, cpal::BuildStreamError>
+where
+    T: cpal::SizedSample + cpal::Sample,
+    f32: cpal::FromSample<T>,
+{
+    let channels = config.channels as usize;
+    device.build_input_stream(
+        config,
+        move |data: &[T], _| {
+            let mut mono = Vec::with_capacity(data.len() / channels.max(1));
+            for frame in data.chunks(channels.max(1)) {
+                let sum = frame
+                    .iter()
+                    .map(|sample| (*sample).to_sample::<f32>())
+                    .sum::<f32>();
+                mono.push(sum / frame.len() as f32);
+            }
+            let _ = sender.try_send(mono);
+        },
+        error_callback,
+        None,
+    )
+}
 
 impl crate::ClipboardPort for WindowsClipboard {
     fn copy(&self, text: &str) -> Result<(), EngineError> {

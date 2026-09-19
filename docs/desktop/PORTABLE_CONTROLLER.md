@@ -66,6 +66,12 @@ The current verification host has `wl-copy` and `wtype`, but not `xclip` or
 `xdotool`. X11 policy and adapter behavior are therefore contract-tested only;
 no live X11 clipboard or focused-editor insertion result is claimed.
 
+On Windows, `WindowsAudioCapture` uses the default WASAPI input device through
+`cpal`, converts supported device formats to bounded mono `f32` blocks in
+memory, and exposes those blocks to the same `AudioFrontEnd` contract. Device
+selection, session timing, and delivery remain shell responsibilities; no
+audio is serialized or passed through process arguments.
+
 `FirebaseRestProvider` can push and pull those records through Firestore using
 an injected ID-token provider; it never owns credentials or participates in the
 dictation path. Linux and Windows shells still need their platform-secure auth

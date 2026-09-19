@@ -17,6 +17,9 @@ ureq = { version = "3.4.2", default-features = false, features = ["json", "nativ
 keyring = "4.2.0"
 rpassword = "7.5.4"
 
+[target.'cfg(windows)'.dependencies]
+cpal = { version = "0.15.3", default-features = false }
+
 [[bin]]
 name = "vaani-desktop"
 path = "src/bin/vaani-desktop.rs"
