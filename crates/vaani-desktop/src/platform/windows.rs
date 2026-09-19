@@ -923,4 +923,17 @@ mod tests {
         assert!(looks_shell_like("powershell Get-Process"));
         assert!(!looks_shell_like("write a meeting note"));
     }
+
+    #[test]
+    fn capture_resampling_normalizes_source_rate_to_worker_rate() {
+        let downsampled = resample_to_16khz(&[0.0, 1.0, 0.0, -1.0], 32_000);
+        assert_eq!(downsampled.len(), 2);
+        assert_eq!(downsampled[0], 0.0);
+        assert_eq!(downsampled[1], 0.0);
+
+        let upsampled = resample_to_16khz(&[0.25, -0.25], 8_000);
+        assert_eq!(upsampled.len(), 4);
+        assert_eq!(upsampled.first(), Some(&0.25));
+        assert_eq!(upsampled.last(), Some(&-0.25));
+    }
 }
