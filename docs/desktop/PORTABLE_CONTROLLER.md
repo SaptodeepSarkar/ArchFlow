@@ -26,6 +26,11 @@ Its `AudioChunk` output can be handed directly to
 `DesktopRuntime::feed_audio_chunk`.
 `DesktopRuntime` also enforces the shared 120-second per-session audio cap
 before forwarding a chunk to STT.
+`WorkerSttEngine` is the desktop process adapter for the existing
+`vaani-worker` stdin-PCM protocol: it buffers only the bounded session audio,
+writes PCM to the worker on finalization, and parses the final response in
+memory. It deliberately does not pass audio, transcripts, or vocabulary in
+arguments or control JSON.
 Flushing the front-end resets VAD hangover and counters before the next
 utterance, preventing prior speech from affecting a new session.
 `DesktopSession` packages those two boundaries so a shell can start, push

@@ -6,9 +6,13 @@
 //! the complete text is copied, and only a confirmed copy failure is reported
 //! as unavailable.
 
+use std::io::Write;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use vaani_core::engine::{
     DenoiserEngine, EngineError, FormatContext, FormatRequest, FormatterEngine, InsertOutcome,
-    PersonalizationProvider, SessionId, SttEngine, TextPipeline, VadEngine,
+    PersonalizationProvider, SessionId, SttCapabilities, SttEngine, SttPartial, TextPipeline,
+    VadEngine,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +30,176 @@ pub enum ShortcutModifier {
 pub struct ShortcutSpec {
     modifiers: Vec<ShortcutModifier>,
     key: String,
+}
+
+/// Final-only STT adapter for shells that use the bundled `vaani-worker`.
+///
+/// Audio is retained only as bounded in-memory PCM and is written to the
+/// worker's stdin during finalization. The worker path, model path, language,
+/// and thread count are control inputs; audio and transcripts never appear in
+/// argv, logs, JSON control messages, or shell strings.
+pub struct WorkerSttEngine {
+    worker_path: PathBuf,
+    model_path: PathBuf,
+    language: String,
+    threads: u32,
+    capabilities: SttCapabilities,
+    active: Option<SessionId>,
+    audio: Vec<f32>,
+}
+
+impl WorkerSttEngine {
+    pub fn new(
+        worker_path: impl Into<PathBuf>,
+        model_path: impl Into<PathBuf>,
+        language: impl Into<String>,
+        threads: u32,
+    ) -> Self {
+        let language = language.into();
+        Self {
+            worker_path: worker_path.into(),
+            model_path: model_path.into(),
+            capabilities: SttCapabilities {
+                engine_id: "vaani-worker".into(),
+                languages: vec![language.clone()],
+                streaming: false,
+                n_best: false,
+            },
+            language,
+            threads: threads.max(1),
+            active: None,
+            audio: Vec::new(),
+        }
+    }
+
+    fn require_active(&self, session_id: SessionId) -> Result<(), EngineError> {
+        if self.active == Some(session_id) {
+            Ok(())
+        } else {
+            Err(EngineError::new(
+                vaani_core::engine::EngineErrorKind::Cancelled,
+                "worker STT session is not active",
+            ))
+        }
+    }
+
+    fn clear(&mut self) {
+        self.active = None;
+        self.audio.clear();
+    }
+}
+
+impl SttEngine for WorkerSttEngine {
+    fn capabilities(&self) -> &SttCapabilities {
+        &self.capabilities
+    }
+
+    fn start(&mut self, session_id: SessionId) -> Result<(), EngineError> {
+        if self.active.is_some() {
+            return Err(EngineError::new(
+                vaani_core::engine::EngineErrorKind::Runtime,
+                "worker STT already has an active session",
+            ));
+        }
+        self.active = Some(session_id);
+        self.audio.clear();
+        Ok(())
+    }
+
+    fn feed_audio(
+        &mut self,
+        session_id: SessionId,
+        samples: &[f32],
+    ) -> Result<Vec<SttPartial>, EngineError> {
+        self.require_active(session_id)?;
+        if self.audio.len().saturating_add(samples.len())
+            > vaani_core::MAX_AUDIO_SECS as usize * 16_000
+        {
+            return Err(EngineError::new(
+                vaani_core::engine::EngineErrorKind::InvalidInput,
+                "worker STT audio exceeds the bounded session limit",
+            ));
+        }
+        self.audio.extend_from_slice(samples);
+        Ok(Vec::new())
+    }
+
+    fn finalize(&mut self, session_id: SessionId) -> Result<SttPartial, EngineError> {
+        self.require_active(session_id)?;
+        let audio = std::mem::take(&mut self.audio);
+        // Finalization consumes the session even when the external worker
+        // cannot start or returns malformed output; partial audio is never
+        // reused by a later session.
+        self.active = None;
+        let mut child = Command::new(&self.worker_path)
+            .arg("--model")
+            .arg(&self.model_path)
+            .arg("--language")
+            .arg(&self.language)
+            .arg("--threads")
+            .arg(self.threads.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| {
+                EngineError::new(
+                    vaani_core::engine::EngineErrorKind::Unavailable,
+                    format!("could not start vaani-worker: {error}"),
+                )
+            })?;
+        {
+            let stdin = child.stdin.as_mut().ok_or_else(|| {
+                EngineError::new(
+                    vaani_core::engine::EngineErrorKind::Runtime,
+                    "vaani-worker stdin unavailable",
+                )
+            })?;
+            for sample in audio {
+                stdin.write_all(&sample.to_le_bytes()).map_err(|error| {
+                    EngineError::new(
+                        vaani_core::engine::EngineErrorKind::Runtime,
+                        format!("could not send PCM to vaani-worker: {error}"),
+                    )
+                })?;
+            }
+        }
+        let output = child.wait_with_output().map_err(|error| {
+            EngineError::new(
+                vaani_core::engine::EngineErrorKind::Runtime,
+                format!("vaani-worker failed: {error}"),
+            )
+        })?;
+        if !output.status.success() {
+            return Err(EngineError::new(
+                vaani_core::engine::EngineErrorKind::Runtime,
+                "vaani-worker exited unsuccessfully",
+            ));
+        }
+        let result: WorkerResult = serde_json::from_slice(&output.stdout).map_err(|error| {
+            EngineError::new(
+                vaani_core::engine::EngineErrorKind::Runtime,
+                format!("invalid vaani-worker response: {error}"),
+            )
+        })?;
+        Ok(SttPartial {
+            session_id,
+            text: result.text,
+            revision: 1,
+            is_final: true,
+        })
+    }
+
+    fn cancel(&mut self, session_id: SessionId) -> Result<(), EngineError> {
+        self.require_active(session_id)?;
+        self.clear();
+        Ok(())
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct WorkerResult {
+    text: String,
 }
 
 impl ShortcutSpec {
@@ -1146,5 +1320,22 @@ mod tests {
         assert!(client.sync_once().is_err());
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("outbox.jsonl"));
+    }
+
+    #[test]
+    fn worker_stt_keeps_audio_bounded_and_session_scoped() {
+        let mut engine = WorkerSttEngine::new("missing-worker", "model.bin", "en-IN", 0);
+        let session = SessionId::new_v4();
+        assert!(!engine.capabilities().streaming);
+        assert!(engine.feed_audio(session, &[0.1]).is_err());
+        engine.start(session).unwrap();
+        assert!(engine.feed_audio(session, &[0.1, -0.1]).unwrap().is_empty());
+        assert!(engine.finalize(session).is_err());
+        assert!(engine.feed_audio(session, &[0.2]).is_err());
+
+        let second = SessionId::new_v4();
+        engine.start(second).unwrap();
+        assert!(engine.feed_audio(second, &[0.2]).unwrap().is_empty());
+        engine.cancel(second).unwrap();
     }
 }
