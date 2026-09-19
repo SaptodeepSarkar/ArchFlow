@@ -205,6 +205,11 @@ class MainActivityNavigationInstrumentedTest {
             device.findObject(By.desc("Test dictation field")).click()
             assertTrue(device.wait(Until.hasObject(By.text("Space")), 4_000))
             assertTrue(device.hasObject(By.text("?123")))
+            if (device.hasObject(By.text("Got it"))) device.findObject(By.text("Got it")).click()
+            device.findObject(By.text("a")).click()
+            device.findObject(By.text("b")).click()
+            device.findObject(By.text("c")).click()
+            assertTrue(device.findObject(By.desc("Test dictation field")).text == "abc")
         } finally {
             activity?.let { current -> instrumentation.runOnMainSync { current.finish() } }
             prefs.edit().putBoolean("onboarding_v2", previousComplete).putInt("onboarding_step", previousStep).commit()
