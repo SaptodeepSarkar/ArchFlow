@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -85,6 +86,7 @@ private fun VaaniApp() {
     var page by remember { mutableIntStateOf(0) }
     var modelStatus by remember { mutableStateOf(LocalModels(context).status()) }
     var modelMessage by remember { mutableStateOf<String?>(null) }
+    var overlayEnabled by remember { mutableStateOf(false) }
     val modelScope = rememberCoroutineScope()
     fun importModel(kind: ModelKind, uri: Uri) {
         modelScope.launch {
@@ -102,7 +104,7 @@ private fun VaaniApp() {
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         micGranted = it
-        if (it) page = 7
+        if (it) page = 8
     }
     when (page) {
         0 -> ProductIntroScreen(0, "4× faster\nthan typing", "Speak naturally. Vaani turns the thought in your head into clear words, without breaking your flow.", R.drawable.onboarding_arrival) { page = 1 }
@@ -110,14 +112,37 @@ private fun VaaniApp() {
         2 -> ProductIntroScreen(2, "Works in\nany app", "Messages, notes, search, email. If there is a text field, Vaani is already at home.", R.drawable.onboarding_ready) { page = 3 }
         3 -> AuthScreen(onSignedIn = { page = 4 }, onSkip = { page = 4 })
         4 -> ProductDemoScreen(onNext = { page = 5 })
-        5 -> KeyboardSetupScreen(onOpenKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)); page = 6 })
-        6 -> MicSetupScreen(onRequestMicrophone = { if (micGranted) page = 7 else micPermission.launch(Manifest.permission.RECORD_AUDIO) })
-        7 -> SafetyScreen(onNext = { page = 8 })
-        8 -> SetupGuideScreen(onOpenKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)); page = 9 })
+        5 -> AccessibilitySetupScreen(onOpenAccessibility = {
+            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); page = 6
+        })
+        6 -> FloatingSetupScreen(onEnableOverlay = {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)) {
+                context.startService(Intent(context, VoiceOverlayService::class.java)); page = 7
+            } else {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+            }
+        })
+        7 -> MicSetupScreen(onRequestMicrophone = { if (micGranted) page = 8 else micPermission.launch(Manifest.permission.RECORD_AUDIO) })
+        8 -> SafetyScreen(onNext = { page = 9 })
+        9 -> SetupGuideScreen(onEnableOverlay = {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)) {
+                context.startService(Intent(context, VoiceOverlayService::class.java)); page = 10
+            } else {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+            }
+        })
         else -> HomeScreen(
             modelStatus = modelStatus,
             modelMessage = modelMessage,
-            onOpenKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
+            overlayEnabled = overlayEnabled,
+            onToggleOverlay = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                    context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+                } else {
+                    context.startService(Intent(context, VoiceOverlayService::class.java))
+                    overlayEnabled = true
+                }
+            },
             onImportStt = { sttPicker.launch(arrayOf("*/*")) },
             onImportFormatter = { formatterPicker.launch(arrayOf("*/*")) },
         )
@@ -261,21 +286,41 @@ private fun DemoBubble(text: String, color: Color, contentColor: Color) {
 }
 
 @Composable
-private fun KeyboardSetupScreen(onOpenKeyboard: () -> Unit) {
+private fun FloatingSetupScreen(onEnableOverlay: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            SetupProgress(active = 3)
+            Text("ONE SMALL SETTING", color = VaaniColor.Cobalt, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("Keep your\nkeyboard.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
+            Text("Vaani floats above the app you already use. Your default keyboard stays exactly where it is — Vaani only appears when you choose to speak.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            GuideStep("01", "Allow a floating button", "Android asks for permission so Vaani can sit above your current app.")
+            GuideStep("02", "Hold to speak", "Press and hold the bubble, then release when your sentence is done.")
+        }
+        Button(onClick = onEnableOverlay, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "setup_enable_overlay" }, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) {
+            Text("Enable floating button", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+    }
+}
+
+@Composable
+private fun AccessibilitySetupScreen(onOpenAccessibility: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
             SetupProgress(active = 2)
-            Text("ONE SMALL SETTING", color = VaaniColor.Cobalt, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-            Text("Put Vaani\nwhere you write.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
-            Text("Android needs you to choose Vaani as a keyboard once. After that, it is available in every app with a text field.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
-            GuideStep("01", "Open keyboard settings", "Choose Vaani from the list of available keyboards.")
-            GuideStep("02", "Turn it on", "You can switch back to your usual keyboard at any time.")
+            Text("FOR TEXT BOXES", color = VaaniColor.Cobalt, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("Let Vaani\nfind your cursor.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
+            Text("This optional Android setting lets the floating bubble recognize the text field you are using and paste the finished sentence there. Your default keyboard stays unchanged.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            GuideStep("01", "Open Accessibility settings", "Find Vaani under downloaded services.")
+            GuideStep("02", "Turn on text-box access", "Vaani only uses the focused editable field for the current phrase.")
         }
-        Button(onClick = onOpenKeyboard, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "setup_open_keyboard" }, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) {
-            Text("Open keyboard settings", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Button(onClick = onOpenAccessibility, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "setup_open_accessibility" }, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) {
+            Text("Open Accessibility settings", fontWeight = FontWeight.Bold, fontSize = 17.sp)
         }
     }
 }
@@ -287,7 +332,7 @@ private fun MicSetupScreen(onRequestMicrophone: () -> Unit) {
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
-            SetupProgress(active = 3)
+            SetupProgress(active = 4)
             Text("YOUR VOICE, YOUR CHOICE", color = VaaniColor.Coral, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
             Text("Give Vaani\na microphone.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
             Text("Vaani only listens after you choose to dictate. Audio is used for the current phrase and is not uploaded as a recording.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
@@ -313,7 +358,7 @@ private fun SafetyScreen(onNext: () -> Unit) {
             Text("Your words\nstay yours.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
             Text("Vaani is designed for the moments you need to move quickly, without giving up the feeling of privacy.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
             GuideStep("01", "Local by default", "Speech and cleanup can run on this device.")
-            GuideStep("02", "Nothing happens by accident", "You choose when to listen, write, and switch keyboards.")
+            GuideStep("02", "Nothing happens by accident", "You choose when to listen, write, and paste.")
         }
         Button(onClick = onNext, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) {
             Text("Continue", fontWeight = FontWeight.Bold, fontSize = 17.sp)
@@ -365,7 +410,7 @@ private fun AuthScreen(onSignedIn: () -> Unit, onSkip: () -> Unit) {
 }
 
 @Composable
-private fun SetupGuideScreen(onOpenKeyboard: () -> Unit) {
+private fun SetupGuideScreen(onEnableOverlay: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp),
         verticalArrangement = Arrangement.SpaceBetween,
@@ -373,19 +418,19 @@ private fun SetupGuideScreen(onOpenKeyboard: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
             Text("FIRST DICTATION", color = VaaniColor.Coral, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
             Text("Three seconds\nto clear writing.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 45.sp, fontWeight = FontWeight.SemiBold)
-            Text("Vaani works in the keyboard you already use. Follow this small loop whenever you want to speak instead of type.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            Text("Keep your usual keyboard. Vaani listens through the floating button, then places the finished words on your clipboard so you can paste them anywhere.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                GuideStep("01", "Open any text field", "Messages, notes, search, or email all work.")
-                GuideStep("02", "Press and hold Vaani", "Keep holding while you speak. The keyboard follows your real listening state.")
-                GuideStep("03", "Release to write", "A short local cleanup runs, then safe fields receive the text; sensitive fields stay copy-only.")
+                GuideStep("01", "Open any text field", "Messages, notes, search, and email all work normally.")
+                GuideStep("02", "Hold the Vaani bubble", "Speak naturally while the bubble shows that it is listening.")
+                GuideStep("03", "Release and paste", "Vaani cleans the phrase locally and copies it for your default keyboard.")
             }
         }
         Button(
-            onClick = onOpenKeyboard,
-            modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "setup_open_keyboard" },
+            onClick = onEnableOverlay,
+            modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "setup_enable_overlay" },
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud),
-        ) { Text("Try it in the keyboard", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+        ) { Text("Turn on Vaani bubble", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
     }
 }
 
@@ -449,7 +494,8 @@ private fun OnboardingScreen(art: Int, step: Int, eyebrow: String, title: String
 private fun HomeScreen(
     modelStatus: ModelStatus,
     modelMessage: String?,
-    onOpenKeyboard: () -> Unit,
+    overlayEnabled: Boolean,
+    onToggleOverlay: () -> Unit,
     onImportStt: () -> Unit,
     onImportFormatter: () -> Unit,
 ) {
@@ -463,7 +509,7 @@ private fun HomeScreen(
             modelMessage?.let { Text(it, color = VaaniColor.Cobalt, fontSize = 14.sp) }
         }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onOpenKeyboard, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "enable_keyboard" }, shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) { Text("Open keyboard settings", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+            Button(onClick = onToggleOverlay, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "floating_button" }, shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) { Text(if (overlayEnabled) "Floating button active" else "Enable floating button", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
             OutlinedButton(onClick = onImportStt, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, VaaniColor.Line), colors = ButtonDefaults.outlinedButtonColors(contentColor = VaaniColor.Ink)) { Text(if (modelStatus.sttAvailable) "Replace Whisper model" else "Install Whisper model", fontWeight = FontWeight.SemiBold) }
             OutlinedButton(onClick = onImportFormatter, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, VaaniColor.Line), colors = ButtonDefaults.outlinedButtonColors(contentColor = VaaniColor.Ink)) { Text(if (modelStatus.formatterAvailable) "Replace Llama cleanup model" else "Install Llama cleanup model", fontWeight = FontWeight.SemiBold) }
         }

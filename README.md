@@ -80,21 +80,26 @@ environments stay copy-only.
 
 ## Android keyboard
 
-The `android/` directory is a fresh Kotlin/Compose Android client. Its native
-`InputMethodService` can be enabled beside Gboard or Samsung Keyboard and
-commits cleaned Unicode text into safe, focused single-line fields. Multiline
-and password fields are copy-only by policy. The optional Kotlin overlay is
-opt-in and copies text because Android does not expose another app's editor
-authority to an overlay.
+The `android/` directory is a fresh Kotlin/Compose Android client. Vaani is
+overlay-first: Gboard, Samsung Keyboard, or the user's existing keyboard stays
+active normally, while a hold-to-speak Vaani bubble floats above the current
+app. Android Accessibility text-box access lets the bubble paste into the
+focused editable field; password or unavailable fields fall back to the
+clipboard. The native `InputMethodService` remains an optional compatibility
+surface, not a requirement for using Vaani.
 
 Open `android/` in Android Studio with JDK 17 and SDK 35 to build and install
 the debug APK. The onboarding uses the original Vaani editorial artwork and
-opens the real Android keyboard/overlay permission surfaces. Firebase Auth is
+opens the real Android Accessibility and overlay permission surfaces. Firebase Auth is
 wired to the existing `org.vaani.keyboard` project registration. The APK
 embeds whisper.cpp and llama.cpp runtimes while keeping STT/LLM weights out of
 Git; user-installed model packs run privately from `files/models/`, with safe
 deterministic fallbacks when a pack is absent. The Home screen can import both
-packs through Android's document picker. See
+packs through Android's document picker. It also exposes the floating
+Vaani button; Android's overlay settings must be approved before it can appear
+above another app. The keyboard inspects the focused `EditorInfo` to detect
+password/multiline fields and automatically downgrades those targets to
+clipboard-only delivery. See
 [`android/README.md`](android/README.md) for model paths and ADB staging.
 
 Every push and pull request runs Rust formatting/tests, website syntax checks,
@@ -105,3 +110,9 @@ emulator. Run the corresponding Android check locally with:
 cd android
 ./gradlew testDebugUnitTest assembleDebug connectedDebugAndroidTest
 ```
+
+The Android unit suite covers model-output guarding, field detection, and the
+insert-or-copy delivery boundary. The API 36 instrumented suite covers the
+product onboarding flow and private model-pack import; the debug editor harness
+provides a repeatable ADB surface for manually checking real IME insertion and
+clipboard fallback.

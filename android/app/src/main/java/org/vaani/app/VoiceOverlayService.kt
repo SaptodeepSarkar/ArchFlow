@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.IBinder
 import android.view.Gravity
 import android.view.MotionEvent
@@ -31,13 +32,17 @@ class VoiceOverlayService : Service() {
         super.onCreate()
         manager = getSystemService(WINDOW_SERVICE) as WindowManager
         bubble = TextView(this).apply {
-            text = "V"
-            textSize = 22f
+            text = "∨"
+            textSize = 25f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(255, 247, 241))
-            setBackgroundColor(Color.rgb(82, 107, 255))
-            contentDescription = "Vaani floating dictate button. Hold to dictate; result is copied."
-            setPadding(28, 20, 28, 20)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.rgb(82, 107, 255))
+                setStroke(2, Color.rgb(255, 247, 241))
+            }
+            elevation = 12f
+            contentDescription = "Vaani floating dictate button. Hold to dictate; result is pasted or copied."
             setOnTouchListener { _, event ->
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> begin()
@@ -48,11 +53,13 @@ class VoiceOverlayService : Service() {
             }
         }
         manager.addView(bubble, WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            dp(64), dp(64),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; x = 24 })
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun begin() {
         bubble.text = "…"
@@ -61,9 +68,14 @@ class VoiceOverlayService : Service() {
                 onReady = { bubble.post { bubble.text = "●" } },
                 onResult = { raw -> formatScope.launch {
                     val text = LocalInference.format(this@VoiceOverlayService, raw)
-                    if (text.isNotBlank()) (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
-                        .setPrimaryClip(ClipData.newPlainText("Vaani dictation", text))
-                    bubble.post { bubble.text = "✓" }
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                    val result = TextDelivery.deliver(
+                        text = text,
+                        delivery = Delivery.INSERT,
+                        commit = { value -> AccessibilityBridge.paste(this@VoiceOverlayService, value) },
+                        copy = { value -> clipboard.setPrimaryClip(ClipData.newPlainText("Vaani dictation", value)) },
+                    )
+                    bubble.post { bubble.text = if (result == DeliveryResult.INSERTED) "✓" else "C" }
                 }
                 },
                 onError = { bubble.post { bubble.text = "!" } },
