@@ -81,7 +81,7 @@ private fun VaaniApp() {
         }
         3 -> AuthScreen(onSignedIn = { page = 4 }, onSkip = { page = 4 })
         4 -> SetupGuideScreen(onOpenKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)); page = 5 })
-        else -> HomeScreen { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
+        else -> HomeScreen(LocalModels(context).status()) { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
     }
 }
 
@@ -202,12 +202,14 @@ private fun OnboardingScreen(art: Int, step: Int, eyebrow: String, title: String
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { repeat(3) { index -> Box(Modifier.size(if (index == active) 9.dp else 8.dp).background(if (index == active) VaaniColor.Cloud else VaaniColor.Cloud.copy(alpha = 0.45f), CircleShape)) } }
 }
 
-@Composable private fun HomeScreen(onOpenKeyboard: () -> Unit) {
+@Composable private fun HomeScreen(modelStatus: ModelStatus, onOpenKeyboard: () -> Unit) {
     Column(Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
             Text("Vaani", color = VaaniColor.Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text("Ready to write\nwhen you speak.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 45.sp, fontWeight = FontWeight.SemiBold)
             Text("Open Vaani Keyboard in any text field, then press and hold to dictate.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            Text(if (modelStatus.sttAvailable) "Local Whisper model ready" else "Android offline speech fallback ready", color = VaaniColor.Cobalt, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (modelStatus.formatterAvailable) "Local Llama cleanup enabled" else "Deterministic cleanup enabled", color = VaaniColor.Muted, fontSize = 14.sp)
         }
         Button(onClick = onOpenKeyboard, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "enable_keyboard" }, shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) { Text("Open keyboard settings", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
     }
