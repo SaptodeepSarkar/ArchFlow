@@ -15,10 +15,14 @@ import org.junit.Test
 class MainActivityTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
-    @Test fun onboarding_renders_and_advances_to_keyboard_setup() {
-        rule.onNodeWithText("Get started").assertIsDisplayed().performClick()
-        rule.onNodeWithText("Enable Vaani Keyboard").assertIsDisplayed()
-        rule.onNodeWithText("Your voice,\nin every text field.").assertIsDisplayed()
+    @Test fun onboarding_introduces_product_before_setup() {
+        rule.onNodeWithText("4× faster\nthan typing").assertIsDisplayed()
+        rule.onNodeWithText("Meet Vaani").assertIsDisplayed().performClick()
+        rule.onNodeWithText("100+\nlanguages").assertIsDisplayed()
+        rule.onNodeWithText("Keep going").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Works in\nany app").assertIsDisplayed()
+        rule.onNodeWithText("Keep going").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Your settings,\nwhen you need them.").assertIsDisplayed()
     }
 
     @Test fun model_importer_copies_a_private_model_pack() {

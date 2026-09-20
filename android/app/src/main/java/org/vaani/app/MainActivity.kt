@@ -11,7 +11,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +28,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -41,13 +49,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -90,18 +102,18 @@ private fun VaaniApp() {
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         micGranted = it
-        if (it) page = 3
+        if (it) page = 7
     }
     when (page) {
-        0 -> OnboardingScreen(R.drawable.onboarding_arrival, 0, "Vaani", "Speak.\nWrite clearly.", "Private dictation that stays on your device.", "Get started") { page = 1 }
-        1 -> OnboardingScreen(R.drawable.onboarding_keyboard, 1, "Works where you write", "Your voice,\nin every text field.", "Enable Vaani Keyboard once. Hold to speak, release to write.", "Enable Vaani Keyboard") {
-            context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)); page = 2
-        }
-        2 -> OnboardingScreen(R.drawable.onboarding_ready, 2, "One last thing", "Ready when\nyou are.", if (micGranted) "Microphone access is ready. Open Vaani Keyboard in any text field." else "Vaani needs microphone access only while you choose to dictate.", if (micGranted) "Continue" else "Allow microphone") {
-            if (micGranted) page = 3 else micPermission.launch(Manifest.permission.RECORD_AUDIO)
-        }
+        0 -> ProductIntroScreen(0, "4× faster\nthan typing", "Speak naturally. Vaani turns the thought in your head into clear words, without breaking your flow.", R.drawable.onboarding_arrival) { page = 1 }
+        1 -> ProductIntroScreen(1, "100+\nlanguages", "From English to Hindi, Bengali, Spanish, and beyond — your voice can move the way you do.", R.drawable.onboarding_keyboard) { page = 2 }
+        2 -> ProductIntroScreen(2, "Works in\nany app", "Messages, notes, search, email. If there is a text field, Vaani is already at home.", R.drawable.onboarding_ready) { page = 3 }
         3 -> AuthScreen(onSignedIn = { page = 4 }, onSkip = { page = 4 })
-        4 -> SetupGuideScreen(onOpenKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)); page = 5 })
+        4 -> ProductDemoScreen(onNext = { page = 5 })
+        5 -> KeyboardSetupScreen(onOpenKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)); page = 6 })
+        6 -> MicSetupScreen(onRequestMicrophone = { if (micGranted) page = 7 else micPermission.launch(Manifest.permission.RECORD_AUDIO) })
+        7 -> SafetyScreen(onNext = { page = 8 })
+        8 -> SetupGuideScreen(onOpenKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)); page = 9 })
         else -> HomeScreen(
             modelStatus = modelStatus,
             modelMessage = modelMessage,
@@ -109,6 +121,210 @@ private fun VaaniApp() {
             onImportStt = { sttPicker.launch(arrayOf("*/*")) },
             onImportFormatter = { formatterPicker.launch(arrayOf("*/*")) },
         )
+    }
+}
+
+private val introBackgrounds = listOf(
+    Color(0xFFE8E9E5),
+    Color(0xFFE6DDD2),
+    Color(0xFFDDE5DE),
+)
+
+@Composable
+private fun ProductIntroScreen(step: Int, title: String, body: String, art: Int, onNext: () -> Unit) {
+    val transition = rememberInfiniteTransition(label = "intro-flow-$step")
+    val drift by transition.animateFloat(
+        initialValue = -22f,
+        targetValue = 22f,
+        animationSpec = infiniteRepeatable(tween(3600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "drift",
+    )
+    val ink = Color(0xFF20231F)
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(introBackgrounds[step], introBackgrounds[step].copy(alpha = 0.76f), Color(0xFFF6F2EC))))) {
+        Image(
+            painter = painterResource(art), contentDescription = null,
+            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.12f,
+        )
+        FlowCharacter(step = step, drift = drift)
+        Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 52.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Vaani", color = ink, fontSize = 25.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
+                    Text("${step + 1} / 3", color = ink.copy(alpha = 0.56f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Box(Modifier.fillMaxWidth().height(1.dp).background(ink.copy(alpha = 0.12f)))
+                Text(title, color = ink, fontSize = 47.sp, lineHeight = 48.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Normal)
+                Text(body, color = ink.copy(alpha = 0.72f), fontSize = 18.sp, lineHeight = 27.sp, modifier = Modifier.fillMaxWidth(0.9f))
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+                if (step == 0) VoicePill(drift = drift, ink = ink) else IntroChips(step, ink)
+                Button(
+                    onClick = onNext,
+                    modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "onboarding_action" },
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ink, contentColor = Color.White),
+                ) { Text(if (step == 0) "Meet Vaani" else "Keep going", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoicePill(drift: Float, ink: Color) {
+    Box(
+        Modifier.fillMaxWidth().height(116.dp).background(Color.White.copy(alpha = 0.68f), RoundedCornerShape(58.dp)).padding(horizontal = 22.dp, vertical = 18.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.matchParentSize()) {
+            val barColor = ink.copy(alpha = 0.22f)
+            val count = 24
+            val gap = size.width / (count + 1)
+            for (index in 0 until count) {
+                val wave = (kotlin.math.sin(index * 0.8 + drift / 10f).toFloat() + 1f) / 2f
+                val barHeight = size.height * (0.18f + wave * 0.30f)
+                drawRoundRect(barColor, topLeft = androidx.compose.ui.geometry.Offset(gap * (index + 1), (size.height - barHeight) / 2f), size = androidx.compose.ui.geometry.Size(3.dp.toPx(), barHeight), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx()))
+            }
+        }
+        Text("I am here to help you.", color = ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.offset(x = (drift / 2).dp).background(Color.White.copy(alpha = 0.78f), RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp))
+    }
+}
+
+@Composable
+private fun FlowCharacter(step: Int, drift: Float) {
+    val accent = when (step) { 0 -> Color(0xFFFF7656); 1 -> Color(0xFF5C72D9); else -> Color(0xFF4B8E78) }
+    Box(Modifier.fillMaxSize().offset(y = 92.dp).offset(x = (drift / 3).dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(230.dp)) {
+            val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+            drawCircle(accent.copy(alpha = 0.13f), radius = size.minDimension * 0.48f, center = center)
+            drawCircle(accent.copy(alpha = 0.22f), radius = size.minDimension * 0.37f, center = center)
+            drawRoundRect(Color.White.copy(alpha = 0.9f), topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.29f, size.height * 0.26f), size = androidx.compose.ui.geometry.Size(size.width * 0.42f, size.height * 0.42f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(42f, 42f))
+            drawCircle(accent, radius = size.minDimension * 0.035f, center = androidx.compose.ui.geometry.Offset(size.width * 0.42f, size.height * 0.42f))
+            drawCircle(accent, radius = size.minDimension * 0.035f, center = androidx.compose.ui.geometry.Offset(size.width * 0.58f, size.height * 0.42f))
+            drawArc(accent, startAngle = 25f, sweepAngle = 130f, useCenter = false, topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.41f, size.height * 0.40f), size = androidx.compose.ui.geometry.Size(size.width * 0.18f, size.height * 0.15f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5f, cap = StrokeCap.Round))
+            drawRoundRect(accent.copy(alpha = 0.9f), topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.36f, size.height * 0.68f), size = androidx.compose.ui.geometry.Size(size.width * 0.28f, size.height * 0.16f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(28f, 28f))
+            drawLine(accent, androidx.compose.ui.geometry.Offset(size.width * 0.28f, size.height * 0.71f), androidx.compose.ui.geometry.Offset(size.width * 0.16f, size.height * 0.78f), strokeWidth = 9f, cap = StrokeCap.Round)
+            drawLine(accent, androidx.compose.ui.geometry.Offset(size.width * 0.72f, size.height * 0.71f), androidx.compose.ui.geometry.Offset(size.width * 0.84f, size.height * 0.64f), strokeWidth = 9f, cap = StrokeCap.Round)
+        }
+        Box(Modifier.offset(y = (-112).dp).background(Color.White.copy(alpha = 0.76f), RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 9.dp)) {
+            Text(if (step == 0) "Hi, I’m Vaani" else if (step == 1) "Say hello in any language" else "I’m here wherever you write", color = Color(0xFF20231F), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun IntroChips(step: Int, ink: Color) {
+    val labels = when (step) {
+        0 -> listOf("listen", "understand", "write")
+        1 -> listOf("English", "हिन्दी", "বাংলা", "Español")
+        else -> listOf("Messages", "Notes", "Email", "Search")
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        labels.take(4).forEach { label ->
+            Box(Modifier.background(Color.White.copy(alpha = 0.62f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 9.dp)) {
+                Text(label, color = ink.copy(alpha = 0.78f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProductDemoScreen(onNext: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            SetupProgress(active = 1)
+            Text("A LITTLE DEMO", color = VaaniColor.Coral, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("Say it once.\nKeep your rhythm.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
+            Text("Vaani listens while you speak, then gives you a clean sentence that sounds like you.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 6.dp)) {
+                DemoBubble("I am here to help you.", VaaniColor.Cobalt, VaaniColor.Cloud)
+                DemoBubble("I’m here to help you.", Color(0xFFE8ECE8), VaaniColor.Text)
+            }
+            Text("The second line is the one you can use — polished, private, and ready for any text field.", color = VaaniColor.Muted, fontSize = 14.sp, lineHeight = 21.sp)
+        }
+        Button(onClick = onNext, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) {
+            Text("Show me how", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+    }
+}
+
+@Composable
+private fun DemoBubble(text: String, color: Color, contentColor: Color) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).background(VaaniColor.Coral, CircleShape))
+        Box(Modifier.fillMaxWidth().background(color, RoundedCornerShape(18.dp)).padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Text(text, color = contentColor, fontSize = 17.sp, lineHeight = 23.sp)
+        }
+    }
+}
+
+@Composable
+private fun KeyboardSetupScreen(onOpenKeyboard: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            SetupProgress(active = 2)
+            Text("ONE SMALL SETTING", color = VaaniColor.Cobalt, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("Put Vaani\nwhere you write.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
+            Text("Android needs you to choose Vaani as a keyboard once. After that, it is available in every app with a text field.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            GuideStep("01", "Open keyboard settings", "Choose Vaani from the list of available keyboards.")
+            GuideStep("02", "Turn it on", "You can switch back to your usual keyboard at any time.")
+        }
+        Button(onClick = onOpenKeyboard, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "setup_open_keyboard" }, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) {
+            Text("Open keyboard settings", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+    }
+}
+
+@Composable
+private fun MicSetupScreen(onRequestMicrophone: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            SetupProgress(active = 3)
+            Text("YOUR VOICE, YOUR CHOICE", color = VaaniColor.Coral, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("Give Vaani\na microphone.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
+            Text("Vaani only listens after you choose to dictate. Audio is used for the current phrase and is not uploaded as a recording.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            Box(Modifier.fillMaxWidth().background(Color(0xFFE8ECE8), RoundedCornerShape(20.dp)).padding(18.dp)) {
+                Text("You stay in control — press and hold to speak, release to finish.", color = VaaniColor.Text, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Button(onClick = onRequestMicrophone, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "allow_microphone" }, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) {
+            Text("Allow microphone", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+    }
+}
+
+@Composable
+private fun SafetyScreen(onNext: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            SetupProgress(active = 4)
+            Text("BUILT AROUND TRUST", color = VaaniColor.Cobalt, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("Your words\nstay yours.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
+            Text("Vaani is designed for the moments you need to move quickly, without giving up the feeling of privacy.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            GuideStep("01", "Local by default", "Speech and cleanup can run on this device.")
+            GuideStep("02", "Nothing happens by accident", "You choose when to listen, write, and switch keyboards.")
+        }
+        Button(onClick = onNext, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) {
+            Text("Continue", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+    }
+}
+
+@Composable
+private fun SetupProgress(active: Int) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        repeat(4) { index -> Box(Modifier.weight(1f).height(4.dp).background(if (index <= active) VaaniColor.Cobalt else VaaniColor.Line, RoundedCornerShape(4.dp))) }
     }
 }
 
