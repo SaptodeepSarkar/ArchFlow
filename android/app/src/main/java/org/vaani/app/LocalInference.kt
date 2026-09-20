@@ -41,13 +41,9 @@ internal object ModelOutputGuard {
         val sourceWords = words(source).filterNot { it in setOf("uh", "um", "erm", "hmm") }
         val candidateWords = words(candidate)
         if (sourceWords.isEmpty() || candidateWords.isEmpty()) return false
-        var cursor = 0
-        return sourceWords.all { word ->
-            val found = candidateWords.subList(cursor, candidateWords.size).indexOf(word).let { offset ->
-                if (offset < 0) -1 else cursor + offset
-            }
-            if (found < 0) false else { cursor = found + 1; true }
-        }
+        // Formatting may change case/punctuation and remove known fillers, but
+        // no new, deleted, substituted, or reordered content is permitted.
+        return candidateWords == sourceWords
     }
 
     private fun words(value: String): List<String> = Regex("[\\p{L}\\p{N}']+")

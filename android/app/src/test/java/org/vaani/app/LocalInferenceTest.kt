@@ -13,6 +13,7 @@ class LocalInferenceTest {
     @Test
     fun model_edit_rejects_invented_or_reordered_words() {
         assertFalse(ModelOutputGuard.isSafeEdit("open the browser", "Open Chrome browser."))
+        assertFalse(ModelOutputGuard.isSafeEdit("open the browser", "Open the browser now."))
         assertFalse(ModelOutputGuard.isSafeEdit("open the browser", "Browser the open."))
     }
 
