@@ -85,7 +85,14 @@ class VoiceOverlayService : Service() {
                     }
                 }
                 },
-                onError = { bubble.post { bubble.state = VoiceBubbleView.State.ERROR } },
+                onError = { bubble.post {
+                    bubble.state = VoiceBubbleView.State.ERROR
+                    bubble.contentDescription = "Vaani could not finish that phrase. Hold to try again."
+                    bubble.postDelayed({
+                        bubble.state = VoiceBubbleView.State.IDLE
+                        bubble.contentDescription = "Vaani bubble. Hold to speak; your result is pasted or copied."
+                    }, 1500L)
+                } },
             )
         }
     }

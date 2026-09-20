@@ -122,7 +122,7 @@ private fun VaaniApp() {
                 context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
             }
         })
-        7 -> MicSetupScreen(onRequestMicrophone = { if (micGranted) page = 8 else micPermission.launch(Manifest.permission.RECORD_AUDIO) })
+        7 -> MicSetupScreen(granted = micGranted, onRequestMicrophone = { if (micGranted) page = 8 else micPermission.launch(Manifest.permission.RECORD_AUDIO) })
         8 -> SafetyScreen(onNext = { page = 9 })
         9 -> SetupGuideScreen(onEnableOverlay = {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)) {
@@ -361,7 +361,7 @@ private fun AccessibilitySetupScreen(onOpenAccessibility: () -> Unit) {
 }
 
 @Composable
-private fun MicSetupScreen(onRequestMicrophone: () -> Unit) {
+private fun MicSetupScreen(granted: Boolean, onRequestMicrophone: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp),
         verticalArrangement = Arrangement.SpaceBetween,
@@ -369,14 +369,14 @@ private fun MicSetupScreen(onRequestMicrophone: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
             SetupProgress(active = 4)
             Text("YOUR VOICE, YOUR CHOICE", color = VaaniColor.Coral, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-            Text("Give Vaani\na microphone.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
-            Text("Vaani only listens after you choose to dictate. Audio is used for the current phrase and is not uploaded as a recording.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            Text(if (granted) "Your microphone\nis ready." else "Give Vaani\na microphone.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 44.sp, fontFamily = FontFamily.Serif)
+            Text(if (granted) "Vaani will only listen after you choose to dictate. You control every phrase." else "Vaani only listens after you choose to dictate. Audio is used for the current phrase and is not uploaded as a recording.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
             Box(Modifier.fillMaxWidth().background(Color(0xFFE8ECE8), RoundedCornerShape(20.dp)).padding(18.dp)) {
                 Text("You stay in control — press and hold to speak, release to finish.", color = VaaniColor.Text, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.SemiBold)
             }
         }
         Button(onClick = onRequestMicrophone, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "allow_microphone" }, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) {
-            Text("Allow microphone", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text(if (granted) "Continue" else "Allow microphone", fontWeight = FontWeight.Bold, fontSize = 17.sp)
         }
     }
 }
