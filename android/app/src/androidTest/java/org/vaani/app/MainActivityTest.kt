@@ -33,4 +33,15 @@ class MainActivityTest {
         installed.delete()
         source.delete()
     }
+
+    @Test fun post_login_demo_keeps_the_keyboard_and_shows_the_bubble() {
+        rule.onNodeWithText("Meet Vaani").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Keep going").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Keep going").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Skip for now").assertIsDisplayed().performClick()
+        rule.onNodeWithText("A LITTLE DEMO").assertIsDisplayed()
+        rule.onNodeWithText("Vaani demo").assertIsDisplayed()
+        rule.onNodeWithText("Hold the bubble to speak").assertIsDisplayed()
+        rule.onNodeWithText("Show me how").assertIsDisplayed()
+    }
 }
