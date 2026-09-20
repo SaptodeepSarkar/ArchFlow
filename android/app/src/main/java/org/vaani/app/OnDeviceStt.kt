@@ -6,6 +6,24 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import dev.ffmpegkit.whisper.Whisper
+import dev.ffmpegkit.whisper.WhisperConfig
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 interface SttSession {
     fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit)
@@ -46,4 +64,88 @@ class OnDeviceStt(private val context: Context) : SttSession {
 
     override fun stop() = recognizer?.stopListening() ?: Unit
     override fun cancel() { recognizer?.cancel(); recognizer?.destroy(); recognizer = null }
+}
+
+/** File-backed whisper.cpp session used when a user-installed model pack exists. */
+class NativeWhisperStt(private val context: Context, private val modelFile: File) : SttSession {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var recorder: AudioRecord? = null
+    private var recording = false
+    private var job: Job? = null
+
+    override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit) {
+        if (!modelFile.isFile) { onError("Embedded STT model is missing"); return }
+        val minimum = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING)
+        if (minimum <= 0) { onError("Audio input is unavailable"); return }
+        val audio = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE, CHANNEL_CONFIG, ENCODING, minimum * 2)
+        if (audio.state != AudioRecord.STATE_INITIALIZED) { audio.release(); onError("Audio input could not start"); return }
+        recorder = audio
+        recording = true
+        onReady()
+        job = scope.launch {
+            val pcm = ByteArrayOutputStream()
+            val buffer = ByteArray(minimum)
+            try {
+                audio.startRecording()
+                val started = System.currentTimeMillis()
+                while (recording && System.currentTimeMillis() - started < MAX_RECORDING_MS) {
+                    val read = audio.read(buffer, 0, buffer.size)
+                    if (read > 0) pcm.write(buffer, 0, read)
+                }
+                audio.stop()
+                audio.release()
+                recorder = null
+                if (pcm.size() < MIN_AUDIO_BYTES) {
+                    withContext(Dispatchers.Main) { onError("No speech detected") }
+                    return@launch
+                }
+                val wav = File.createTempFile("vaani-stt-", ".wav", context.cacheDir)
+                writeWav(wav, pcm.toByteArray())
+                try {
+                    val model = Whisper.loadModel(context, modelFile.absolutePath)
+                    try {
+                        val result = Whisper.transcribe(model, wav.absolutePath, WhisperConfig(language = "en", threads = 2))
+                        withContext(Dispatchers.Main) { onResult(result.text.trim()) }
+                    } finally { Whisper.releaseModel(model) }
+                } finally { wav.delete() }
+            } catch (_: Throwable) {
+                withContext(Dispatchers.Main) { onError("Embedded STT failed") }
+            }
+        }
+    }
+
+    override fun stop() { recording = false }
+
+    override fun cancel() {
+        recording = false
+        recorder?.runCatching { stop() }
+        recorder?.release()
+        recorder = null
+        job?.cancel()
+        scope.cancel()
+    }
+
+    private fun writeWav(file: File, pcm: ByteArray) {
+        DataOutputStream(FileOutputStream(file)).use { out ->
+            fun intLE(value: Int) = out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(value).array())
+            fun shortLE(value: Short) = out.write(ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN).putShort(value).array())
+            out.writeBytes("RIFF"); intLE(36 + pcm.size); out.writeBytes("WAVE")
+            out.writeBytes("fmt "); intLE(16); shortLE(1); shortLE(1); intLE(SAMPLE_RATE)
+            intLE(SAMPLE_RATE * 2); shortLE(2); shortLE(16); out.writeBytes("data"); intLE(pcm.size); out.write(pcm)
+        }
+    }
+
+    private companion object {
+        const val SAMPLE_RATE = 16_000
+        const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
+        const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
+        const val MAX_RECORDING_MS = 90_000L
+        const val MIN_AUDIO_BYTES = SAMPLE_RATE / 2
+    }
+}
+
+object SttFactory {
+    fun create(context: Context): SttSession = LocalModels(context).sttModelFile()
+        ?.let { NativeWhisperStt(context, it) }
+        ?: OnDeviceStt(context)
 }

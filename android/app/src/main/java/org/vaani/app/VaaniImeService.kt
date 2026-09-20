@@ -15,11 +15,17 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class VaaniImeService : InputMethodService() {
     private var stt: SttSession? = null
     private lateinit var status: TextView
     private var active = false
+    private val formatScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
@@ -66,10 +72,10 @@ class VaaniImeService : InputMethodService() {
         }
         active = true
         status.text = "Listening… release to finish"
-        stt = OnDeviceStt(this).also { engine ->
+        stt = SttFactory.create(this).also { engine ->
             engine.start(
                 onReady = { status.post { status.text = "Listening… release to finish" } },
-                onResult = { raw -> deliver(SafeFormatter.format(raw)) },
+                onResult = { raw -> formatScope.launch { deliver(LocalInference.format(this@VaaniImeService, raw)) } },
                 onError = { message -> status.post { status.text = message; active = false } },
             )
         }
@@ -92,5 +98,11 @@ class VaaniImeService : InputMethodService() {
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         stt?.cancel(); active = false
+    }
+
+    override fun onDestroy() {
+        stt?.cancel()
+        formatScope.cancel()
+        super.onDestroy()
     }
 }

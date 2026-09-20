@@ -32,6 +32,10 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.3.1")
     implementation("androidx.compose.ui:ui:1.7.6")
     implementation("androidx.compose.ui:ui-tooling-preview:1.7.6")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // Native, file-backed on-device engines. Model weights are never bundled.
+    implementation("dev.ffmpegkit-maintained:whisper-android:1.0.0")
+    implementation("dev.ffmpegkit-maintained:llama-android:0.1.1")
     implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
     implementation("com.google.firebase:firebase-auth")
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.6")

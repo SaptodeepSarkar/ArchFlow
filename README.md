@@ -90,12 +90,11 @@ authority to an overlay.
 Open `android/` in Android Studio with JDK 17 and SDK 35 to build and install
 the debug APK. The onboarding uses the original Vaani editorial artwork and
 opens the real Android keyboard/overlay permission surfaces. Firebase Auth is
-wired to the existing `org.vaani.keyboard` project registration. Android
-requests the platform on-device speech recognizer when available
-(`EXTRA_PREFER_OFFLINE`); devices without an offline recognizer are reported
-clearly. No STT/LLM weights are shipped in this repository: the formatter is
-currently a deterministic safety fallback and local model adapters remain an
-explicit next milestone.
+wired to the existing `org.vaani.keyboard` project registration. The APK
+embeds whisper.cpp and llama.cpp runtimes while keeping STT/LLM weights out of
+Git; user-installed model packs run privately from `files/models/`, with safe
+deterministic fallbacks when a pack is absent. See
+[`android/README.md`](android/README.md) for model paths and ADB staging.
 
 Every push and pull request runs Rust formatting/tests, website syntax checks,
 Android unit/APK verification, and Android instrumented tests on an API 35
