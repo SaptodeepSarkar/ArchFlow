@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   # Push and pull_request events for the same branch share one emulator run.
-  group: verify-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: verify-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
