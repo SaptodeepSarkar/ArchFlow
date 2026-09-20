@@ -302,10 +302,41 @@ private fun ProductDemoScreen(onNext: () -> Unit) {
                 DemoBubble("I am here to help you.", VaaniColor.Cobalt, VaaniColor.Cloud)
                 DemoBubble("I’m here to help you.", Color(0xFFE8ECE8), VaaniColor.Text)
             }
+            KeyboardDemoCard()
             Text("The second line is the one you can use — polished, private, and ready for any text field.", color = VaaniColor.Muted, fontSize = 14.sp, lineHeight = 21.sp)
         }
         Button(onClick = onNext, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) {
             Text("Show me how", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+    }
+}
+
+@Composable
+private fun KeyboardDemoCard() {
+    Box(
+        modifier = Modifier.fillMaxWidth().height(226.dp).background(VaaniColor.Ink, RoundedCornerShape(26.dp)).padding(14.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Message", color = VaaniColor.Cloud.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("Vaani demo", color = VaaniColor.Coral, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+            Box(Modifier.fillMaxWidth().height(54.dp).background(VaaniColor.Cloud, RoundedCornerShape(15.dp)).padding(horizontal = 13.dp, vertical = 9.dp)) {
+                Text("I’m here to help you.", color = VaaniColor.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                Text("Hold the bubble to speak", color = VaaniColor.Cloud.copy(alpha = 0.72f), fontSize = 11.sp, modifier = Modifier.padding(end = 8.dp))
+                Box(Modifier.size(38.dp).background(VaaniColor.Cobalt, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
+                    Text("▮▮▮", color = VaaniColor.Cloud, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf("Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P").forEach { key ->
+                    Box(Modifier.weight(1f).height(30.dp).background(Color(0xFF2B3041), RoundedCornerShape(7.dp)), contentAlignment = Alignment.Center) {
+                        Text(key, color = VaaniColor.Cloud.copy(alpha = 0.82f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
         }
     }
 }
