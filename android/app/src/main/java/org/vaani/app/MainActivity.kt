@@ -168,7 +168,7 @@ private fun ProductIntroScreen(step: Int, title: String, body: String, art: Int,
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(introBackgrounds[step], introBackgrounds[step].copy(alpha = 0.76f), Color(0xFFF6F2EC))))) {
         Image(
             painter = painterResource(art), contentDescription = null,
-            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.12f,
+            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit, alpha = 0.10f,
         )
         FlowCharacter(step = step, drift = drift)
         Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 52.dp), verticalArrangement = Arrangement.SpaceBetween) {
@@ -182,12 +182,13 @@ private fun ProductIntroScreen(step: Int, title: String, body: String, art: Int,
                 Text(body, color = ink.copy(alpha = 0.72f), fontSize = 18.sp, lineHeight = 27.sp, modifier = Modifier.fillMaxWidth(0.9f))
             }
             Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
-                if (step == 0) VoicePill(drift = drift, ink = ink) else IntroChips(step, ink)
+                if (step == 0) VoicePill(drift = drift, ink = ink) else IntroChips(step, ink, drift)
                 Button(
                     onClick = onNext,
                     modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "onboarding_action" },
                     shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ink, contentColor = Color.White),
+                    border = BorderStroke(1.dp, ink.copy(alpha = 0.20f)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE9E4FF), contentColor = ink),
                 ) { Text(if (step == 0) "Meet Vaani" else "Keep going", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
             }
         }
@@ -237,18 +238,52 @@ private fun FlowCharacter(step: Int, drift: Float) {
 }
 
 @Composable
-private fun IntroChips(step: Int, ink: Color) {
+private fun IntroChips(step: Int, ink: Color, drift: Float) {
     val labels = when (step) {
         0 -> listOf("listen", "understand", "write")
         1 -> listOf("English", "हिन्दी", "বাংলা", "Español")
         else -> listOf("Messages", "Notes", "Email", "Search")
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        labels.take(4).forEach { label ->
-            Box(Modifier.background(Color.White.copy(alpha = 0.62f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 9.dp)) {
-                Text(label, color = ink.copy(alpha = 0.78f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    if (step == 2) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                AppBadge("Messages", "M", Color(0xFF6B7CFF), ink, -2f + drift / 14f, Modifier.weight(1f))
+                AppBadge("Notes", "N", Color(0xFFFF9B62), ink, 3f - drift / 16f, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                AppBadge("Email", "@", Color(0xFF54A78B), ink, 2f - drift / 16f, Modifier.weight(1f))
+                AppBadge("Search", "⌕", Color(0xFFB56CF2), ink, -3f + drift / 14f, Modifier.weight(1f))
             }
         }
+    } else {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            labels.take(4).forEachIndexed { index, label ->
+                Box(
+                    Modifier.offset(x = (drift / 18f * if (index % 2 == 0) 1f else -1f).dp)
+                        .background(Color.White.copy(alpha = 0.66f), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 11.dp, vertical = 10.dp)
+                ) {
+                    Text(label, color = ink.copy(alpha = 0.78f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppBadge(label: String, glyph: String, accent: Color, ink: Color, bob: Float, modifier: Modifier) {
+    Row(
+        modifier = modifier
+            .offset(y = bob.dp)
+            .background(Color.White.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 11.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Box(Modifier.size(34.dp).background(accent.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
+            Text(glyph, color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+        Text(label, color = ink.copy(alpha = 0.82f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -503,7 +538,7 @@ private fun HomeScreen(
         Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
             Text("Vaani", color = VaaniColor.Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text("Ready to write\nwhen you speak.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 45.sp, fontWeight = FontWeight.SemiBold)
-            Text("Open Vaani Keyboard in any text field, then press and hold to dictate.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            Text("Keep your normal keyboard. Hold the Vaani bubble above any text field, speak, then release to paste.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
             Text(if (modelStatus.sttAvailable) "Local Whisper model ready" else "Android offline speech fallback ready", color = VaaniColor.Cobalt, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text(if (modelStatus.formatterAvailable) "Local Llama cleanup enabled" else "Deterministic cleanup enabled", color = VaaniColor.Muted, fontSize = 14.sp)
             modelMessage?.let { Text(it, color = VaaniColor.Cobalt, fontSize = 14.sp) }
