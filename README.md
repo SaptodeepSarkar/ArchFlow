@@ -93,7 +93,8 @@ opens the real Android keyboard/overlay permission surfaces. Firebase Auth is
 wired to the existing `org.vaani.keyboard` project registration. The APK
 embeds whisper.cpp and llama.cpp runtimes while keeping STT/LLM weights out of
 Git; user-installed model packs run privately from `files/models/`, with safe
-deterministic fallbacks when a pack is absent. See
+deterministic fallbacks when a pack is absent. The Home screen can import both
+packs through Android's document picker. See
 [`android/README.md`](android/README.md) for model paths and ADB staging.
 
 Every push and pull request runs Rust formatting/tests, website syntax checks,
