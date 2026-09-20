@@ -8,7 +8,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RectF
-import android.os.SystemClock
 import android.os.IBinder
 import android.view.Gravity
 import android.view.MotionEvent
@@ -65,6 +64,7 @@ class VoiceOverlayService : Service() {
         stt = SttFactory.create(this).also { engine ->
             engine.start(
                 onReady = { bubble.post { bubble.state = VoiceBubbleView.State.LISTENING } },
+                onRms = { level -> bubble.post { bubble.level = level } },
                 onResult = { raw -> formatScope.launch {
                     bubble.post { bubble.state = VoiceBubbleView.State.PROCESSING }
                     val text = LocalInference.format(this@VoiceOverlayService, raw)
@@ -107,13 +107,15 @@ private class VoiceBubbleView(context: android.content.Context) : View(context) 
     var state: State = State.IDLE
         set(value) { field = value; invalidate() }
 
+    var level: Float = 0f
+        set(value) { field = value.coerceIn(0f, 1f); invalidate() }
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val density = resources.displayMetrics.density
     private fun dp(value: Float) = value * density
 
     override fun onDraw(canvas: android.graphics.Canvas) {
         super.onDraw(canvas)
-        val now = SystemClock.uptimeMillis()
         val listening = state == State.LISTENING || state == State.PROCESSING
         val bubbleSize = dp(62f)
         val idleLeft = width - bubbleSize - dp(10f)
@@ -151,7 +153,7 @@ private class VoiceBubbleView(context: android.content.Context) : View(context) 
         val centerY = top + bubbleSize / 2f
         val bars = floatArrayOf(0.34f, 0.58f, 0.88f, 0.52f, 0.30f)
         for (index in bars.indices) {
-            val pulse = if (listening) 0.55f + 0.45f * kotlin.math.abs(kotlin.math.sin(now / 220.0 + index).toFloat()) else 0.82f
+            val pulse = if (listening) 0.58f + level * (0.55f + index * 0.08f) else 0.82f
             val barHeight = dp(23f) * bars[index] * pulse
             val x = centerX + (index - 2) * dp(7f)
             canvas.drawRoundRect(RectF(x - dp(2f), centerY - barHeight, x + dp(2f), centerY + barHeight), dp(2f), dp(2f), paint)

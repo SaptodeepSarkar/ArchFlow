@@ -26,7 +26,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 interface SttSession {
-    fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit)
+    fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit = {})
     fun stop()
     fun cancel()
 }
@@ -35,7 +35,7 @@ interface SttSession {
 class OnDeviceStt(private val context: Context) : SttSession {
     private var recognizer: SpeechRecognizer? = null
 
-    override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit) {
+    override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
         if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
             onError("On-device speech is unavailable. Install an offline speech service first.")
             return
@@ -52,7 +52,7 @@ class OnDeviceStt(private val context: Context) : SttSession {
                 override fun onEndOfSpeech() = Unit
                 override fun onEvent(eventType: Int, params: Bundle?) = Unit
                 override fun onPartialResults(partialResults: Bundle?) = Unit
-                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onRmsChanged(rmsdB: Float) = onRms(((rmsdB + 2f) / 12f).coerceIn(0f, 1f))
             })
             speech.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -73,7 +73,7 @@ class NativeWhisperStt(private val context: Context, private val modelFile: File
     private var recording = false
     private var job: Job? = null
 
-    override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit) {
+    override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
         if (!modelFile.isFile) { onError("Embedded STT model is missing"); return }
         val minimum = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING)
         if (minimum <= 0) { onError("Audio input is unavailable"); return }
@@ -90,7 +90,10 @@ class NativeWhisperStt(private val context: Context, private val modelFile: File
                 val started = System.currentTimeMillis()
                 while (recording && System.currentTimeMillis() - started < MAX_RECORDING_MS) {
                     val read = audio.read(buffer, 0, buffer.size)
-                    if (read > 0) pcm.write(buffer, 0, read)
+                    if (read > 0) {
+                        pcm.write(buffer, 0, read)
+                        onRms(rmsLevel(buffer, read))
+                    }
                 }
                 audio.stop()
                 audio.release()
@@ -133,6 +136,20 @@ class NativeWhisperStt(private val context: Context, private val modelFile: File
             out.writeBytes("fmt "); intLE(16); shortLE(1); shortLE(1); intLE(SAMPLE_RATE)
             intLE(SAMPLE_RATE * 2); shortLE(2); shortLE(16); out.writeBytes("data"); intLE(pcm.size); out.write(pcm)
         }
+    }
+
+    private fun rmsLevel(buffer: ByteArray, length: Int): Float {
+        var sum = 0.0
+        var samples = 0
+        var index = 0
+        while (index + 1 < length) {
+            val sample = ((buffer[index + 1].toInt() shl 8) or (buffer[index].toInt() and 0xff)).toShort().toInt()
+            sum += sample.toDouble() * sample.toDouble()
+            samples++
+            index += 2
+        }
+        if (samples == 0) return 0f
+        return (kotlin.math.sqrt(sum / samples) / Short.MAX_VALUE).toFloat().coerceIn(0f, 1f)
     }
 
     private companion object {
