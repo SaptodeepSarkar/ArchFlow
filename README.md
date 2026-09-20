@@ -80,16 +80,22 @@ environments stay copy-only.
 
 ## Android keyboard
 
-The `android/` directory contains a native Vaani `InputMethodService` for
-Android phones and tablets. It can be enabled beside Gboard or Samsung
-Keyboard and commits cleaned Unicode text into the focused field. The setup
-screen opens Android's keyboard settings and exposes the cleanup preference.
+The `android/` directory is a fresh Kotlin/Compose Android client. Its native
+`InputMethodService` can be enabled beside Gboard or Samsung Keyboard and
+commits cleaned Unicode text into safe, focused single-line fields. Multiline
+and password fields are copy-only by policy. The optional Kotlin overlay is
+opt-in and copies text because Android does not expose another app's editor
+authority to an overlay.
 
 Open `android/` in Android Studio with JDK 17 and SDK 35 to build and install
-the debug APK. Android requests the platform on-device speech recognizer when
-available (`EXTRA_PREFER_OFFLINE`); devices without an offline recognizer are
-reported clearly. A JNI whisper.cpp engine and a bundled quantized LLM remain
-future model adapters, so no model weights are shipped in this repository.
+the debug APK. The onboarding uses the original Vaani editorial artwork and
+opens the real Android keyboard/overlay permission surfaces. Firebase Auth is
+wired to the existing `org.vaani.keyboard` project registration. Android
+requests the platform on-device speech recognizer when available
+(`EXTRA_PREFER_OFFLINE`); devices without an offline recognizer are reported
+clearly. No STT/LLM weights are shipped in this repository: the formatter is
+currently a deterministic safety fallback and local model adapters remain an
+explicit next milestone.
 
 Every push and pull request runs Rust formatting/tests, website syntax checks,
 Android unit/APK verification, and Android instrumented tests on an API 35
