@@ -29,6 +29,12 @@ fails to load, Vaani falls back to Android's offline recognizer and the
 deterministic formatter. Model output is accepted only when it preserves the
 source words in order.
 
+The Home screen also provides **Install Whisper model** and **Install Llama
+cleanup model** actions. They use Android's document picker and copy the
+selected file into Vaani's private `files/models/` directory; no broad storage
+permission is requested. The ADB commands below remain useful for development
+and repeatable test setup.
+
 For development, model files can be staged without putting them in the APK:
 
 ```sh

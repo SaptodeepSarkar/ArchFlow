@@ -3,6 +3,7 @@ package org.vaani.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -24,13 +25,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,6 +53,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,6 +71,20 @@ class MainActivity : ComponentActivity() {
 private fun VaaniApp() {
     val context = LocalContext.current
     var page by remember { mutableIntStateOf(0) }
+    var modelStatus by remember { mutableStateOf(LocalModels(context).status()) }
+    var modelMessage by remember { mutableStateOf<String?>(null) }
+    val modelScope = rememberCoroutineScope()
+    fun importModel(kind: ModelKind, uri: Uri) {
+        modelScope.launch {
+            val result = withContext(Dispatchers.IO) { ModelInstaller.install(context, kind, uri) }
+            modelStatus = LocalModels(context).status()
+            modelMessage = if (result.isSuccess) {
+                if (kind == ModelKind.STT) "Whisper model installed locally." else "Llama cleanup model installed locally."
+            } else "That model file could not be installed."
+        }
+    }
+    val sttPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { importModel(ModelKind.STT, it) } }
+    val formatterPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { importModel(ModelKind.FORMATTER, it) } }
     var micGranted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
@@ -81,7 +102,13 @@ private fun VaaniApp() {
         }
         3 -> AuthScreen(onSignedIn = { page = 4 }, onSkip = { page = 4 })
         4 -> SetupGuideScreen(onOpenKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)); page = 5 })
-        else -> HomeScreen(LocalModels(context).status()) { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
+        else -> HomeScreen(
+            modelStatus = modelStatus,
+            modelMessage = modelMessage,
+            onOpenKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
+            onImportStt = { sttPicker.launch(arrayOf("*/*")) },
+            onImportFormatter = { formatterPicker.launch(arrayOf("*/*")) },
+        )
     }
 }
 
@@ -202,7 +229,14 @@ private fun OnboardingScreen(art: Int, step: Int, eyebrow: String, title: String
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { repeat(3) { index -> Box(Modifier.size(if (index == active) 9.dp else 8.dp).background(if (index == active) VaaniColor.Cloud else VaaniColor.Cloud.copy(alpha = 0.45f), CircleShape)) } }
 }
 
-@Composable private fun HomeScreen(modelStatus: ModelStatus, onOpenKeyboard: () -> Unit) {
+@Composable
+private fun HomeScreen(
+    modelStatus: ModelStatus,
+    modelMessage: String?,
+    onOpenKeyboard: () -> Unit,
+    onImportStt: () -> Unit,
+    onImportFormatter: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
             Text("Vaani", color = VaaniColor.Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -210,7 +244,12 @@ private fun OnboardingScreen(art: Int, step: Int, eyebrow: String, title: String
             Text("Open Vaani Keyboard in any text field, then press and hold to dictate.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
             Text(if (modelStatus.sttAvailable) "Local Whisper model ready" else "Android offline speech fallback ready", color = VaaniColor.Cobalt, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text(if (modelStatus.formatterAvailable) "Local Llama cleanup enabled" else "Deterministic cleanup enabled", color = VaaniColor.Muted, fontSize = 14.sp)
+            modelMessage?.let { Text(it, color = VaaniColor.Cobalt, fontSize = 14.sp) }
         }
-        Button(onClick = onOpenKeyboard, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "enable_keyboard" }, shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) { Text("Open keyboard settings", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(onClick = onOpenKeyboard, modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "enable_keyboard" }, shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud)) { Text("Open keyboard settings", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+            OutlinedButton(onClick = onImportStt, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, VaaniColor.Line), colors = ButtonDefaults.outlinedButtonColors(contentColor = VaaniColor.Ink)) { Text(if (modelStatus.sttAvailable) "Replace Whisper model" else "Install Whisper model", fontWeight = FontWeight.SemiBold) }
+            OutlinedButton(onClick = onImportFormatter, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, VaaniColor.Line), colors = ButtonDefaults.outlinedButtonColors(contentColor = VaaniColor.Ink)) { Text(if (modelStatus.formatterAvailable) "Replace Llama cleanup model" else "Install Llama cleanup model", fontWeight = FontWeight.SemiBold) }
+        }
     }
 }
