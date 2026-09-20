@@ -36,8 +36,12 @@ class VaaniImeService : InputMethodService() {
 
     override fun onCreateInputView(): View {
         val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(18))
+            // Some Android surfaces allocate only a 48dp input strip. Keep
+            // the status and action side-by-side so neither is clipped.
+            orientation = LinearLayout.HORIZONTAL
+            // Android may give an IME only a compact strip above navigation;
+            // keep both status and the primary action inside that strip.
+            setPadding(dp(12), dp(6), dp(12), dp(6))
             setBackgroundColor(Color.rgb(12, 16, 32))
         }
         status = TextView(this).apply {
@@ -60,8 +64,8 @@ class VaaniImeService : InputMethodService() {
                 true
             }
         }
-        root.addView(status, LinearLayout.LayoutParams(-1, dp(48)))
-        root.addView(dictate, LinearLayout.LayoutParams(-1, dp(64)))
+        root.addView(status, LinearLayout.LayoutParams(0, -1, 1f))
+        root.addView(dictate, LinearLayout.LayoutParams(dp(170), -1))
         return root
     }
 
@@ -86,13 +90,21 @@ class VaaniImeService : InputMethodService() {
 
     private fun deliver(text: String) {
         stt?.cancel(); active = false
-        if (text.isBlank()) { status.post { status.text = "No speech detected" }; return }
         val delivery = FieldPolicy.deliveryFor(currentInputEditorInfo)
-        val inserted = delivery == Delivery.INSERT && currentInputConnection?.commitText(text, 1) == true
-        if (!inserted) {
-            (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Vaani dictation", text))
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val result = TextDelivery.deliver(
+            text = text,
+            delivery = delivery,
+            commit = { value -> currentInputConnection?.commitText(value, 1) == true },
+            copy = { value -> clipboard.setPrimaryClip(ClipData.newPlainText("Vaani dictation", value)) },
+        )
+        status.post {
+            status.text = when (result) {
+                DeliveryResult.INSERTED -> "Inserted"
+                DeliveryResult.COPIED -> "Copied — paste into this field"
+                DeliveryResult.EMPTY -> "No speech detected"
+            }
         }
-        status.post { status.text = if (inserted) "Inserted" else "Copied — paste into this field" }
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {

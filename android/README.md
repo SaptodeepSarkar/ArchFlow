@@ -3,7 +3,8 @@
 Fresh native Android implementation using Kotlin and Compose. The app shell uses
 the cobalt/coral/cloud system in `docs/design-tokens.json`; the keyboard and
 optional overlay remain Kotlin services because Android requires them to be
-native system surfaces.
+native system surfaces. The primary experience keeps the user's default
+keyboard active and uses the Vaani bubble as an overlay.
 
 ## Local verification
 
@@ -35,6 +36,14 @@ selected file into Vaani's private `files/models/` directory; no broad storage
 permission is requested. The ADB commands below remain useful for development
 and repeatable test setup.
 
+The onboarding first explains **text-box access** and opens Android's
+Accessibility settings. After approval, the **Enable floating button** action
+opens the overlay permission page. The always-on-top Vaani bubble can then be
+held to dictate from another app while the default keyboard remains active.
+When the focused node is editable and not a password field, Vaani pastes into
+that node; otherwise it copies the result for a normal paste. The IME remains
+an optional compatibility surface and is never required by onboarding.
+
 For development, model files can be staged without putting them in the APK:
 
 ```sh
@@ -56,4 +65,6 @@ on an arm64 device or arm64 emulator image.
 single-line field (direct insertion policy) and a multiline field (clipboard
 fallback policy) without shipping that test surface in release builds. The
 optional overlay copies dictated output instead of pretending it can inspect or
-inject into another app's focused field.
+inject into another app's focused field. `TextDelivery` is the shared
+insert-or-copy boundary and has unit coverage for successful insertion, failed
+insertion fallback, copy-only fields, and empty transcripts.
