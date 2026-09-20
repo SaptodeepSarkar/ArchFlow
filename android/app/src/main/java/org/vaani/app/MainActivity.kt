@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,13 +79,14 @@ private fun VaaniApp() {
         2 -> OnboardingScreen(R.drawable.onboarding_ready, 2, "One last thing", "Ready when\nyou are.", if (micGranted) "Microphone access is ready. Open Vaani Keyboard in any text field." else "Vaani needs microphone access only while you choose to dictate.", if (micGranted) "Continue" else "Allow microphone") {
             if (micGranted) page = 3 else micPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
-        3 -> AuthScreen(onSignedIn = { page = 4 })
+        3 -> AuthScreen(onSignedIn = { page = 4 }, onSkip = { page = 4 })
+        4 -> SetupGuideScreen(onOpenKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)); page = 5 })
         else -> HomeScreen { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
     }
 }
 
 @Composable
-private fun AuthScreen(onSignedIn: () -> Unit) {
+private fun AuthScreen(onSignedIn: () -> Unit, onSkip: () -> Unit) {
     var message by remember { mutableStateOf("Sign in to keep your Vaani preferences ready when you need them.") }
     var working by remember { mutableStateOf(false) }
     Column(
@@ -114,7 +116,43 @@ private fun AuthScreen(onSignedIn: () -> Unit) {
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud),
             ) { Text(if (working) "Connecting…" else "Continue securely", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
-            Text("Skip for now", color = VaaniColor.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text("Skip for now", color = VaaniColor.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.fillMaxWidth().clickable(onClick = onSkip), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
+    }
+}
+
+@Composable
+private fun SetupGuideScreen(onOpenKeyboard: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(VaaniColor.Surface).padding(horizontal = 28.dp, vertical = 56.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
+            Text("FIRST DICTATION", color = VaaniColor.Coral, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("Three seconds\nto clear writing.", color = VaaniColor.Text, fontSize = 40.sp, lineHeight = 45.sp, fontWeight = FontWeight.SemiBold)
+            Text("Vaani works in the keyboard you already use. Follow this small loop whenever you want to speak instead of type.", color = VaaniColor.Muted, fontSize = 18.sp, lineHeight = 26.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                GuideStep("01", "Open any text field", "Messages, notes, search, or email all work.")
+                GuideStep("02", "Press and hold Vaani", "Keep holding while you speak. The keyboard follows your real listening state.")
+                GuideStep("03", "Release to write", "A short local cleanup runs, then safe fields receive the text; sensitive fields stay copy-only.")
+            }
+        }
+        Button(
+            onClick = onOpenKeyboard,
+            modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "setup_open_keyboard" },
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = VaaniColor.Cobalt, contentColor = VaaniColor.Cloud),
+        ) { Text("Try it in the keyboard", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+    }
+}
+
+@Composable
+private fun GuideStep(number: String, title: String, body: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
+        Text(number, color = VaaniColor.Cobalt, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = VaaniColor.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(body, color = VaaniColor.Muted, fontSize = 15.sp, lineHeight = 21.sp)
         }
     }
 }
