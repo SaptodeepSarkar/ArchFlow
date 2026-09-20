@@ -1,5 +1,7 @@
 # Vaani — local-first dictation for Hyprland/Wayland
 
+[![Verify](https://github.com/SaptodeepSarkar/ArchFlow/actions/workflows/verify.yml/badge.svg?branch=feat/ecosystem-core-integration)](https://github.com/SaptodeepSarkar/ArchFlow/actions/workflows/verify.yml)
+
 Vaani records only after activation, transcribes locally, and types the final
 text into the original focused Wayland app by default. Delivery is rechecked
 against that window, and is never automatic for terminals, review sessions, or
@@ -88,3 +90,12 @@ the debug APK. Android requests the platform on-device speech recognizer when
 available (`EXTRA_PREFER_OFFLINE`); devices without an offline recognizer are
 reported clearly. A JNI whisper.cpp engine and a bundled quantized LLM remain
 future model adapters, so no model weights are shipped in this repository.
+
+Every push and pull request runs Rust formatting/tests, website syntax checks,
+Android unit/APK verification, and Android instrumented tests on an API 35
+emulator. Run the corresponding Android check locally with:
+
+```sh
+cd android
+./gradlew testDebugUnitTest assembleDebug connectedDebugAndroidTest
+```
