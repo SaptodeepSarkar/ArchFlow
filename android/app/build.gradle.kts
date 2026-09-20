@@ -41,7 +41,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.6")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    // 3.7.0 uses getSystemService for input injection and supports API 36.
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.7.6")
     debugImplementation("androidx.compose.ui:ui-test-manifest:1.7.6")
 }

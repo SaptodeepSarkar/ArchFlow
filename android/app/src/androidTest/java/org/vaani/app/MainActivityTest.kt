@@ -1,16 +1,18 @@
 package org.vaani.app
 
-import androidx.test.ext.junit.rules.ActivityScenarioRule
-import org.junit.Assert.assertTrue
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import org.junit.Rule
 import org.junit.Test
 
 class MainActivityTest {
-    @get:Rule val rule = ActivityScenarioRule(MainActivity::class.java)
+    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
-    @Test fun onboarding_activity_reaches_resumed_state() {
-        rule.scenario.onActivity { activity ->
-            assertTrue(activity.window.decorView.isShown)
-        }
+    @Test fun onboarding_renders_and_advances_to_keyboard_setup() {
+        rule.onNodeWithText("Get started").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Enable Vaani Keyboard").assertIsDisplayed()
+        rule.onNodeWithText("Your voice,\nin every text field.").assertIsDisplayed()
     }
 }
