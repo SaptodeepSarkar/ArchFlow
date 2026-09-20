@@ -274,7 +274,10 @@ impl Config {
             .unwrap_or_else(|_| ".".into());
         #[cfg(not(windows))]
         let base = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
-            format!("{}/.config", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+            format!(
+                "{}/.config",
+                std::env::var("HOME").unwrap_or_else(|_| ".".into())
+            )
         });
         PathBuf::from(base).join("vaani/config.toml")
     }
@@ -385,7 +388,7 @@ impl Config {
                 }
                 self.general.auto_stop_secs = n;
                 Ok(n.to_string())
-            },
+            }
             "audio.device_selector" => {
                 if v.len() > 256 {
                     return Err("too long".into());
@@ -422,7 +425,7 @@ impl Config {
                 }
                 self.recognition.server_idle_secs = n;
                 Ok(n.to_string())
-            },
+            }
             "recognition.language" => match v {
                 "en" | "hi" | "bn" => {
                     self.recognition.language = v.into();
@@ -456,11 +459,11 @@ impl Config {
                     .split_once('=')
                     .ok_or("must be app pattern=automatic|review|copy-only|none")?;
                 let pattern = pattern.trim();
-                if pattern.is_empty()
-                    || pattern.len() > 128
-                    || pattern.contains(['=', '\r', '\n'])
+                if pattern.is_empty() || pattern.len() > 128 || pattern.contains(['=', '\r', '\n'])
                 {
-                    return Err("app pattern must be 1..128 characters without = or newlines".into());
+                    return Err(
+                        "app pattern must be 1..128 characters without = or newlines".into(),
+                    );
                 }
                 match mode.trim() {
                     "automatic" | "review" | "copy-only" => {
@@ -522,7 +525,12 @@ impl Config {
                 for term in v.split(',').map(str::trim).filter(|t| !t.is_empty()) {
                     let mut t = term.to_string();
                     t.truncate(80);
-                    if !self.cleanup.vocabulary.iter().any(|e| e.eq_ignore_ascii_case(&t)) {
+                    if !self
+                        .cleanup
+                        .vocabulary
+                        .iter()
+                        .any(|e| e.eq_ignore_ascii_case(&t))
+                    {
                         self.cleanup.vocabulary.push(t);
                     }
                 }

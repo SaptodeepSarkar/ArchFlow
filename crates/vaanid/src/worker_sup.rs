@@ -36,11 +36,15 @@ impl TempAudioDir {
         Ok(Self(path))
     }
 
-    fn join(&self, name: &str) -> std::path::PathBuf { self.0.join(name) }
+    fn join(&self, name: &str) -> std::path::PathBuf {
+        self.0.join(name)
+    }
 }
 
 impl Drop for TempAudioDir {
-    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 pub fn worker_bin() -> String {
@@ -81,7 +85,12 @@ pub fn vad_bin() -> Option<String> {
             dirs.push(dir.to_string_lossy().into_owned());
         }
     }
-    dirs.extend(std::env::var("PATH").unwrap_or_default().split(':').map(|s| s.to_string()));
+    dirs.extend(
+        std::env::var("PATH")
+            .unwrap_or_default()
+            .split(':')
+            .map(|s| s.to_string()),
+    );
     for dir in &dirs {
         let p = format!("{dir}/vad-speech-segments");
         if std::path::Path::new(&p).exists() {
@@ -129,7 +138,13 @@ fn parse_vad_ends(text: &str) -> Option<f32> {
     for line in text.lines() {
         // "Speech segment 3: start = 538.00, end = 765.00" (centiseconds)
         if let Some(rest) = line.split("end = ").nth(1) {
-            if let Ok(v) = rest.trim().split_whitespace().next().unwrap_or("").parse::<f32>() {
+            if let Ok(v) = rest
+                .trim()
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .parse::<f32>()
+            {
                 last_end_cs = Some(v);
             }
         }
@@ -255,11 +270,9 @@ fn fw_ensure_locked(
     cuda: bool,
 ) -> anyhow::Result<()> {
     let alive = match slot.as_mut() {
-        Some(srv) if srv.model_dir == model_dir => srv
-            .child
-            .try_wait()
-            .map(|s| s.is_none())
-            .unwrap_or(false),
+        Some(srv) if srv.model_dir == model_dir => {
+            srv.child.try_wait().map(|s| s.is_none()).unwrap_or(false)
+        }
         _ => false,
     };
     if alive {
@@ -276,9 +289,17 @@ fn fw_ensure_locked(
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     fw_lib_env(&mut cmd);
-    let mut child = cmd.spawn().map_err(|e| anyhow::anyhow!("fw-server spawn failed: {e}"))?;
-    let writer = child.stdin.take().ok_or_else(|| anyhow::anyhow!("fw-server stdin"))?;
-    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("fw-server stdout"))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("fw-server spawn failed: {e}"))?;
+    let writer = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("fw-server stdin"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("fw-server stdout"))?;
     let mut reader = BufReader::new(stdout);
     // Wait for the ready line (model load ~4 s; generous ceiling).
     let (tx, rx) = std::sync::mpsc::channel();
@@ -306,10 +327,7 @@ fn fw_ensure_locked(
     Ok(())
 }
 
-fn fw_read_line_locked(
-    slot: &mut Option<FwServer>,
-    secs: u64,
-) -> anyhow::Result<String> {
+fn fw_read_line_locked(slot: &mut Option<FwServer>, secs: u64) -> anyhow::Result<String> {
     let mut reader = slot
         .as_mut()
         .and_then(|srv| srv.reader.take())
@@ -382,26 +400,34 @@ fn fw_server_transcribe(
     });
     let mut slot = fw_slot().lock().unwrap_or_else(|e| e.into_inner());
     fw_ensure_locked(&mut slot, model_dir, cuda)?;
-    let srv = slot.as_mut().ok_or_else(|| anyhow::anyhow!("fw-server missing"))?;
+    let srv = slot
+        .as_mut()
+        .ok_or_else(|| anyhow::anyhow!("fw-server missing"))?;
     srv.writer
         .write_all(format!("{}\n", job).as_bytes())
         .map_err(|e| anyhow::anyhow!("fw-server write failed: {e}"))?;
-    srv.writer.flush().map_err(|e| anyhow::anyhow!("fw-server flush failed: {e}"))?;
+    srv.writer
+        .flush()
+        .map_err(|e| anyhow::anyhow!("fw-server flush failed: {e}"))?;
     let mut answer = String::new();
     for _ in 0..32 {
         let line = fw_read_line_locked(&mut slot, 120)?;
         if line.trim().is_empty() {
             continue;
         }
-        let v: serde_json::Value =
-            serde_json::from_str(line.trim()).map_err(|e| anyhow::anyhow!("fw-server protocol error: {e}"))?;
+        let v: serde_json::Value = serde_json::from_str(line.trim())
+            .map_err(|e| anyhow::anyhow!("fw-server protocol error: {e}"))?;
         if v.get("id").and_then(|x| x.as_u64()) != Some(id) {
             continue; // stale line from a previous job; keep reading
         }
         if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
             anyhow::bail!("fw-server job failed: {err}");
         }
-        answer = v.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+        answer = v
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
         break;
     }
     Ok((answer, t0.elapsed().as_millis() as u64))
@@ -427,15 +453,40 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         let model = root.join("weights.bin");
         std::fs::write(&model, b"local test model").unwrap();
-        let hash = String::from_utf8(std::process::Command::new("sha256sum").arg(&model).output().unwrap().stdout).unwrap().split_whitespace().next().unwrap().to_string();
+        let hash = String::from_utf8(
+            std::process::Command::new("sha256sum")
+                .arg(&model)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_string();
         let manifest = vaani_core::model::ModelManifest {
             schema_version: vaani_core::model::MODEL_SCHEMA_VERSION,
-            id: "test-model".into(), kind: vaani_core::model::ModelKind::Stt,
-            version: "1.0.0".into(), runtime: "test".into(), quantization: None,
-            languages: vec!["en".into()], files: vec![vaani_core::model::ModelFile { path: "weights.bin".into(), bytes: 16, sha256: hash }],
-            minimum_ram_mb: 1, license: "test".into(), capabilities: vec![],
+            id: "test-model".into(),
+            kind: vaani_core::model::ModelKind::Stt,
+            version: "1.0.0".into(),
+            runtime: "test".into(),
+            quantization: None,
+            languages: vec!["en".into()],
+            files: vec![vaani_core::model::ModelFile {
+                path: "weights.bin".into(),
+                bytes: 16,
+                sha256: hash,
+            }],
+            minimum_ram_mb: 1,
+            license: "test".into(),
+            capabilities: vec![],
         };
-        std::fs::write(root.join("model.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        std::fs::write(
+            root.join("model.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
         assert!(validate_model_package(root.to_str().unwrap()).is_ok());
         assert!(validate_resolved_model("v5", root.to_str().unwrap()).is_ok());
         let packages = discover_model_packages(root.parent().unwrap());
@@ -445,7 +496,9 @@ mod tests {
         std::fs::write(&model, b"tampered model").unwrap();
         assert!(validate_model_package(root.to_str().unwrap()).is_err());
         assert!(validate_resolved_model("v5", root.to_str().unwrap()).is_err());
-        assert!(discover_model_packages(root.parent().unwrap())[0].error.is_some());
+        assert!(discover_model_packages(root.parent().unwrap())[0]
+            .error
+            .is_some());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -520,8 +573,12 @@ fn vad_model_default() -> Option<String> {
             return Some(p);
         }
     }
-    let base = std::env::var("XDG_DATA_HOME")
-        .unwrap_or_else(|_| format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into())));
+    let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
+        format!(
+            "{}/.local/share",
+            std::env::var("HOME").unwrap_or_else(|_| ".".into())
+        )
+    });
     let cand = format!("{base}/vaani/models/ggml-silero-v5.1.2.bin");
     if std::path::Path::new(&cand).exists() {
         Some(cand)
@@ -571,8 +628,15 @@ pub fn model_path_for(model: &str) -> String {
     let lookup = |dir: &str| {
         // Package discovery happens first so a manifest-backed installation
         // cannot be shadowed by a stale same-named file or directory.
-        if let Some(package) = discover_model_packages(std::path::Path::new(dir)).into_iter()
-            .find(|package| package.manifest.as_ref().is_some_and(|manifest| manifest.id == model) && package.error.is_none())
+        if let Some(package) = discover_model_packages(std::path::Path::new(dir))
+            .into_iter()
+            .find(|package| {
+                package
+                    .manifest
+                    .as_ref()
+                    .is_some_and(|manifest| manifest.id == model)
+                    && package.error.is_none()
+            })
         {
             return Some(package.root.to_string_lossy().into_owned());
         }
@@ -600,8 +664,12 @@ pub fn model_path_for(model: &str) -> String {
             return format!("{dir}/{model}.bin");
         }
     }
-    let base = std::env::var("XDG_DATA_HOME")
-        .unwrap_or_else(|_| format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into())));
+    let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
+        format!(
+            "{}/.local/share",
+            std::env::var("HOME").unwrap_or_else(|_| ".".into())
+        )
+    });
     let dir = format!("{base}/vaani/models");
     lookup(&dir).unwrap_or_else(|| format!("{dir}/{model}.bin"))
 }
@@ -616,21 +684,48 @@ pub struct ModelPackageStatus {
 /// Enumerate package directories without hiding invalid entries from doctor
 /// output. Only valid entries are eligible for id-based model selection.
 pub fn discover_model_packages(root: &std::path::Path) -> Vec<ModelPackageStatus> {
-    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
-    let mut packages = entries.filter_map(Result::ok)
-        .filter_map(|entry| entry.file_type().ok().filter(|kind| kind.is_dir()).map(|_| entry.path()))
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut packages = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            entry
+                .file_type()
+                .ok()
+                .filter(|kind| kind.is_dir())
+                .map(|_| entry.path())
+        })
         .filter(|path| path.join("model.json").is_file())
         .map(|path| {
             let manifest = std::fs::read_to_string(path.join("model.json"))
                 .map_err(|e| format!("manifest read failed: {e}"))
-                .and_then(|json| vaani_core::model::ModelManifest::from_json(&json).map_err(|e| format!("manifest parse failed: {e}")))
-                .and_then(|manifest| { manifest.validate().map_err(|e| e.to_string()).map(|_| manifest) });
+                .and_then(|json| {
+                    vaani_core::model::ModelManifest::from_json(&json)
+                        .map_err(|e| format!("manifest parse failed: {e}"))
+                })
+                .and_then(|manifest| {
+                    manifest
+                        .validate()
+                        .map_err(|e| e.to_string())
+                        .map(|_| manifest)
+                });
             match manifest {
                 Ok(manifest) => {
-                    let error = validate_model_package(path.to_string_lossy().as_ref()).err().map(|e| e.to_string());
-                    ModelPackageStatus { root: path, manifest: Some(manifest), error }
+                    let error = validate_model_package(path.to_string_lossy().as_ref())
+                        .err()
+                        .map(|e| e.to_string());
+                    ModelPackageStatus {
+                        root: path,
+                        manifest: Some(manifest),
+                        error,
+                    }
                 }
-                Err(error) => ModelPackageStatus { root: path, manifest: None, error: Some(error) },
+                Err(error) => ModelPackageStatus {
+                    root: path,
+                    manifest: None,
+                    error: Some(error),
+                },
             }
         })
         .collect::<Vec<_>>();
@@ -643,23 +738,41 @@ pub fn discover_model_packages(root: &std::path::Path) -> Vec<ModelPackageStatus
 /// installs are never allowed to run with missing, resized, or rehashed files.
 fn validate_model_package(path: &str) -> anyhow::Result<()> {
     let model_path = std::path::Path::new(path);
-    let root = if model_path.is_dir() { model_path } else { model_path.parent().unwrap_or(model_path) };
+    let root = if model_path.is_dir() {
+        model_path
+    } else {
+        model_path.parent().unwrap_or(model_path)
+    };
     let manifest_path = root.join("model.json");
-    if !manifest_path.is_file() { return Ok(()); }
-    let json = std::fs::read_to_string(&manifest_path).map_err(|e| anyhow::anyhow!("model manifest read failed: {e}"))?;
-    let manifest = vaani_core::model::ModelManifest::from_json(&json).map_err(|e| anyhow::anyhow!("model manifest parse failed: {e}"))?;
-    manifest.validate().map_err(|e| anyhow::anyhow!("model manifest validation failed: {e}"))?;
+    if !manifest_path.is_file() {
+        return Ok(());
+    }
+    let json = std::fs::read_to_string(&manifest_path)
+        .map_err(|e| anyhow::anyhow!("model manifest read failed: {e}"))?;
+    let manifest = vaani_core::model::ModelManifest::from_json(&json)
+        .map_err(|e| anyhow::anyhow!("model manifest parse failed: {e}"))?;
+    manifest
+        .validate()
+        .map_err(|e| anyhow::anyhow!("model manifest validation failed: {e}"))?;
     for file in &manifest.files {
         let candidate = root.join(&file.path);
-        let metadata = std::fs::metadata(&candidate).map_err(|e| anyhow::anyhow!("model file {} unavailable: {e}", file.path))?;
+        let metadata = std::fs::metadata(&candidate)
+            .map_err(|e| anyhow::anyhow!("model file {} unavailable: {e}", file.path))?;
         if !metadata.is_file() || metadata.len() != file.bytes {
             anyhow::bail!("model file {} has unexpected size", file.path);
         }
-        let output = std::process::Command::new("sha256sum").arg(&candidate).output().map_err(|e| anyhow::anyhow!("sha256sum unavailable: {e}"))?;
-        if !output.status.success() { anyhow::bail!("sha256sum failed for model file {}", file.path); }
+        let output = std::process::Command::new("sha256sum")
+            .arg(&candidate)
+            .output()
+            .map_err(|e| anyhow::anyhow!("sha256sum unavailable: {e}"))?;
+        if !output.status.success() {
+            anyhow::bail!("sha256sum failed for model file {}", file.path);
+        }
         let hash_output = String::from_utf8_lossy(&output.stdout);
         let actual = hash_output.split_whitespace().next().unwrap_or("");
-        if !actual.eq_ignore_ascii_case(&file.sha256) { anyhow::bail!("sha256 mismatch for model file {}", file.path); }
+        if !actual.eq_ignore_ascii_case(&file.sha256) {
+            anyhow::bail!("sha256 mismatch for model file {}", file.path);
+        }
     }
     Ok(())
 }
@@ -720,7 +833,14 @@ pub fn transcribe(
         let mut ms_total = 0u64;
         let mut failed = false;
         for (s, e) in &segs {
-            match fw_server_transcribe(&samples[*s..*e], &resolved, language, translate, vocab, cuda) {
+            match fw_server_transcribe(
+                &samples[*s..*e],
+                &resolved,
+                language,
+                translate,
+                vocab,
+                cuda,
+            ) {
                 Ok((text, ms)) => {
                     ms_total += ms;
                     parts.push(text);
@@ -756,7 +876,15 @@ pub fn transcribe(
     let mut backend = "cpu-stub".to_string();
     let mut ms_total = 0u64;
     for (s, e) in segment(samples) {
-        let t = run_once(&samples[s..e], model, language, translate, threads, cuda, vocab)?;
+        let t = run_once(
+            &samples[s..e],
+            model,
+            language,
+            translate,
+            threads,
+            cuda,
+            vocab,
+        )?;
         if !t.is_silence {
             silence_all = false;
         }
@@ -788,7 +916,9 @@ fn run_once(
     let resolved = model_path_for(model);
     validate_model_package(&resolved)?;
     let mut command = std::process::Command::new(worker_bin());
-    if translate { command.arg("--translate"); }
+    if translate {
+        command.arg("--translate");
+    }
     if !vocab.is_empty() {
         // Names/terms bias (whisper initial prompt / fw initial_prompt).
         // Configured vocabulary only — transcripts never travel via argv.
@@ -815,7 +945,9 @@ fn run_once(
         // A worker may stop consuming stdin. Keep the writer independent,
         // enforce a hard child deadline, then kill it to release the pipe.
         std::thread::scope(|s| {
-            s.spawn(move || { let _ = stdin.write_all(&bytes); });
+            s.spawn(move || {
+                let _ = stdin.write_all(&bytes);
+            });
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(125);
             loop {
                 match child.try_wait() {
@@ -841,11 +973,17 @@ fn run_once(
     if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
         anyhow::bail!("worker error: {err}");
     }
-    let mut text = v.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+    let mut text = v
+        .get("text")
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
     // Bound transcript size.
     if text.len() > vaani_core::MAX_TRANSCRIPT_CHARS {
         let mut boundary = vaani_core::MAX_TRANSCRIPT_CHARS;
-        while !text.is_char_boundary(boundary) { boundary -= 1; }
+        while !text.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
         text.truncate(boundary);
     }
     // Raw mode: only outer whitespace normalisation.
@@ -858,15 +996,19 @@ fn run_once(
             .and_then(|l| l.as_str())
             .unwrap_or(language)
             .to_string(),
-        is_silence: v.get("is_silence").and_then(|b| b.as_bool()).unwrap_or(false)
+        is_silence: v
+            .get("is_silence")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false)
             || empty,
         backend: v
             .get("backend")
             .and_then(|b| b.as_str())
             .unwrap_or("unknown")
             .to_string(),
-        inference_ms: v.get("ms").and_then(|m| m.as_u64()).unwrap_or(
-            t0.elapsed().as_millis() as u64,
-        ),
+        inference_ms: v
+            .get("ms")
+            .and_then(|m| m.as_u64())
+            .unwrap_or(t0.elapsed().as_millis() as u64),
     })
 }

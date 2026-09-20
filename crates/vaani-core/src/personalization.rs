@@ -54,7 +54,12 @@ pub fn render(text: &str, snapshot: &PersonalizationSnapshot) -> String {
     let mut vocabulary = snapshot
         .vocabulary
         .iter()
-        .flat_map(|entry| entry.spoken_aliases.iter().map(move |alias| (alias, &entry.canonical)))
+        .flat_map(|entry| {
+            entry
+                .spoken_aliases
+                .iter()
+                .map(move |alias| (alias, &entry.canonical))
+        })
         .collect::<Vec<_>>();
     vocabulary.sort_by_key(|(alias, _)| std::cmp::Reverse(alias.chars().count()));
     for (alias, canonical) in vocabulary {

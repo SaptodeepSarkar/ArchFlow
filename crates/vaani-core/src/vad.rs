@@ -76,10 +76,7 @@ impl crate::engine::VadEngine for Vad {
         "energy-zcr"
     }
 
-    fn push_block(
-        &mut self,
-        block: &[f32],
-    ) -> Result<bool, crate::engine::EngineError> {
+    fn push_block(&mut self, block: &[f32]) -> Result<bool, crate::engine::EngineError> {
         if block.len() != BLOCK_SAMPLES {
             return Err(crate::engine::EngineError::new(
                 crate::engine::EngineErrorKind::InvalidInput,
