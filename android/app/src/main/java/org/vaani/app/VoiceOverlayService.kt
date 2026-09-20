@@ -12,12 +12,18 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /** Optional overlay: it never claims to know a foreground app's text field, so it copies only. */
 class VoiceOverlayService : Service() {
     private lateinit var manager: WindowManager
     private lateinit var bubble: TextView
     private var stt: SttSession? = null
+    private val formatScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -50,19 +56,20 @@ class VoiceOverlayService : Service() {
 
     private fun begin() {
         bubble.text = "…"
-        stt = OnDeviceStt(this).also { engine ->
+        stt = SttFactory.create(this).also { engine ->
             engine.start(
                 onReady = { bubble.post { bubble.text = "●" } },
-                onResult = { raw ->
-                    val text = SafeFormatter.format(raw)
+                onResult = { raw -> formatScope.launch {
+                    val text = LocalInference.format(this@VoiceOverlayService, raw)
                     if (text.isNotBlank()) (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
                         .setPrimaryClip(ClipData.newPlainText("Vaani dictation", text))
                     bubble.post { bubble.text = "✓" }
+                }
                 },
                 onError = { bubble.post { bubble.text = "!" } },
             )
         }
     }
 
-    override fun onDestroy() { stt?.cancel(); manager.removeView(bubble); super.onDestroy() }
+    override fun onDestroy() { stt?.cancel(); formatScope.cancel(); manager.removeView(bubble); super.onDestroy() }
 }

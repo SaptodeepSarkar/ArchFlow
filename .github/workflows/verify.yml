@@ -51,6 +51,10 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew testDebugUnitTest assembleDebug --stacktrace
+      - name: Verify native model runtimes are packaged
+        run: |
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'lib/arm64-v8a/libwhisper.so'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'lib/arm64-v8a/libllama.so'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

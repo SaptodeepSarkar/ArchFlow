@@ -19,12 +19,32 @@ configuration. The setup flow creates a real anonymous Firebase Auth session;
 Google OAuth is not advertised until an Android OAuth client is added in the
 Firebase console.
 
-Speech uses Android's installed on-device recognizer with offline preference.
-User-local STT and formatter model packs may live under the app's private
-`files/models/` directory; weights are never tracked in Git. The current
-formatter is a deterministic safety fallback and does not claim to be an
-embedded LLM. The native model interfaces are deliberately kept separate so a
-validated local runtime can be added without weakening content-safety rules.
+The release APK embeds native whisper.cpp and llama.cpp runtimes
+(`arm64-v8a`); model weights are still user-installed and never tracked in
+Git. Put a Whisper GGML model at `files/models/stt/ggml-base.bin` and a GGUF
+cleanup model at `files/models/formatter/model.gguf`. The IME records 16-kHz
+PCM into a private temporary WAV, transcribes locally with Whisper, and runs
+the conservative Llama editor before insertion. If either pack is absent or
+fails to load, Vaani falls back to Android's offline recognizer and the
+deterministic formatter. Model output is accepted only when it preserves the
+source words in order.
+
+For development, model files can be staged without putting them in the APK:
+
+```sh
+adb shell run-as org.vaani.keyboard mkdir -p files/models/stt files/models/formatter
+adb push ggml-base.bin /data/local/tmp/ggml-base.bin
+adb push model.gguf /data/local/tmp/model.gguf
+adb shell run-as org.vaani.keyboard cp /data/local/tmp/ggml-base.bin files/models/stt/ggml-base.bin
+adb shell run-as org.vaani.keyboard cp /data/local/tmp/model.gguf files/models/formatter/model.gguf
+```
+
+The packaged engines are `dev.ffmpegkit-maintained:whisper-android:1.0.0`
+and `dev.ffmpegkit-maintained:llama-android:0.1.1`; both are MIT-licensed
+Android bindings around whisper.cpp/llama.cpp. Their free artifacts currently
+ship `arm64-v8a`, so the x86_64 emulator verifies UI, permissions, IME,
+overlay, fallback behavior, and tests; native model inference must be measured
+on an arm64 device or arm64 emulator image.
 
 `src/debug` contains an editor harness for emulator checks. It exposes a safe
 single-line field (direct insertion policy) and a multiline field (clipboard
