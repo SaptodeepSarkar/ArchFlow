@@ -1,4 +1,4 @@
-:root{--ink:#20251f;--muted:#657063;--paper:#f7f6ef;--lime:#d7f36f;--pink:#e9bbb6;--line:#d9d9cf;--dark:#26322c}
+:root{--ink:#0c1020;--muted:#72788b;--paper:#f7f8fc;--cobalt:#526bff;--coral:#ff6b4a;--cloud:#fff7f1;--sky:#78c7ff;--line:#d9dde8;--dark:#171a26}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:Manrope,Arial,sans-serif;overflow-x:hidden}
@@ -176,6 +176,20 @@ footer p{color:#778074;font-size:11px;margin-left:auto;margin-right:30px}
 .orbit i:nth-child(17){left:79%;top:91%}
 .orbit i:nth-child(18){left:89%;top:82%}
 
+/* Vaani 1.0 rebrand: cobalt carries action; coral is a small live signal. */
+.page-glow{opacity:.18}.glow-one{background:var(--sky)}.glow-two{background:var(--coral)}
+.button{background:var(--cobalt);box-shadow:0 5px 0 rgba(12,16,32,.18)}.button:hover{box-shadow:0 8px 0 rgba(12,16,32,.18)}
+.eyebrow,.hero-copy,.availability,.stage-top,.shortcut,.timer,.trusted,.section-intro,.speed-grid p,.privacy-copy>p,.local-grid>div>p,.local-details article p,.feature p,.step-grid p,footer p{color:var(--muted)}
+.eyebrow i,.live-dot,.cursor,.wave b,.voice:after{background:var(--coral)}.eyebrow i{box-shadow:0 0 0 4px rgba(255,107,74,.15)}
+em,.metric.active strong,.final-text{color:var(--cobalt)}.hero-stage{border-color:var(--line);box-shadow:0 24px 50px rgba(12,16,32,.12),0 3px 5px rgba(12,16,32,.06)}
+.stage-top,.voice-line{border-color:var(--line)}.stage-note{background:#eef0ff;color:#3947ad}.compare-card{background:#eef0ff;border-color:var(--line)}
+.bar,.divider,.compare-copy{border-color:var(--line);background-color:var(--line)}.keyboard:after{background:#9da5bf}.feature-dark,.privacy{background:var(--ink)}
+.feature{border-color:var(--line);background:var(--cloud)}.feature-dark{color:var(--cloud)}.feature-dark p,.privacy-copy>p,.privacy ul{color:#d9dde8}
+.feature-icon{background:#e5e8ff;color:var(--cobalt)}.lock{background:#dceeff;color:#285780}.cursor-icon{background:#ffe1da;color:#a43c28}.local-pill{background:#242a48;color:var(--cloud)}
+.download-card{background:#ffe0d8}.download-card:after{background:var(--sky)}.download-card h2 em{color:var(--cobalt)}
+.button-cobalt{background:var(--cobalt);color:var(--cloud);border:1px solid var(--cloud);box-shadow:0 3px 0 rgba(0,0,0,.24)}
+.button-ghost,.button-cream{background:var(--cloud);color:var(--ink);border-color:var(--ink)}.mic-dot{color:var(--coral)}
+.hero-content .eyebrow i{background:var(--coral)}.hero h1 em{color:var(--cloud)}.hero-voice .wave b{background:var(--cloud)}
 @media(max-width:760px){.wrap{width:min(100% - 32px,1152px)}
 .nav{height:62px;top:15px;width:calc(100% - 28px);padding-left:14px}
 .nav nav{display:none}

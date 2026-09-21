@@ -17,7 +17,11 @@ pub fn reconcile(segments: &[&str]) -> String {
         for k in (1..=max).rev() {
             let tail = &out[out.len() - k..];
             let head = &words[..k];
-            if tail.iter().zip(head.iter()).all(|(a, b)| norm(a) == norm(b)) {
+            if tail
+                .iter()
+                .zip(head.iter())
+                .all(|(a, b)| norm(a) == norm(b))
+            {
                 drop = k;
                 break;
             }
@@ -117,7 +121,10 @@ mod tests {
     #[test]
     fn delta_advances_and_detects_revision() {
         assert_eq!(delta_vs("", "hello world"), Some("hello world".into()));
-        assert_eq!(delta_vs("hello world", "hello world of rust"), Some("of rust".into()));
+        assert_eq!(
+            delta_vs("hello world", "hello world of rust"),
+            Some("of rust".into())
+        );
         assert_eq!(delta_vs("hello world", "hello world"), None);
         // Revised earlier words -> None (wait, don't duplicate).
         assert_eq!(delta_vs("hello world", "hello there world peace"), None);

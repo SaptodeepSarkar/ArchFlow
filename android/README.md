@@ -1,40 +1,74 @@
-# Vaani Keyboard for Android
+# Vaani for Android
 
-This is the Android client/container for ArchFlow. It is an Android `InputMethodService`, so it can be selected beside Gboard or Samsung Keyboard and can commit Unicode text directly into the focused editor.
+Fresh native Android implementation using Kotlin and Compose. The app shell uses
+the cobalt/coral/cloud system in `docs/design-tokens.json`; the keyboard and
+optional overlay remain Kotlin services because Android requires them to be
+native system surfaces. The primary experience keeps the user's default
+keyboard active and uses the Vaani bubble as an overlay.
 
-## Build and install
-
-Open `android/` in Android Studio (JDK 17, Android SDK 35), or run:
+## Local verification
 
 ```sh
-./gradlew :app:assembleDebug
+./gradlew testDebugUnitTest assembleDebug connectedDebugAndroidTest
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n org.vaani.keyboard/org.vaani.app.MainActivity
 ```
 
-Launch **Vaani Keyboard**, enable it in system keyboard settings, then select it from any text field. Grant microphone permission when requested.
+The rebuilt app keeps the registered Firebase Android identity
+`org.vaani.keyboard` and uses the checked-in `google-services.json` client
+configuration. The setup flow creates a real anonymous Firebase Auth session;
+Google OAuth is not advertised until an Android OAuth client is added in the
+Firebase console.
 
-## Local-first model boundary
+The release APK embeds native whisper.cpp and llama.cpp runtimes
+(`arm64-v8a`); model weights are still user-installed and never tracked in
+Git. Put a Whisper GGML model at `files/models/stt/ggml-base.bin` and a GGUF
+cleanup model at `files/models/formatter/model.gguf`. The IME records 16-kHz
+PCM into a private temporary WAV, transcribes locally with Whisper, and runs
+the conservative Llama editor before insertion. If either pack is absent or
+fails to load, Vaani falls back to Android's offline recognizer and the
+deterministic formatter. Model output is accepted only when it preserves the
+source words in order.
 
-`VoicePipeline.kt` requests Android's on-device speech recognizer (`EXTRA_PREFER_OFFLINE=true`). Device manufacturers may not provide an offline model; the app reports that condition rather than silently using a network service. The `SttEngine` interface is the seam for a future NDK whisper.cpp/ggml build using the same bounded PCM contract as `vaani-worker`.
+The Home screen also provides **Install Whisper model** and **Install Llama
+cleanup model** actions. They use Android's document picker and copy the
+selected file into Vaani's private `files/models/` directory; no broad storage
+permission is requested. The ADB commands below remain useful for development
+and repeatable test setup.
 
-Cleanup is intentionally conservative and local: whitespace and sentence capitalization only, with raw STT as the fallback. It does not guess content or send transcripts to a cloud endpoint. A future bundled quantized editor can implement a `CleanupEngine` beside `ConservativeCleanup`; model weights are not checked into this repository.
+The onboarding first explains **text-box access** and opens Android's
+Accessibility settings. After approval, the **Enable floating button** action
+opens the overlay permission page. The always-on-top Vaani bubble can then be
+held to dictate from another app while the default keyboard remains active.
+The listening bars are driven by microphone RMS callbacks from the active STT
+session. When the focused node is editable and not a password field, Vaani
+pastes into that node; otherwise it copies the result for a normal paste. If
+the overlay service is started before its grant exists, it exits safely without
+crashing. The IME remains an optional compatibility surface and is never
+required by onboarding.
 
-## V5 handoff status
+For development, model files can be staged without putting them in the APK:
 
-The V5 desktop STT candidate is a user-local CTranslate2 directory, not an
-Android asset:
+```sh
+adb shell run-as org.vaani.keyboard mkdir -p files/models/stt files/models/formatter
+adb push ggml-base.bin /data/local/tmp/ggml-base.bin
+adb push model.gguf /data/local/tmp/model.gguf
+adb shell run-as org.vaani.keyboard cp /data/local/tmp/ggml-base.bin files/models/stt/ggml-base.bin
+adb shell run-as org.vaani.keyboard cp /data/local/tmp/model.gguf files/models/formatter/model.gguf
+```
 
-`~/.local/share/vaani/models/v5-stt-whisper-v5-supervised-200-ct2`
+The packaged engines are `dev.ffmpegkit-maintained:whisper-android:1.0.0`
+and `dev.ffmpegkit-maintained:llama-android:0.1.1`; both are MIT-licensed
+Android bindings around whisper.cpp/llama.cpp. Their free artifacts currently
+ship `arm64-v8a`, so the x86_64 emulator verifies UI, permissions, IME,
+overlay, fallback behavior, and tests; native model inference must be measured
+on an arm64 device or arm64 emulator image.
 
-It is approximately 245 MB (`int8_float16`), measured at 5.492% corpus WER
-and about 516 MiB VRAM during desktop CUDA inference. It has not been bundled
-into this APK and has no Android latency, RAM, battery, or thermal result yet.
-The Android implementation must add a native offline `PcmSttEngine` (for
-example through an ONNX/ggml-compatible export) and benchmark it on a physical
-device before this artifact can replace `OnDeviceSttEngine`.
-
-The Android IME cannot connect to the Linux daemon's Unix socket across OS boundaries. The two clients therefore share the privacy and model contract, not a live desktop socket. No transcript is placed in logs, intents, or command arguments.
-
-## UI/UX implementation status
-
-The approved IME-first V1 redesign is documented in [`docs/ui-ux/PHASE_2_REPORT.md`](docs/ui-ux/PHASE_2_REPORT.md). The app now has a readiness-led Home/Settings shell, verified four-step onboarding, inset-aware system bars, semantic tokens, explicit dictation states, and insertion-failure recovery. The future coexisting overlay remains intentionally unimplemented until its Android integration and privacy contract are approved.
+`src/debug` contains an editor harness for emulator checks. It exposes a safe
+single-line field (direct insertion policy) and a multiline field (clipboard
+fallback policy) without shipping that test surface in release builds. The
+optional overlay uses `AccessibilityBridge` to paste into the current focused
+editable node when Android permits it, then falls back to the clipboard for
+password, multiline, unavailable, or denied targets. `TextDelivery` is the
+shared insert-or-copy boundary and has unit coverage for successful insertion,
+failed insertion fallback, copy-only fields, and empty transcripts.

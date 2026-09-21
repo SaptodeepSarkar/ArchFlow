@@ -1,13 +1,23 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
-    <application android:icon="@drawable/vaani_mark" android:theme="@style/Theme.Vaani" android:label="@string/app_name" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
+    <application android:allowBackup="false" android:label="Vaani" android:icon="@drawable/ic_vaani_launcher" android:roundIcon="@drawable/ic_vaani_launcher" android:theme="@style/Theme.Vaani" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true">
-            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
         </activity>
-        <service android:name=".VaaniKeyboardService" android:label="@string/keyboard_name" android:permission="android.permission.BIND_INPUT_METHOD" android:exported="true">
+        <service android:name=".VaaniImeService" android:exported="true" android:label="Vaani Keyboard" android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter><action android:name="android.view.InputMethod" /></intent-filter>
             <meta-data android:name="android.view.im" android:resource="@xml/method" />
+        </service>
+        <service android:name=".VoiceOverlayService" android:exported="false" />
+        <service android:name=".VaaniAccessibilityService" android:exported="false" android:label="Vaani text-box access" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_service" />
         </service>
     </application>
 </manifest>

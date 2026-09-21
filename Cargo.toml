@@ -4,6 +4,7 @@ members = [
   "crates/vaanid",
   "crates/vaani-cli",
   "crates/vaani-worker",
+  "crates/vaani-desktop",
 ]
 resolver = "2"
 

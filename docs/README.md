@@ -19,7 +19,6 @@ so benchmark notes do not get confused with user-facing setup instructions.
 - [Environment ADR](ADR-001-environment.md) — verified host versions and API
   decisions; do not infer versions from memory.
 - [Performance](performance.md) — measured latency and resource notes.
-- [Bug audit](bug-audit-2026-09-11.md) — historical fixes and remaining limits.
 
 ## Models and experiments
 
@@ -39,3 +38,12 @@ treated as claims about the default runtime.
 Android-specific UX specifications, reports, and benchmark notes live under
 [`../android/docs/`](../android/docs/). The Android client is a separate
 `InputMethodService`; it does not connect to the Linux daemon socket.
+
+## Developer tooling
+
+Graphify keeps a local, AST-derived code map in `graphify-out/`. It refreshes
+on committed changes and branch switches through synchronous Git hooks. Use
+`graphify query "question"`, `graphify path "A" "B"`, or `graphify explain
+"symbol"` to inspect it; run `graphify extract . --code-only --cargo` to
+rebuild from scratch. The generated output is local and intentionally ignored
+by Git.

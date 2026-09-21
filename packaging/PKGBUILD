@@ -28,6 +28,7 @@ package() {
   cd "ArchFlow-$pkgver"
   install -Dm755 target/release/vaanid "$pkgdir/usr/bin/vaanid"
   install -Dm755 target/release/vaani "$pkgdir/usr/bin/vaani"
+  install -Dm755 target/release/vaani-desktop "$pkgdir/usr/bin/vaani-desktop"
   install -Dm755 target/release/vaani-worker "$pkgdir/usr/bin/vaani-worker"
   install -Dm755 crates/vaani-worker/fw-transcribe.py "$pkgdir/usr/bin/fw-transcribe.py"
   install -Dm755 crates/vaani-worker/fw-server.py "$pkgdir/usr/bin/fw-server.py"

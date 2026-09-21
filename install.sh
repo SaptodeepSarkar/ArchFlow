@@ -15,7 +15,7 @@ data_root="${XDG_DATA_HOME:-$HOME/.local/share}"
 bin_root="$HOME/.local/bin"
 cargo build --locked --release --workspace
 mkdir -p "$bin_root" "$config_root/systemd/user" "$config_root/hypr" "$data_root/applications" "$config_root/quickshell/vaani" "$data_root/vaani"
-for binary in vaanid vaani vaani-worker; do
+for binary in vaanid vaani vaani-worker vaani-desktop; do
   install -m755 "target/release/$binary" "$bin_root/$binary"
 done
 install -m755 crates/vaani-worker/fw-transcribe.py "$bin_root/fw-transcribe.py"

@@ -268,8 +268,16 @@ impl Default for Config {
 
 impl Config {
     pub fn config_path() -> PathBuf {
+        #[cfg(windows)]
+        let base = std::env::var("APPDATA")
+            .or_else(|_| std::env::var("LOCALAPPDATA"))
+            .unwrap_or_else(|_| ".".into());
+        #[cfg(not(windows))]
         let base = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
-            format!("{}/.config", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+            format!(
+                "{}/.config",
+                std::env::var("HOME").unwrap_or_else(|_| ".".into())
+            )
         });
         PathBuf::from(base).join("vaani/config.toml")
     }
@@ -311,6 +319,12 @@ impl Config {
             "automatic" | "review" | "copy-only" => {}
             _ => self.insertion.mode = "automatic".into(),
         }
+        self.insertion.app_overrides.retain(|pattern, mode| {
+            !pattern.trim().is_empty()
+                && pattern.len() <= 128
+                && !pattern.contains(['=', '\r', '\n'])
+                && matches!(mode.as_str(), "automatic" | "review" | "copy-only")
+        });
         match self.cleanup.mode.as_str() {
             "raw" | "clean" | "stream" => {}
             _ => self.cleanup.mode = "raw".into(),
@@ -328,12 +342,14 @@ impl Config {
     }
 
     /// Residency policy is authoritative. Economy never keeps an inference
-    /// sidecar alive; Balanced uses the configured TTL; Ready retains it up
-    /// to the configured safety cap.
+    /// sidecar alive; Balanced keeps it warm for at least 60 seconds; Ready
+    /// keeps it warm up to the configured 10-minute safety cap. A non-zero
+    /// configured TTL may shorten neither profile's minimum guarantee.
     pub fn effective_server_idle_secs(&self) -> u64 {
         match self.general.residency_profile.as_str() {
             "economy" => 0,
-            "balanced" | "ready" => self.recognition.server_idle_secs,
+            "balanced" => self.recognition.server_idle_secs.max(60),
+            "ready" => self.recognition.server_idle_secs.max(600),
             _ => 0,
         }
     }
@@ -372,7 +388,7 @@ impl Config {
                 }
                 self.general.auto_stop_secs = n;
                 Ok(n.to_string())
-            },
+            }
             "audio.device_selector" => {
                 if v.len() > 256 {
                     return Err("too long".into());
@@ -409,7 +425,7 @@ impl Config {
                 }
                 self.recognition.server_idle_secs = n;
                 Ok(n.to_string())
-            },
+            }
             "recognition.language" => match v {
                 "en" | "hi" | "bn" => {
                     self.recognition.language = v.into();
@@ -438,6 +454,31 @@ impl Config {
                 }
                 _ => Err("must be automatic|review|copy-only".into()),
             },
+            "insertion.app_override" => {
+                let (pattern, mode) = v
+                    .split_once('=')
+                    .ok_or("must be app pattern=automatic|review|copy-only|none")?;
+                let pattern = pattern.trim();
+                if pattern.is_empty() || pattern.len() > 128 || pattern.contains(['=', '\r', '\n'])
+                {
+                    return Err(
+                        "app pattern must be 1..128 characters without = or newlines".into(),
+                    );
+                }
+                match mode.trim() {
+                    "automatic" | "review" | "copy-only" => {
+                        self.insertion
+                            .app_overrides
+                            .insert(pattern.into(), mode.trim().into());
+                        Ok(format!("{pattern}={}", mode.trim()))
+                    }
+                    "none" => {
+                        self.insertion.app_overrides.remove(pattern);
+                        Ok(format!("{pattern}=none"))
+                    }
+                    _ => Err("must be app pattern=automatic|review|copy-only|none".into()),
+                }
+            }
             "cleanup.mode" => match v {
                 "raw" | "clean" | "stream" => {
                     self.cleanup.mode = v.into();
@@ -484,7 +525,12 @@ impl Config {
                 for term in v.split(',').map(str::trim).filter(|t| !t.is_empty()) {
                     let mut t = term.to_string();
                     t.truncate(80);
-                    if !self.cleanup.vocabulary.iter().any(|e| e.eq_ignore_ascii_case(&t)) {
+                    if !self
+                        .cleanup
+                        .vocabulary
+                        .iter()
+                        .any(|e| e.eq_ignore_ascii_case(&t))
+                    {
                         self.cleanup.vocabulary.push(t);
                     }
                 }
@@ -552,6 +598,19 @@ mod tests {
         assert_eq!(c.cleanup.word_threshold, 0);
         assert_eq!(c.effective_server_idle_secs(), 0);
         assert!(!c.privacy.save_history);
+    }
+
+    #[test]
+    fn residency_profiles_have_explicit_warmth_guarantees() {
+        let mut c = Config::default();
+        c.general.residency_profile = "balanced".into();
+        assert_eq!(c.effective_server_idle_secs(), 60);
+        c.general.residency_profile = "ready".into();
+        assert_eq!(c.effective_server_idle_secs(), 600);
+        c.recognition.server_idle_secs = 120;
+        assert_eq!(c.effective_server_idle_secs(), 600);
+        c.general.residency_profile = "economy".into();
+        assert_eq!(c.effective_server_idle_secs(), 0);
     }
 
     #[test]

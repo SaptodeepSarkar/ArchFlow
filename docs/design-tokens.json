@@ -1,0 +1,22 @@
+{
+  "color": {
+    "brandInk": "#0C1020",
+    "brandCobalt": "#526BFF",
+    "brandCoral": "#FF6B4A",
+    "brandCloud": "#FFF7F1",
+    "brandSky": "#78C7FF",
+    "neutral100": "#F7F8FC",
+    "neutral900": "#171A26",
+    "neutral600": "#72788B",
+    "neutral300": "#D9DDE8"
+  },
+  "spaceDp": { "base": 4, "comfortable": 24, "section": 32, "hero": 40, "action": 56, "display": 72 },
+  "radiusDp": { "field": 12, "button": 14, "appIcon": 22 },
+  "typeSp": { "onboardingTitle": 44, "body": 18, "label": 14 },
+  "motionMs": { "standardMin": 160, "standardMax": 240 },
+  "onboardingArtwork": {
+    "scrimColor": "#0C1020",
+    "artOpacityBehindUi": 0.25,
+    "fallbackColor": "#0C1020"
+  }
+}
