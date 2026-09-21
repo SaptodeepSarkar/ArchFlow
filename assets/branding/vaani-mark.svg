@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Vaani ribbon V mark">
+  <rect width="96" height="96" rx="26" fill="#6B3A85"/>
+  <path d="M22 27 48 70 74 27" fill="none" stroke="#FFFDFC" stroke-linecap="round" stroke-linejoin="round" stroke-width="11"/>
+  <path d="M61 48 74 27" fill="none" stroke="#FFD4A3" stroke-linecap="round" stroke-width="11"/>
+  <circle cx="74" cy="27" r="5.5" fill="#FFD4A3"/>
+</svg>

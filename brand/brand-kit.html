@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#312B35">
+  <title>Vaani Brand Kit</title>
+  <style>
+    :root {
+      --paper: #fdfbf8;
+      --paper-strong: #fffdfb;
+      --ink: #312b35;
+      --ink-soft: #57505c;
+      --muted: #827b87;
+      --line: #e8e2e7;
+      --plum: #6b3a85;
+      --plum-deep: #54296c;
+      --lilac: #e8dcff;
+      --lilac-strong: #d4bbff;
+      --apricot: #ffd4a3;
+      --apricot-wash: #fff0df;
+      --success: #22755e;
+      --radius-control: 16px;
+      --radius-panel: 28px;
+      --outline: 2px solid var(--ink-soft);
+      --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+      --sans: Manrope, "Avenir Next", Avenir, Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+    a { color: inherit; }
+    .shell { width: min(1260px, calc(100% - 48px)); margin: auto; }
+    .topbar { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .brand { display: flex; align-items: center; gap: 11px; font-size: 19px; font-weight: 800; letter-spacing: -.055em; }
+    .brand img { width: 32px; height: 32px; }
+    .topbar nav { display: flex; gap: 19px; color: var(--muted); font-size: 12px; font-weight: 800; }
+    .topbar nav a { text-decoration: none; }
+    .tag { padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--plum-deep); background: #f6f0ff; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+
+    .hero { overflow: hidden; border-radius: 36px; background: var(--ink); color: var(--paper); }
+    .hero-inner { min-height: 520px; position: relative; display: grid; grid-template-columns: 1.08fr .92fr; align-items: center; gap: 32px; padding: 72px; }
+    .hero-inner::after { content: ""; position: absolute; right: -115px; bottom: -210px; width: 560px; height: 560px; border: 70px solid rgba(232,220,255,.19); border-radius: 50%; box-shadow: inset 0 0 0 35px rgba(255,212,163,.22); }
+    .hero-copy, .hero-mark { position: relative; z-index: 1; }
+    .kicker { margin: 0 0 16px; color: var(--apricot); font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 650px; margin-bottom: 20px; font-family: var(--display); font-size: clamp(50px, 6vw, 84px); font-weight: 400; line-height: .95; letter-spacing: -.065em; }
+    .hero-copy > p:last-child { max-width: 510px; color: #d6cedc; font-size: 17px; line-height: 1.55; }
+    .hero-mark { min-height: 280px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.18); border-radius: var(--radius-panel); background: rgba(255,255,255,.05); }
+    .hero-mark img { width: min(190px, 42vw); height: auto; filter: drop-shadow(0 16px 28px rgba(0,0,0,.24)); }
+    .hero-mark span { position: absolute; bottom: 24px; color: #c9c0cf; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+
+    section { padding: 108px 0 0; }
+    .section-title { display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 28px; margin-bottom: 34px; }
+    .index { color: var(--plum); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h2 { margin-bottom: 8px; font-family: var(--display); font-size: clamp(35px, 4vw, 56px); font-weight: 400; line-height: .98; letter-spacing: -.06em; }
+    .lede { max-width: 690px; margin: 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
+    .panel { border: 1px solid var(--line); border-radius: var(--radius-panel); background: var(--paper-strong); }
+    .caption { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+    .logo-grid { display: grid; grid-template-columns: repeat(4, 1fr); overflow: hidden; }
+    .logo-card { min-height: 260px; display: flex; flex-direction: column; justify-content: space-between; padding: 28px; border-right: 1px solid var(--line); }
+    .logo-card:last-child { border-right: 0; }.logo-card.dark { color: var(--paper); background: var(--ink); }.logo-card.lilac { background: var(--lilac); }.logo-card.apricot { background: var(--apricot); }
+    .logo-card img { width: 104px; height: 104px; }.logo-card .word { display: flex; align-items: center; gap: 12px; font-size: 31px; font-weight: 800; letter-spacing: -.075em; }.word img { width: 45px; height: 45px; }
+    .logo-card label { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+
+    .colour-grid { display: grid; grid-template-columns: 1.45fr 1fr 1fr 1fr; gap: 14px; }
+    .swatch { min-height: 210px; display: flex; flex-direction: column; justify-content: end; padding: 18px; border-radius: 20px; }
+    .swatch strong { font-size: 14px; }.swatch span { margin-top: 3px; opacity: .72; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }.swatch.dark { color: var(--paper); background: var(--ink); }.swatch.plum { color: white; background: var(--plum); }.swatch.lilac { background: var(--lilac); }.swatch.apricot { background: var(--apricot); }
+    .colour-note { margin-top: 16px; padding: 19px 22px; color: var(--ink-soft); background: var(--apricot-wash); }
+
+    .type-card { overflow: hidden; display: grid; grid-template-columns: 1.05fr .95fr; }
+    .type-display { padding: 48px; color: var(--paper); background: var(--plum); }.type-display .big { margin: 24px 0 0; font-family: var(--display); font-size: clamp(50px, 6vw, 82px); font-weight: 400; line-height: .91; letter-spacing: -.07em; }.type-display p { max-width: 400px; margin: 20px 0 0; color: #eee5f3; }
+    .type-list { padding: 26px 34px; }.type-row { display: grid; grid-template-columns: 130px 1fr; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }.type-row:last-child { border-bottom: 0; }.type-name { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }.sample { letter-spacing: -.04em; }.sample.display { font-family: var(--display); font-size: 34px; line-height: .9; }.sample.heading { font-size: 25px; font-weight: 800; }.sample.body { font-size: 15px; }.sample.label { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+
+    .button-showcase { display: grid; grid-template-columns: .85fr 1.15fr; gap: 20px; }
+    .button-rules { padding: 30px; background: var(--ink); color: var(--paper); }.button-rules h3 { margin-bottom: 12px; font-family: var(--display); font-size: 30px; font-weight: 400; line-height: 1; }.button-rules p { color: #d3cbd8; }.button-rules ul { padding-left: 18px; color: #d3cbd8; font-size: 13px; line-height: 1.7; }
+    .control-stage { padding: 42px; }.control-stage > * + * { margin-top: 18px; }
+    .action { width: 100%; min-height: 57px; display: inline-flex; align-items: center; justify-content: center; border: var(--outline); border-radius: var(--radius-control); color: var(--ink); background: var(--lilac); box-shadow: 0 2px 0 rgba(49,43,53,.16); font: inherit; font-size: 16px; font-weight: 800; letter-spacing: -.025em; }
+    .action.dark { color: var(--paper); background: var(--ink); border-color: var(--ink); }.action.secondary { background: transparent; border-color: var(--ink-soft); }.action.text { width: auto; min-height: auto; padding: 10px 0; border: 0; border-radius: 0; color: var(--plum-deep); background: transparent; box-shadow: none; font-size: 13px; }
+
+    .choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }.choice-card { padding: 28px; }.choice-card h3 { margin-bottom: 8px; font-size: 17px; letter-spacing: -.04em; }.choice-card > p { margin-bottom: 20px; color: var(--muted); font-size: 13px; }
+    .option { min-height: 66px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border: 2px solid var(--line); border-radius: 18px; font-size: 15px; font-weight: 800; }.option + .option { margin-top: 11px; }.option.selected { border-color: var(--plum); background: #f7f1ff; }.check { width: 19px; height: 19px; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--plum); font-size: 12px; }
+
+    .overlay-grid { display: grid; grid-template-columns: .8fr 1.2fr; gap: 20px; }.overlay-notes { padding: 34px; color: var(--paper); background: var(--plum); }.overlay-notes h3 { margin-bottom: 12px; font-family: var(--display); font-size: 32px; font-weight: 400; line-height: 1; }.overlay-notes p { color: #eee6f2; }.overlay-notes .tiny { margin-top: 24px; color: #dbcee5; font-size: 12px; }
+    .desktop { min-height: 400px; position: relative; overflow: hidden; border-radius: var(--radius-panel); background: #eeecee; }.copy-lines { position: absolute; inset: 48px; }.copy-lines i { display: block; height: 11px; margin-bottom: 18px; border-radius: 8px; background: #fff; }.copy-lines i:nth-child(1) { width: 55%; }.copy-lines i:nth-child(2) { width: 90%; }.copy-lines i:nth-child(3) { width: 74%; }.copy-lines i:nth-child(4) { width: 83%; }.copy-lines i:nth-child(5) { width: 48%; }
+    .voice-box { width: min(440px, calc(100% - 36px)); position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%); display: flex; align-items: center; gap: 13px; padding: 12px; border: 2px solid var(--ink); border-radius: 22px; color: var(--paper); background: var(--ink); box-shadow: 0 15px 34px rgba(49,43,53,.2); }.voice-symbol { width: 44px; height: 44px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 13px; background: var(--lilac); }.voice-symbol svg { width: 25px; height: 25px; stroke: var(--plum-deep); fill: none; stroke-linecap: round; stroke-width: 2.2; }.voice-text { min-width: 0; flex: 1; }.voice-text small { display: block; color: #cfc6d3; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }.voice-text strong { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; }.stop { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 10px; background: #4a424e; }.stop b { width: 10px; height: 10px; border-radius: 2px; background: var(--apricot); }
+
+    .tokens { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }.token { padding: 19px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper-strong); }.token strong { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }.token span { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
+    footer { margin-top: 108px; padding: 32px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }.footer-inner { display: flex; justify-content: space-between; gap: 20px; }
+
+    @media (max-width: 850px) { .topbar nav { display: none; }.hero-inner, .type-card, .button-showcase, .overlay-grid { grid-template-columns: 1fr; }.hero-inner { padding: 48px; }.hero-mark { min-height: 230px; }.logo-grid, .colour-grid, .tokens { grid-template-columns: repeat(2, 1fr); }.logo-card:nth-child(2) { border-right: 0; }.logo-card:nth-child(-n+2) { border-bottom: 1px solid var(--line); }.section-title { grid-template-columns: 1fr; gap: 10px; }.choice-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 540px) { .shell { width: min(100% - 32px, 1260px); }.tag { display: none; }.hero-inner { padding: 40px 26px; }.logo-grid, .colour-grid, .tokens { grid-template-columns: 1fr; }.logo-card { border-right: 0; border-bottom: 1px solid var(--line); }.logo-card:nth-child(2) { border-bottom: 1px solid var(--line); }.type-display, .type-list, .control-stage, .button-rules, .overlay-notes { padding: 27px; }.type-row { grid-template-columns: 1fr; gap: 5px; }.footer-inner { flex-direction: column; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><img src="../assets/branding/vaani-mark.svg" alt="">Vaani</div>
+      <nav><a href="#identity">Identity</a><a href="#colour">Colour</a><a href="#type">Type</a><a href="#controls">Controls</a><a href="#overlay">Voice box</a></nav>
+      <span class="tag">Product direction</span>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-inner"><div class="hero-copy"><p class="kicker">Vaani visual language</p><h1 id="page-title">Writing should feel lighter after you speak.</h1><p>Warm paper surfaces, a confident plum action colour, and clearly bounded controls make Vaani feel composed without feeling distant.</p></div><div class="hero-mark"><img src="../assets/branding/vaani-mark.svg" alt="Vaani ribbon V logo"><span>Ribbon V / app mark</span></div></div>
+      </section>
+
+      <section id="identity"><div class="section-title"><span class="index">01 / Identity</span><div><h2>A soft V, held by structure.</h2><p class="lede">The revised mark keeps the Vaani initial, but expresses it with rounded ribbon strokes and an apricot end point. It stays clear at 24 px and never imitates an audio waveform.</p></div></div>
+        <div class="panel logo-grid"><div class="logo-card dark"><img src="../assets/branding/vaani-mark.svg" alt=""><label>Primary app mark</label></div><div class="logo-card"><div class="word"><img src="../assets/branding/vaani-mark.svg" alt="">Vaani</div><label>Light lockup</label></div><div class="logo-card lilac"><img src="../assets/branding/vaani-mark.svg" alt=""><label>Soft surface</label></div><div class="logo-card apricot"><div class="word"><img src="../assets/branding/vaani-mark.svg" alt="">Vaani</div><label>Editorial support</label></div></div>
+      </section>
+
+      <section id="colour"><div class="section-title"><span class="index">02 / Colour</span><div><h2>Paper, plum, lilac, apricot.</h2><p class="lede">These tones borrow the references’ warmth and clarity while using Vaani’s own names and values. Plum is for progress and intent; lilac is the action fill; apricot introduces a feature or a human moment.</p></div></div>
+        <div class="colour-grid"><div class="swatch dark"><strong>Ink</strong><span>#312B35</span></div><div class="swatch plum"><strong>Plum</strong><span>#6B3A85</span></div><div class="swatch lilac"><strong>Lilac</strong><span>#E8DCFF</span></div><div class="swatch apricot"><strong>Apricot</strong><span>#FFD4A3</span></div></div><div class="panel colour-note"><strong>Colour discipline:</strong> only one lively surface per screen. Lilac actions use a dark outline; plum is never used as a large app background outside intentional moments.</div>
+      </section>
+
+      <section id="type"><div class="section-title"><span class="index">03 / Type</span><div><h2>Editorial warmth, product clarity.</h2><p class="lede">A restrained serif is reserved for onboarding and feature moments. Manrope remains the operational typeface for settings, navigation, and the voice overlay.</p></div></div>
+        <div class="panel type-card"><div class="type-display"><p class="kicker">Display / editorial only</p><div class="big">Say it.<br>Keep moving.</div><p>Display type appears once in a composition. Never combine it with visual noise.</p></div><div class="type-list"><div class="type-row"><span class="type-name">Editorial / 52–72</span><span class="sample display">A clear thought</span></div><div class="type-row"><span class="type-name">Heading / 28–36</span><span class="sample heading">One clear next step</span></div><div class="type-row"><span class="type-name">Body / 16–18</span><span class="sample body">Explain privacy and permission trade-offs without jargon.</span></div><div class="type-row"><span class="type-name">Label / 11–13</span><span class="sample label">Private by default</span></div></div></div>
+      </section>
+
+      <section id="controls"><div class="section-title"><span class="index">04 / Actions</span><div><h2>Broad, bounded, unmistakable.</h2><p class="lede">Full-width buttons are reserved for the decision that advances the flow. Their plum outline and lilac fill are tactile and recognisable, but the Vaani corner radius and typography remain distinct.</p></div></div>
+        <div class="button-showcase"><div class="panel button-rules"><h3>One decision per screen.</h3><p>Utility screens can have quiet actions. Onboarding and permission screens have one primary action anchored to the bottom.</p><ul><li>Primary: lilac fill + 2 px ink outline.</li><li>Secondary: paper fill + outline.</li><li>Destructive and unsafe states never use lilac.</li></ul></div><div class="panel control-stage"><button class="action">Continue setup</button><button class="action secondary">Not now</button><button class="action dark">Start dictation</button><button class="action text">Learn how Vaani protects text</button></div></div>
+      </section>
+
+      <section><div class="section-title"><span class="index">05 / Selection</span><div><h2>Options are calm, not card-heavy.</h2><p class="lede">Use tall, outlined rows for simple choices. Their selected state is a quiet lilac wash, not a dashboard card treatment.</p></div></div>
+        <div class="choice-grid"><article class="panel choice-card"><h3>Writing language</h3><p>Choose before recording. It can be changed later in Recognition settings.</p><div class="option selected">English <span class="check">✓</span></div><div class="option">Hindi</div><div class="option">Bengali</div></article><article class="panel choice-card"><h3>Keep Vaani ready?</h3><p>Make the memory trade-off directly visible, rather than hiding it in technical settings.</p><div class="option selected">Unload after each dictation <span class="check">✓</span></div><div class="option">Keep ready for one minute</div><div class="option">Keep model loaded</div></article></div>
+      </section>
+
+      <section id="overlay"><div class="section-title"><span class="index">06 / Voice box</span><div><h2>The voice box is dark, brief, and factual.</h2><p class="lede">It borrows the reference screens’ strong contrast and soft corner language, while retaining Vaani’s compact non-focus-stealing overlay contract.</p></div></div>
+        <div class="overlay-grid"><div class="panel overlay-notes"><p class="kicker">Active dictation</p><h3>One compact state surface.</h3><p>Real microphone movement belongs inside the box. Preview text remains optional, and error states explain exactly what happened.</p><p class="tiny">Do not turn this into a chat composer, permanent bubble, or brand illustration.</p></div><div class="desktop"><div class="copy-lines"><i></i><i></i><i></i><i></i><i></i></div><div class="voice-box"><div class="voice-symbol"><svg viewBox="0 0 24 24"><path d="M4 13v-2M8 17V7M12 20V4M16 17V7M20 13v-2"/></svg></div><div class="voice-text"><small>Listening</small><strong>Speak naturally…</strong></div><span class="stop" aria-label="Stop recording"><b></b></span></div></div></div>
+      </section>
+
+      <section><div class="section-title"><span class="index">07 / Tokens</span><div><h2>Names to carry into code.</h2><p class="lede">Use these exact names in the eventual Compose, QML, and React implementations; platform-specific scale can follow each system’s accessibility rules.</p></div></div>
+        <div class="tokens"><div class="token"><strong>color.brand.plum</strong><span>#6B3A85 · intent, progress</span></div><div class="token"><strong>color.action.lilac</strong><span>#E8DCFF · primary CTA fill</span></div><div class="token"><strong>radius.action</strong><span>16 dp · outlined CTA</span></div><div class="token"><strong>stroke.control</strong><span>2 dp · high-clarity boundary</span></div></div>
+      </section>
+    </main>
+
+    <footer><div class="footer-inner"><span>Vaani Brand Kit · Original product direction.</span><a href="../assets/branding/vaani-mark.svg">Open the source mark</a></div></footer>
+  </div>
+</body>
+</html>
