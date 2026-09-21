@@ -40,9 +40,12 @@ The onboarding first explains **text-box access** and opens Android's
 Accessibility settings. After approval, the **Enable floating button** action
 opens the overlay permission page. The always-on-top Vaani bubble can then be
 held to dictate from another app while the default keyboard remains active.
-When the focused node is editable and not a password field, Vaani pastes into
-that node; otherwise it copies the result for a normal paste. The IME remains
-an optional compatibility surface and is never required by onboarding.
+The listening bars are driven by microphone RMS callbacks from the active STT
+session. When the focused node is editable and not a password field, Vaani
+pastes into that node; otherwise it copies the result for a normal paste. If
+the overlay service is started before its grant exists, it exits safely without
+crashing. The IME remains an optional compatibility surface and is never
+required by onboarding.
 
 For development, model files can be staged without putting them in the APK:
 
@@ -64,7 +67,8 @@ on an arm64 device or arm64 emulator image.
 `src/debug` contains an editor harness for emulator checks. It exposes a safe
 single-line field (direct insertion policy) and a multiline field (clipboard
 fallback policy) without shipping that test surface in release builds. The
-optional overlay copies dictated output instead of pretending it can inspect or
-inject into another app's focused field. `TextDelivery` is the shared
-insert-or-copy boundary and has unit coverage for successful insertion, failed
-insertion fallback, copy-only fields, and empty transcripts.
+optional overlay uses `AccessibilityBridge` to paste into the current focused
+editable node when Android permits it, then falls back to the clipboard for
+password, multiline, unavailable, or denied targets. `TextDelivery` is the
+shared insert-or-copy boundary and has unit coverage for successful insertion,
+failed insertion fallback, copy-only fields, and empty transcripts.

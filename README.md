@@ -112,7 +112,9 @@ cd android
 ```
 
 The Android unit suite covers model-output guarding, field detection, and the
-insert-or-copy delivery boundary. The API 36 instrumented suite covers the
-product onboarding flow and private model-pack import; the debug editor harness
-provides a repeatable ADB surface for manually checking real IME insertion and
-clipboard fallback.
+insert-or-copy delivery boundary. The API 35 instrumented suite covers the
+product onboarding flow, keyboard handoff demo, and private model-pack import;
+the debug editor harness provides a repeatable ADB surface for manually
+checking Accessibility paste and clipboard fallback. The overlay listening
+visualizer follows live RMS callbacks and safely no-ops when its Android
+permission has not been granted.
