@@ -16,12 +16,12 @@ class MainActivityTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
     @Test fun onboarding_introduces_product_before_setup() {
-        rule.onNodeWithText("4× faster\nthan typing").assertIsDisplayed()
-        rule.onNodeWithText("Meet Vaani").assertIsDisplayed().performClick()
-        rule.onNodeWithText("100+\nlanguages").assertIsDisplayed()
-        rule.onNodeWithText("Keep going").assertIsDisplayed().performClick()
-        rule.onNodeWithText("Works in\nany app").assertIsDisplayed()
-        rule.onNodeWithText("Keep going").assertIsDisplayed().performClick()
+        rule.onNodeWithText("The thought.\nWritten.").assertIsDisplayed()
+        rule.onNodeWithText("Get started").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Your voice,\nyour language.").assertIsDisplayed()
+        rule.onNodeWithText("Next").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Wherever you\nwrite.").assertIsDisplayed()
+        rule.onNodeWithText("Next").assertIsDisplayed().performClick()
         rule.onNodeWithText("Your settings,\nwhen you need them.").assertIsDisplayed()
     }
 
@@ -35,9 +35,9 @@ class MainActivityTest {
     }
 
     @Test fun post_login_demo_keeps_the_keyboard_and_shows_the_bubble() {
-        rule.onNodeWithText("Meet Vaani").assertIsDisplayed().performClick()
-        rule.onNodeWithText("Keep going").assertIsDisplayed().performClick()
-        rule.onNodeWithText("Keep going").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Get started").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Next").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Next").assertIsDisplayed().performClick()
         rule.onNodeWithText("Skip for now").assertIsDisplayed().performClick()
         rule.onNodeWithText("A LITTLE DEMO").assertIsDisplayed()
         rule.onNodeWithText("Vaani demo").assertIsDisplayed()
