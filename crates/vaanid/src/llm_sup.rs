@@ -77,17 +77,30 @@ fn llm_paths(cfg: &Config) -> (String, String) {
     let model_dir = if cfg.cleanup.model_path.is_empty() {
         let data_dir = std::env::var_os("XDG_DATA_HOME")
             .map(std::path::PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share")))
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share"))
+            })
             .map(|p| p.join("vaani").join("cleanup").join("base-model"));
-        data_dir.filter(|p| p.exists())
-            .or_else(|| std::env::current_exe()
-            .ok()
-            .and_then(|p| {
-                p.parent()
-                    .map(|d| d.join("..").join("output").join("base-model").to_string_lossy().into_owned())
-            }).map(std::path::PathBuf::from).filter(|p| p.exists()))
+        data_dir
+            .filter(|p| p.exists())
+            .or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|p| {
+                        p.parent().map(|d| {
+                            d.join("..")
+                                .join("output")
+                                .join("base-model")
+                                .to_string_lossy()
+                                .into_owned()
+                        })
+                    })
+                    .map(std::path::PathBuf::from)
+                    .filter(|p| p.exists())
+            })
             .unwrap_or_default()
-            .to_string_lossy().into_owned()
+            .to_string_lossy()
+            .into_owned()
     } else {
         cfg.cleanup.model_path.clone()
     };
@@ -95,10 +108,18 @@ fn llm_paths(cfg: &Config) -> (String, String) {
         cfg.cleanup.adapter_path.clone()
     } else if let Ok(data) = std::env::var("XDG_DATA_HOME") {
         let p = std::path::Path::new(&data).join("vaani/cleanup/llm-v1");
-        if p.exists() { p.to_string_lossy().into_owned() } else { String::new() }
+        if p.exists() {
+            p.to_string_lossy().into_owned()
+        } else {
+            String::new()
+        }
     } else if let Ok(home) = std::env::var("HOME") {
         let p = std::path::Path::new(&home).join(".local/share/vaani/cleanup/llm-v1");
-        if p.exists() { p.to_string_lossy().into_owned() } else { String::new() }
+        if p.exists() {
+            p.to_string_lossy().into_owned()
+        } else {
+            String::new()
+        }
     } else if !cfg.cleanup.model_path.is_empty() {
         format!("{}/../dpo-sft", cfg.cleanup.model_path)
     } else {
@@ -114,11 +135,9 @@ fn llm_ensure_locked(
     threshold: usize,
 ) -> anyhow::Result<()> {
     let alive = match slot.as_mut() {
-        Some(srv) if srv.model_dir == model_dir && srv.adapter_dir == adapter_dir => srv
-            .child
-            .try_wait()
-            .map(|s| s.is_none())
-            .unwrap_or(false),
+        Some(srv) if srv.model_dir == model_dir && srv.adapter_dir == adapter_dir => {
+            srv.child.try_wait().map(|s| s.is_none()).unwrap_or(false)
+        }
         _ => false,
     };
     if alive {
@@ -137,8 +156,14 @@ fn llm_ensure_locked(
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| anyhow::anyhow!("llm-server spawn failed: {e}"))?;
-    let writer = child.stdin.take().ok_or_else(|| anyhow::anyhow!("llm-server stdin"))?;
-    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("llm-server stdout"))?;
+    let writer = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("llm-server stdin"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("llm-server stdout"))?;
     let mut reader = BufReader::new(stdout);
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -200,15 +225,20 @@ fn llm_server_cleanup(text: &str, cfg: &Config) -> anyhow::Result<String> {
     }
     let id = LLM_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut slot = llm_slot().lock().unwrap_or_else(|e| e.into_inner());
-    llm_ensure_locked(&mut slot, &model_dir, &adapter_dir, cfg.cleanup.word_threshold)?;
+    llm_ensure_locked(
+        &mut slot,
+        &model_dir,
+        &adapter_dir,
+        cfg.cleanup.word_threshold,
+    )?;
     let job = serde_json::json!({"id": id, "text": text}).to_string() + "\n";
     if let Some(srv) = slot.as_mut() {
         srv.writer.write_all(job.as_bytes())?;
         srv.writer.flush()?;
     }
     let line = llm_read_locked(&mut slot, 120)?;
-    let v: serde_json::Value = serde_json::from_str(&line)
-        .map_err(|e| anyhow::anyhow!("llm-server bad reply: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&line).map_err(|e| anyhow::anyhow!("llm-server bad reply: {e}"))?;
     if v.get("id").and_then(|i| i.as_u64()) != Some(id) {
         llm_kill_locked(&mut slot);
         anyhow::bail!("llm-server id mismatch");
@@ -216,13 +246,17 @@ fn llm_server_cleanup(text: &str, cfg: &Config) -> anyhow::Result<String> {
     if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
         anyhow::bail!("llm-server error: {err}");
     }
-    Ok(v.get("text").and_then(|t| t.as_str()).unwrap_or(text).to_string())
+    Ok(v.get("text")
+        .and_then(|t| t.as_str())
+        .unwrap_or(text)
+        .to_string())
 }
 
 /// One-shot fallback: single `vaani_inject.py` call (cold load each time).
 fn llm_oneshot(text: &str, cfg: &Config) -> String {
     let python_path = if cfg.cleanup.python_path.is_empty() {
-        std::env::current_exe().ok()
+        std::env::current_exe()
+            .ok()
             .and_then(|p| p.parent().map(|d| d.join("vaani_inject.py")))
     } else {
         Some(std::path::PathBuf::from(&cfg.cleanup.python_path))
@@ -236,9 +270,12 @@ fn llm_oneshot(text: &str, cfg: &Config) -> String {
     };
     let mut child = match std::process::Command::new("python3")
         .arg(&python)
-        .arg("--adapter").arg(&adapter_dir)
-        .arg("--threshold").arg(threshold.to_string())
-        .arg("--model-dir").arg(&model_dir)
+        .arg("--adapter")
+        .arg(&adapter_dir)
+        .arg("--threshold")
+        .arg(threshold.to_string())
+        .arg("--model-dir")
+        .arg(&model_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -259,7 +296,11 @@ fn llm_oneshot(text: &str, cfg: &Config) -> String {
     match child.wait_with_output() {
         Ok(out) => {
             let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !s.is_empty() { s } else { text_llm }
+            if !s.is_empty() {
+                s
+            } else {
+                text_llm
+            }
         }
         Err(_) => text_llm,
     }
@@ -276,7 +317,10 @@ pub fn prefill(cfg: &Config) -> anyhow::Result<()> {
         anyhow::bail!("no cleanup model dir");
     }
     let threshold = cfg.cleanup.word_threshold;
-    let mut slot = LLM_SERVER.get_or_init(|| std::sync::Mutex::new(None)).lock().unwrap_or_else(|e| e.into_inner());
+    let mut slot = LLM_SERVER
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     llm_ensure_locked(&mut slot, &model_dir, &adapter_dir, threshold)?;
     Ok(())
 }

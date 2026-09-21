@@ -27,7 +27,9 @@ pub fn active_target() -> FocusTarget {
         .arg("activewindow")
         .arg("-j")
         .output();
-    let Ok(out) = out else { return FocusTarget::default() };
+    let Ok(out) = out else {
+        return FocusTarget::default();
+    };
     if !out.status.success() {
         return FocusTarget::default();
     }
@@ -61,7 +63,16 @@ pub fn recheck_target(start: &FocusTarget) -> Result<FocusTarget, String> {
 /// execute commands even without synthetic Enter).
 pub fn is_terminal(app_id: &str) -> bool {
     let l = app_id.to_lowercase();
-    ["foot", "kitty", "alacritty", "wezterm", "gnome-terminal", "konsole", "xterm", "ghostty"]
-        .iter()
-        .any(|t| l.contains(t))
+    [
+        "foot",
+        "kitty",
+        "alacritty",
+        "wezterm",
+        "gnome-terminal",
+        "konsole",
+        "xterm",
+        "ghostty",
+    ]
+    .iter()
+    .any(|t| l.contains(t))
 }

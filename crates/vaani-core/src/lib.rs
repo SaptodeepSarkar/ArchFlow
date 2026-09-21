@@ -2,10 +2,14 @@
 //! No audio I/O, no model loading, no QML here.
 
 pub mod config;
+pub mod engine;
+pub mod model;
+pub mod personalization;
 pub mod protocol;
 pub mod reconcile;
 pub mod segment;
 pub mod state;
+pub mod sync;
 pub mod transcript;
 pub mod vad;
 

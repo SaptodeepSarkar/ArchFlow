@@ -10,12 +10,13 @@ use crate::focus::FocusTarget;
 use crate::{cleanup, clipboard, focus, inserter, llm_sup, paths, worker_sup};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, Mutex};
 use vaani_core::config::Config;
 use vaani_core::protocol::{Event, Request, RequestKind, Response};
 use vaani_core::state::{Session, State};
+use vaani_core::sync::StorageProvider;
 
 #[derive(Clone)]
 struct Pending {
@@ -25,6 +26,7 @@ struct Pending {
 
 struct Shared {
     cfg: Config,
+    personalization: vaani_core::personalization::PersonalizationSnapshot,
     session: Session,
     seq: u64,
     capture: Option<CaptureHandle>,
@@ -92,30 +94,52 @@ pub async fn run() -> anyhow::Result<()> {
     tracing::info!(sock = %sock.display(), "listening");
 
     let (tx, _rx) = broadcast::channel::<Event>(256);
-let shared = Arc::new(Mutex::new(Shared {
-         cfg: Config::load(),
-         session: Session::new(0),
-         seq: 0,
-         capture: None,
-         audio: Vec::new(),
-         amplitude: 0.0,
-         pending: None,
-         pending_audio: Vec::new(),
-         target: FocusTarget::default(),
-         ui_level: Vec::new(),
-         last_lat: Latencies::default(),
-         residency_warm_until: None,
-         no_auto: None,
-         live: false,
-         committed: String::new(),
-         live_transcript: String::new(),
-         live_audio_cursor: 0,
-         target_lost: false,
-         session_started_at: None,
-         last_activation: None,
-         overlay: None,
-         insertion_allowed: true,
-     }));
+    let mut cfg = Config::load();
+    let mut personalization = vaani_core::personalization::PersonalizationSnapshot::default();
+    if let Ok(store) = vaani_core::sync::JsonlStorage::open(paths::personalization_path(), "linux")
+    {
+        if let Ok(snapshot) = store.personalization() {
+            personalization = snapshot;
+            for term in personalization.vocabulary.iter().flat_map(|entry| {
+                std::iter::once(entry.canonical.as_str())
+                    .chain(entry.spoken_aliases.iter().map(String::as_str))
+            }) {
+                if !cfg
+                    .cleanup
+                    .vocabulary
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(&term))
+                {
+                    cfg.cleanup.vocabulary.push(term.to_string());
+                }
+            }
+        }
+    }
+    let shared = Arc::new(Mutex::new(Shared {
+        cfg,
+        personalization,
+        session: Session::new(0),
+        seq: 0,
+        capture: None,
+        audio: Vec::new(),
+        amplitude: 0.0,
+        pending: None,
+        pending_audio: Vec::new(),
+        target: FocusTarget::default(),
+        ui_level: Vec::new(),
+        last_lat: Latencies::default(),
+        residency_warm_until: None,
+        no_auto: None,
+        live: false,
+        committed: String::new(),
+        live_transcript: String::new(),
+        live_audio_cursor: 0,
+        target_lost: false,
+        session_started_at: None,
+        last_activation: None,
+        overlay: None,
+        insertion_allowed: true,
+    }));
 
     // Session-lock/suspend guard: on lock, cancel capture + forbid insertion.
     {
@@ -148,15 +172,18 @@ let shared = Arc::new(Mutex::new(Shared {
                 if let Some(p) = &g.pending {
                     if p.at.elapsed().as_secs() > g.cfg.insertion.pending_expiry_secs {
                         g.pending = None;
-                        emit(&expiry_tx, &Event {
-                            protocol_version: vaani_core::PROTOCOL_VERSION,
-                            event: "pending_expired".into(),
-                            session_id: None,
-                            state: Some("IDLE".into()),
-                            amplitude: None,
-                            message: Some("pending text expired".into()),
-                            data: None,
-                        });
+                        emit(
+                            &expiry_tx,
+                            &Event {
+                                protocol_version: vaani_core::PROTOCOL_VERSION,
+                                event: "pending_expired".into(),
+                                session_id: None,
+                                state: Some("IDLE".into()),
+                                amplitude: None,
+                                message: Some("pending text expired".into()),
+                                data: None,
+                            },
+                        );
                     }
                 }
             }
@@ -216,9 +243,7 @@ async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadca
     };
     {
         let mut g = w.lock().await;
-        let _ = g
-            .write_all(format!("{snap}\n").as_bytes())
-            .await;
+        let _ = g.write_all(format!("{snap}\n").as_bytes()).await;
     }
 
     // Event forwarder: state/amplitude/provisional events reach subscribers
@@ -266,8 +291,13 @@ async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadca
             Ok(0) | Err(_) => break,
             Ok(_) => {}
         }
-        if bytes.len() > vaani_core::MAX_CONTROL_BYTES { break; }
-        let line = match String::from_utf8(bytes) { Ok(line) => line, Err(_) => break };
+        if bytes.len() > vaani_core::MAX_CONTROL_BYTES {
+            break;
+        }
+        let line = match String::from_utf8(bytes) {
+            Ok(line) => line,
+            Err(_) => break,
+        };
         if line.trim().is_empty() {
             continue;
         }
@@ -284,7 +314,9 @@ async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadca
                     data: None,
                 };
                 let mut g = w.lock().await;
-                let _ = g.write_all(format!("{}\n", serde_json::to_string(&resp).unwrap()).as_bytes()).await;
+                let _ = g
+                    .write_all(format!("{}\n", serde_json::to_string(&resp).unwrap()).as_bytes())
+                    .await;
                 continue;
             }
         };
@@ -295,8 +327,7 @@ async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadca
             resp.request_id = rid;
         }
         let mut g = w.lock().await;
-        if g
-            .write_all(format!("{}\n", serde_json::to_string(&resp).unwrap()).as_bytes())
+        if g.write_all(format!("{}\n", serde_json::to_string(&resp).unwrap()).as_bytes())
             .await
             .is_err()
         {
@@ -306,7 +337,12 @@ async fn handle_conn(stream: UnixStream, shared: Arc<Mutex<Shared>>, tx: broadca
     fwd.abort();
 }
 
-fn resp_ok(rid: &str, sess: &Session, msg: Option<String>, data: Option<serde_json::Value>) -> Response {
+fn resp_ok(
+    rid: &str,
+    sess: &Session,
+    msg: Option<String>,
+    data: Option<serde_json::Value>,
+) -> Response {
     Response {
         protocol_version: vaani_core::PROTOCOL_VERSION,
         request_id: rid.into(),
@@ -340,14 +376,21 @@ async fn take_activation(shared: &Arc<Mutex<Shared>>) -> bool {
     true
 }
 
-async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>) -> Response {
+async fn dispatch(
+    req: Request,
+    shared: Arc<Mutex<Shared>>,
+    tx: broadcast::Sender<Event>,
+) -> Response {
     let rid = req.request_id.clone();
     tracing::info!(op = ?req.kind, rid = %rid, "ipc request");
     match req.kind {
         RequestKind::Toggle => {
             let busy = {
                 let g = shared.lock().await;
-                !matches!(g.session.state, State::Idle | State::Ready | State::Cancelled | State::Error)
+                !matches!(
+                    g.session.state,
+                    State::Idle | State::Ready | State::Cancelled | State::Error
+                )
             };
             if busy {
                 stop_flow(shared.clone(), &tx, false).await
@@ -378,12 +421,20 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
                 // appearing, so this is mashing, not intent. Keep recording.
                 let g = shared.lock().await;
                 resp_ok(&rid, &g.session, Some("ignoring key repeat".into()), None)
-            } else if matches!(state, State::Transcribing | State::Cleaning | State::Inserting) {
+            } else if matches!(
+                state,
+                State::Transcribing | State::Cleaning | State::Inserting
+            ) {
                 // Finishing stages: capture is already closed, so there is
                 // nothing to discard — and a habitual stop-press must never
                 // kill the transcript it just recorded. Report and keep going.
                 let g = shared.lock().await;
-                resp_ok(&rid, &g.session, Some("finishing transcription…".into()), None)
+                resp_ok(
+                    &rid,
+                    &g.session,
+                    Some("finishing transcription…".into()),
+                    None,
+                )
             } else if !take_activation(&shared).await {
                 let g = shared.lock().await;
                 resp_ok(&rid, &g.session, Some("ignoring key repeat".into()), None)
@@ -394,7 +445,10 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
         RequestKind::Start => {
             let busy = {
                 let g = shared.lock().await;
-                !matches!(g.session.state, State::Idle | State::Ready | State::Cancelled | State::Error)
+                !matches!(
+                    g.session.state,
+                    State::Idle | State::Ready | State::Cancelled | State::Error
+                )
             };
             if busy {
                 let g = shared.lock().await;
@@ -404,7 +458,9 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
                     session_id: Some(g.session.id.clone()),
                     ok: false,
                     state: Some(format!("{:?}", g.session.state).to_uppercase()),
-                    message: Some("busy: already recording/transcribing; stop or cancel first".into()),
+                    message: Some(
+                        "busy: already recording/transcribing; stop or cancel first".into(),
+                    ),
                     data: None,
                 };
             }
@@ -418,11 +474,16 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
         RequestKind::Cancel => cancel_flow(shared.clone(), &tx, &rid).await,
         RequestKind::Status => {
             let g = shared.lock().await;
-            resp_ok(&rid, &g.session, None, Some(serde_json::json!({
-                "pending": g.pending.is_some(),
-                "amplitude": g.amplitude,
-                "latencies": g.last_lat,
-            })))
+            resp_ok(
+                &rid,
+                &g.session,
+                None,
+                Some(serde_json::json!({
+                    "pending": g.pending.is_some(),
+                    "amplitude": g.amplitude,
+                    "latencies": g.last_lat,
+                })),
+            )
         }
         RequestKind::Subscribe => {
             // Subscription is implicit: UI holds the connection and reads
@@ -430,7 +491,12 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
             // snapshot + state responses suffice; amplitude streams as events
             // on this same connection below.
             let g = shared.lock().await;
-            resp_ok(&rid, &g.session, Some("subscribed; snapshot first".into()), None)
+            resp_ok(
+                &rid,
+                &g.session,
+                Some("subscribed; snapshot first".into()),
+                None,
+            )
         }
         RequestKind::Settings => {
             // Launch Quickshell settings on demand (separate app-owned config).
@@ -473,20 +539,37 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
                     }
                     Err(e) => {
                         let g = shared.lock().await;
-                        Response { ok: false, message: Some(format!("copy failed: {e}")), ..resp_ok(&rid, &g.session, None, None) }
+                        Response {
+                            ok: false,
+                            message: Some(format!("copy failed: {e}")),
+                            ..resp_ok(&rid, &g.session, None, None)
+                        }
                     }
                 },
                 None => {
                     let g = shared.lock().await;
-                    Response { ok: false, message: Some("no pending text".into()), ..resp_ok(&rid, &g.session, None, None) }
+                    Response {
+                        ok: false,
+                        message: Some("no pending text".into()),
+                        ..resp_ok(&rid, &g.session, None, None)
+                    }
                 }
             }
         }
         RequestKind::RecoverPending => {
             let g = shared.lock().await;
             match &g.pending {
-                Some(p) => resp_ok(&rid, &g.session, None, Some(serde_json::json!({"text": p.text}))),
-                None => Response { ok: false, message: Some("no pending text".into()), ..resp_ok(&rid, &g.session, None, None) },
+                Some(p) => resp_ok(
+                    &rid,
+                    &g.session,
+                    None,
+                    Some(serde_json::json!({"text": p.text})),
+                ),
+                None => Response {
+                    ok: false,
+                    message: Some("no pending text".into()),
+                    ..resp_ok(&rid, &g.session, None, None)
+                },
             }
         }
         RequestKind::DiscardPending => {
@@ -503,25 +586,72 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
         RequestKind::ConfigSet { key, value } => {
             if key.len() > 64 || value.len() > 512 {
                 let g = shared.lock().await;
-                return Response { ok: false, message: Some("key/value too large".into()), ..resp_ok(&rid, &g.session, None, None) };
+                return Response {
+                    ok: false,
+                    message: Some("key/value too large".into()),
+                    ..resp_ok(&rid, &g.session, None, None)
+                };
             }
             let mut g = shared.lock().await;
+            let previous = g.cfg.clone();
             match g.cfg.set_key(&key, &value) {
-                Ok(canonical) => match g.cfg.save() {
-                    Ok(()) => resp_ok(&rid, &g.session, Some("saved".into()), Some(serde_json::json!({"key": key, "value": canonical}))),
-                    Err(e) => Response { ok: false, message: Some(format!("save failed: {e}")), ..resp_ok(&rid, &g.session, None, None) },
+                Ok(canonical) => {
+                    let selected_model = match key.as_str() {
+                        "recognition.model" => Some(g.cfg.recognition.model.as_str()),
+                        "recognition.live_model" => Some(g.cfg.recognition.live_model.as_str()),
+                        _ => None,
+                    };
+                    if let Some(model) = selected_model {
+                        if let Err(error) = worker_sup::validate_model_selection(model) {
+                            g.cfg = previous;
+                            return Response {
+                                ok: false,
+                                message: Some(format!("model activation rejected: {error}")),
+                                ..resp_ok(&rid, &g.session, None, None)
+                            };
+                        }
+                    }
+                    match g.cfg.save() {
+                        Ok(()) => resp_ok(
+                            &rid,
+                            &g.session,
+                            Some("saved".into()),
+                            Some(serde_json::json!({"key": key, "value": canonical})),
+                        ),
+                        Err(e) => {
+                            g.cfg = previous;
+                            Response {
+                                ok: false,
+                                message: Some(format!("save failed: {e}")),
+                                ..resp_ok(&rid, &g.session, None, None)
+                            }
+                        }
+                    }
+                }
+                Err(e) => Response {
+                    ok: false,
+                    message: Some(e),
+                    ..resp_ok(&rid, &g.session, None, None)
                 },
-                Err(e) => Response { ok: false, message: Some(e), ..resp_ok(&rid, &g.session, None, None) },
             }
         }
         RequestKind::MicTest { secs } => match crate::capture::mic_test(secs) {
             Ok((peak, rms)) => {
                 let g = shared.lock().await;
-                resp_ok(&rid, &g.session, None, Some(serde_json::json!({"peak": peak, "rms": rms})))
+                resp_ok(
+                    &rid,
+                    &g.session,
+                    None,
+                    Some(serde_json::json!({"peak": peak, "rms": rms})),
+                )
             }
             Err(e) => {
                 let g = shared.lock().await;
-                Response { ok: false, message: Some(format!("mic test failed: {e}")), ..resp_ok(&rid, &g.session, None, None) }
+                Response {
+                    ok: false,
+                    message: Some(format!("mic test failed: {e}")),
+                    ..resp_ok(&rid, &g.session, None, None)
+                }
             }
         },
         RequestKind::Inject => {
@@ -531,7 +661,12 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
                     Some(p) => (p.text.clone(), g.cfg.clone()),
                     None => {
                         let s = g.session.clone();
-                        return Response { ok: false, message: Some("no pending text — finish a session first".into()), session_id: Some(s.id.clone()), ..resp_ok(&rid, &s, None, None) };
+                        return Response {
+                            ok: false,
+                            message: Some("no pending text — finish a session first".into()),
+                            session_id: Some(s.id.clone()),
+                            ..resp_ok(&rid, &s, None, None)
+                        };
                     }
                 }
             };
@@ -546,28 +681,48 @@ async fn dispatch(req: Request, shared: Arc<Mutex<Shared>>, tx: broadcast::Sende
             let cleaned_for_inject = cleaned.clone();
             let res = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
                 crate::inserter::inject_stream(&cleaned_for_inject)
-            }).await;
+            })
+            .await;
             let mut g = shared.lock().await;
             match res {
                 Ok(Ok(())) => {
                     let s = g.session.clone();
                     g.pending = None;
-                    resp_ok(&rid, &s, Some("injected via keyboard".into()), Some(serde_json::json!({"text": cleaned, "words": word_count, "threshold": threshold})))
+                    resp_ok(
+                        &rid,
+                        &s,
+                        Some("injected via keyboard".into()),
+                        Some(
+                            serde_json::json!({"text": cleaned, "words": word_count, "threshold": threshold}),
+                        ),
+                    )
                 }
                 _ => {
                     let s = g.session.clone();
-                    resp_ok(&rid, &s, Some("injection failed — text on clipboard".into()), Some(serde_json::json!({"text": cleaned, "words": word_count})))
+                    resp_ok(
+                        &rid,
+                        &s,
+                        Some("injection failed — text on clipboard".into()),
+                        Some(serde_json::json!({"text": cleaned, "words": word_count})),
+                    )
                 }
             }
         }
     }
 }
 
-async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, live: bool) -> Response {
+async fn start_flow(
+    shared: Arc<Mutex<Shared>>,
+    tx: &broadcast::Sender<Event>,
+    live: bool,
+) -> Response {
     // Reject new recording while busy (no silent queueing).
     {
         let mut g = shared.lock().await;
-        if !matches!(g.session.state, State::Idle | State::Ready | State::Cancelled | State::Error) {
+        if !matches!(
+            g.session.state,
+            State::Idle | State::Ready | State::Cancelled | State::Error
+        ) {
             let s = g.session.clone();
             return Response {
                 protocol_version: vaani_core::PROTOCOL_VERSION,
@@ -593,7 +748,10 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
         g.target_lost = false;
         g.no_auto = None;
         g.session_started_at = None;
-        emit(tx, &ev_state(Some(sid), State::Starting, Some("Starting microphone…")));
+        emit(
+            tx,
+            &ev_state(Some(sid), State::Starting, Some("Starting microphone…")),
+        );
         // On-demand overlay UI (separate app-owned Quickshell config).
         // Store the child so stop_flow can kill it after streaming.
         let mut child = std::process::Command::new("quickshell")
@@ -644,7 +802,10 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
                 }
                 None => "Listening",
             };
-            emit(tx, &ev_state(Some(sid.clone()), State::Recording, Some(msg)));
+            emit(
+                tx,
+                &ev_state(Some(sid.clone()), State::Recording, Some(msg)),
+            );
             // Spawn amplitude pump: drains blocks, forwards audio, emits ≤30 Hz.
             let sh = shared.clone();
             let t2 = tx.clone();
@@ -674,7 +835,10 @@ async fn start_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, l
         Err(e) => {
             let _ = g.session.transition(State::Error);
             let sid = g.session.id.clone();
-            emit(tx, &ev_state(Some(sid), State::Error, Some("Microphone unavailable")));
+            emit(
+                tx,
+                &ev_state(Some(sid), State::Error, Some("Microphone unavailable")),
+            );
             let s = g.session.clone();
             let _ = s;
             Response {
@@ -734,10 +898,7 @@ async fn amplitude_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>
                 } else {
                     // Hands-free finish: speech + sustained silence.
                     let auto = g.cfg.general.auto_stop_secs;
-                    if auto > 0
-                        && speech_seen
-                        && last_voice.elapsed().as_secs() >= auto
-                    {
+                    if auto > 0 && speech_seen && last_voice.elapsed().as_secs() >= auto {
                         tracing::info!("auto-stop on end-of-speech silence");
                         (false, g.amplitude, true)
                     } else {
@@ -758,15 +919,18 @@ async fn amplitude_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>
         }
         if last_emit.elapsed().as_millis() >= 33 {
             last_emit = std::time::Instant::now();
-            emit(&tx, &Event {
-                protocol_version: vaani_core::PROTOCOL_VERSION,
-                event: "amplitude".into(),
-                session_id: Some(sess.clone()),
-                state: Some("RECORDING".into()),
-                amplitude: Some(amp),
-                message: None,
-                data: None,
-            });
+            emit(
+                &tx,
+                &Event {
+                    protocol_version: vaani_core::PROTOCOL_VERSION,
+                    event: "amplitude".into(),
+                    session_id: Some(sess.clone()),
+                    state: Some("RECORDING".into()),
+                    amplitude: Some(amp),
+                    message: None,
+                    data: None,
+                },
+            );
         }
     }
 }
@@ -780,7 +944,11 @@ fn space_note_for(t: &FocusTarget, cfg: &vaani_core::config::Config) -> Option<S
     if focus::is_terminal(&t.app_id) || cfg.insertion_mode_for(&t.app_id) == "copy-only" {
         return Some(format!(
             "{}: copy-only space — nothing auto-typed, finish then copy",
-            if t.app_id.is_empty() { "this window" } else { t.app_id.as_str() }
+            if t.app_id.is_empty() {
+                "this window"
+            } else {
+                t.app_id.as_str()
+            }
         ));
     }
     if cfg.insertion.mode == "review" || cfg.general.review_before_insertion {
@@ -799,27 +967,38 @@ fn emit_provisional(
     hidden: bool,
     committed_words: usize,
 ) {
-    let (last, next) = if hidden { ("", "") } else { vaani_core::reconcile::preview_words(tail) };
+    let (last, next) = if hidden {
+        ("", "")
+    } else {
+        vaani_core::reconcile::preview_words(tail)
+    };
     // Running preview: the newest words with the current (newest) word
     // highlighted in the overlay, so the speaker always sees their place.
     // Five words max — older context scrolls off, never ellipsized mid-stream.
-    let words = if hidden { String::new() } else { vaani_core::reconcile::recent_words(tail, 5) };
-    emit(tx, &Event {
-        protocol_version: vaani_core::PROTOCOL_VERSION,
-        event: "provisional".into(),
-        session_id: Some(sess.into()),
-        state: Some("RECORDING".into()),
-        amplitude: None,
-        message: None,
-        data: Some(serde_json::json!({
-            "tail": format!("{last} {next}").trim(),
-            "words": words,
-            "hidden": hidden,
-            "committed_words": committed_words,
-            "last_word": last,
-            "next_word": next,
-        })),
-    });
+    let words = if hidden {
+        String::new()
+    } else {
+        vaani_core::reconcile::recent_words(tail, 5)
+    };
+    emit(
+        tx,
+        &Event {
+            protocol_version: vaani_core::PROTOCOL_VERSION,
+            event: "provisional".into(),
+            session_id: Some(sess.into()),
+            state: Some("RECORDING".into()),
+            amplitude: None,
+            message: None,
+            data: Some(serde_json::json!({
+                "tail": format!("{last} {next}").trim(),
+                "words": words,
+                "hidden": hidden,
+                "committed_words": committed_words,
+                "last_word": last,
+                "next_word": next,
+            })),
+        },
+    );
 }
 
 struct LiveSnap {
@@ -915,7 +1094,7 @@ async fn live_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>, ses
                 snap.cfg.audio.worker_threads,
                 cuda,
                 &snap.cfg.cleanup.vocabulary,
-                snap.cfg.recognition.server_idle_secs,
+                snap.cfg.effective_server_idle_secs(),
             )
         })
         .await;
@@ -976,7 +1155,14 @@ async fn copy_fallback(
         .map(|r| r.is_ok())
         .unwrap_or(false);
     let mut g = shared.lock().await;
-    if g.session.id != sid { return resp_ok("", &g.session, Some("stale copy result discarded".into()), None); }
+    if g.session.id != sid {
+        return resp_ok(
+            "",
+            &g.session,
+            Some("stale copy result discarded".into()),
+            None,
+        );
+    }
     let (msg, copied) = if clip_ok {
         ("Copied to clipboard".to_string(), true)
     } else {
@@ -988,7 +1174,15 @@ async fn copy_fallback(
     let _ = g.session.transition(State::Ready);
     let _ = g.session.transition(State::Idle);
     let data = serde_json::json!({"text": final_text, "copied": copied});
-    emit(tx, &ev_state_data(Some(sid.to_string()), State::Idle, Some(&msg), Some(data.clone())));
+    emit(
+        tx,
+        &ev_state_data(
+            Some(sid.to_string()),
+            State::Idle,
+            Some(&msg),
+            Some(data.clone()),
+        ),
+    );
     let s = g.session.clone();
     resp_ok("", &s, Some(msg), Some(data))
 }
@@ -997,7 +1191,11 @@ async fn copy_fallback(
 /// then cleanup/streaming per policy.
 /// `manual` is true when SUPER+J was pressed: skip keyboard streaming and
 /// save the cleaned result to clipboard.
-async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, manual: bool) -> Response {
+async fn stop_flow(
+    shared: Arc<Mutex<Shared>>,
+    tx: &broadcast::Sender<Event>,
+    manual: bool,
+) -> Response {
     tracing::info!("stop_flow entry (manual={})", manual);
     // Capture close is synchronous and immediate, independent of transcription.
     let (samples, sid, cfg_snap, target) = {
@@ -1031,13 +1229,15 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, ma
         }
         let _ = g.session.transition(State::Transcribing);
         let sid = g.session.id.clone();
-        emit(tx, &ev_state(Some(sid.clone()), State::Transcribing, Some("Transcribing…")));
-        (
-            g.audio.clone(),
-            sid,
-            g.cfg.clone(),
-            g.target.clone(),
-        )
+        emit(
+            tx,
+            &ev_state(
+                Some(sid.clone()),
+                State::Transcribing,
+                Some("Transcribing…"),
+            ),
+        );
+        (g.audio.clone(), sid, g.cfg.clone(), g.target.clone())
     };
 
     let t0 = std::time::Instant::now();
@@ -1058,7 +1258,7 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, ma
             cfg_snap.audio.worker_threads,
             cuda,
             &cfg_snap.cleanup.vocabulary,
-            cfg_snap.recognition.server_idle_secs,
+            cfg_snap.effective_server_idle_secs(),
         )?;
         Ok::<_, anyhow::Error>(result)
     })
@@ -1088,24 +1288,45 @@ async fn stop_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, ma
                     // Live session: words are already typed; keep them
                     // recoverable and finish.
                     let _ = g.session.transition(State::Idle);
-                    emit(tx, &ev_state(Some(sid), State::Idle, Some("Finished — text already typed")));
-                    g.pending = Some(Pending { text: committed.clone(), at: std::time::Instant::now() });
+                    emit(
+                        tx,
+                        &ev_state(
+                            Some(sid),
+                            State::Idle,
+                            Some("Finished — text already typed"),
+                        ),
+                    );
+                    g.pending = Some(Pending {
+                        text: committed.clone(),
+                        at: std::time::Instant::now(),
+                    });
                     let s = g.session.clone();
-                    return resp_ok("", &s, Some("finished".into()), Some(serde_json::json!({"text": committed})));
+                    return resp_ok(
+                        "",
+                        &s,
+                        Some("finished".into()),
+                        Some(serde_json::json!({"text": committed})),
+                    );
                 }
                 let _ = g.session.transition(State::Idle);
-                emit(tx, &ev_state(Some(sid), State::Idle, Some("Silence — nothing to insert")));
+                emit(
+                    tx,
+                    &ev_state(Some(sid), State::Idle, Some("Silence — nothing to insert")),
+                );
                 let s = g.session.clone();
                 return resp_ok("", &s, Some("silence: no text".into()), None);
             }
             // Optional cleanup on finish (non-live only): endpoint-based
             // "clean" mode, or local-LLM "stream" mode for transcripts at or
             // above the word threshold. Raw fallback on any failure.
-let mut final_text = t.text.clone();
+            let mut final_text = vaani_core::personalization::render(&t.text, &g.personalization);
             let stream_wanted = g.cfg.cleanup.mode == "stream";
             if g.cfg.cleanup.mode == "clean" || stream_wanted {
                 let _ = g.session.transition(State::Cleaning);
-                emit(tx, &ev_state(Some(sid.clone()), State::Cleaning, Some("Cleaning up…")));
+                emit(
+                    tx,
+                    &ev_state(Some(sid.clone()), State::Cleaning, Some("Cleaning up…")),
+                );
                 let cfg_snap = g.cfg.clone();
                 let vocab = g.cfg.cleanup.vocabulary.clone();
                 let ep = g.cfg.cleanup.endpoint.clone();
@@ -1119,7 +1340,9 @@ let mut final_text = t.text.clone();
                     } else {
                         cleanup::clean(&raw, &ep, to, &vocab)
                     }
-                }).await.unwrap_or(final_text);
+                })
+                .await
+                .unwrap_or(final_text);
                 g = shared.lock().await;
                 if g.session.id != sid || !matches!(g.session.state, State::Cleaning) {
                     let s = g.session.clone();
@@ -1128,7 +1351,10 @@ let mut final_text = t.text.clone();
                 final_text = cleaned;
             }
             if manual {
-                g.pending = Some(Pending { text: final_text.clone(), at: std::time::Instant::now() });
+                g.pending = Some(Pending {
+                    text: final_text.clone(),
+                    at: std::time::Instant::now(),
+                });
                 let _ = g.session.transition(State::Idle);
                 drop(g);
                 let _ = clipboard::offer_text(&final_text);
@@ -1137,20 +1363,36 @@ let mut final_text = t.text.clone();
                     let _ = ov.wait();
                 }
                 let s = shared.lock().await.session.clone();
-                return resp_ok("", &s, Some("Saved to clipboard".into()), Some(serde_json::json!({"text": final_text})));
+                return resp_ok(
+                    "",
+                    &s,
+                    Some("Saved to clipboard".into()),
+                    Some(serde_json::json!({"text": final_text})),
+                );
             }
             // Focus must still be the original target after cleanup. If it
             // changed, preserve the result rather than typing into a new app.
             if let Err(reason) = focus::recheck_target(&target) {
                 let final_text_c = final_text.clone();
-                g.pending = Some(Pending { text: final_text_c.clone(), at: std::time::Instant::now() });
+                g.pending = Some(Pending {
+                    text: final_text_c.clone(),
+                    at: std::time::Instant::now(),
+                });
                 drop(g);
                 let _ = clipboard::offer_text(&final_text_c);
-                if let Some(mut ov) = shared.lock().await.overlay.take() { let _ = ov.kill(); let _ = ov.wait(); }
+                if let Some(mut ov) = shared.lock().await.overlay.take() {
+                    let _ = ov.kill();
+                    let _ = ov.wait();
+                }
                 let mut g = shared.lock().await;
                 let _ = g.session.transition(State::Idle);
                 let s = g.session.clone();
-                return resp_ok("", &s, Some(format!("Saved to clipboard — target changed ({reason})")), Some(serde_json::json!({"text": final_text_c, "copied": true})));
+                return resp_ok(
+                    "",
+                    &s,
+                    Some(format!("Saved to clipboard — target changed ({reason})")),
+                    Some(serde_json::json!({"text": final_text_c, "copied": true})),
+                );
             }
             // There is one delivery implementation. It applies configured
             // mode, app overrides, terminal policy, review/no-auto policy,
@@ -1162,16 +1404,27 @@ let mut final_text = t.text.clone();
             } else {
                 g.cfg.insertion_mode_for(&target.app_id)
             };
-            g.pending = Some(Pending { text: final_text.clone(), at: std::time::Instant::now() });
+            g.pending = Some(Pending {
+                text: final_text.clone(),
+                at: std::time::Instant::now(),
+            });
             let _ = g.session.transition(State::Ready);
             let _ = g.session.transition(State::Inserting);
-            emit(tx, &ev_state(Some(sid.clone()), State::Inserting, Some("Delivering text…")));
+            emit(
+                tx,
+                &ev_state(
+                    Some(sid.clone()),
+                    State::Inserting,
+                    Some("Delivering text…"),
+                ),
+            );
             let text_to_insert = final_text.clone();
             let target_for_insert = target.clone();
             drop(g);
             let insert_result = tokio::task::spawn_blocking(move || {
                 inserter::insert_automatic(&text_to_insert, &target_for_insert, &configured_mode)
-            }).await;
+            })
+            .await;
             if let Some(mut ov) = shared.lock().await.overlay.take() {
                 let _ = ov.kill();
                 let _ = ov.wait();
@@ -1188,14 +1441,26 @@ let mut final_text = t.text.clone();
             let message = outcome.to_string();
             let _ = g.session.transition(State::Idle);
             let s = g.session.clone();
-            resp_ok("", &s, Some(message), Some(serde_json::json!({"delivered": delivered, "pending": true})))
+            resp_ok(
+                "",
+                &s,
+                Some(message),
+                Some(serde_json::json!({"delivered": delivered, "pending": true})),
+            )
         }
         _ => {
             // Worker crash / error: controller stays up, audio retained briefly
             // for explicit retry, with visible discard/retry controls.
             g.pending_audio = samples;
             let _ = g.session.transition(State::Error);
-            emit(tx, &ev_state(Some(sid), State::Error, Some("Transcription failed — audio kept for retry")));
+            emit(
+                tx,
+                &ev_state(
+                    Some(sid),
+                    State::Error,
+                    Some("Transcription failed — audio kept for retry"),
+                ),
+            );
             let s = g.session.clone();
             Response {
                 protocol_version: vaani_core::PROTOCOL_VERSION,
@@ -1210,7 +1475,11 @@ let mut final_text = t.text.clone();
     }
 }
 
-async fn cancel_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, rid: &str) -> Response {
+async fn cancel_flow(
+    shared: Arc<Mutex<Shared>>,
+    tx: &broadcast::Sender<Event>,
+    rid: &str,
+) -> Response {
     tracing::info!("cancel_flow entry");
     let mut g = shared.lock().await;
     if matches!(g.session.state, State::Idle) {
@@ -1231,7 +1500,14 @@ async fn cancel_flow(shared: Arc<Mutex<Shared>>, tx: &broadcast::Sender<Event>, 
     g.session_started_at = None;
     // Drive to CANCELLED from any active state, then IDLE.
     let _ = g.session.transition(State::Cancelled);
-    emit(tx, &ev_state(Some(g.session.id.clone()), State::Cancelled, Some("Cancelled")));
+    emit(
+        tx,
+        &ev_state(
+            Some(g.session.id.clone()),
+            State::Cancelled,
+            Some("Cancelled"),
+        ),
+    );
     let _ = g.session.transition(State::Idle);
     emit(tx, &ev_state(Some(g.session.id.clone()), State::Idle, None));
     let s = g.session.clone();
@@ -1260,7 +1536,14 @@ async fn lock_watch(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>) {
                 g.pending_audio.clear();
                 let _ = g.session.transition(State::Cancelled);
                 let _ = g.session.transition(State::Idle);
-                emit(&tx, &ev_state(Some(g.session.id.clone()), State::Cancelled, Some("Session locked — capture cancelled")));
+                emit(
+                    &tx,
+                    &ev_state(
+                        Some(g.session.id.clone()),
+                        State::Cancelled,
+                        Some("Session locked — capture cancelled"),
+                    ),
+                );
             }
         } else if !is_locked && locked {
             locked = false;
@@ -1293,10 +1576,32 @@ async fn doctor() -> serde_json::Value {
     checks.insert("wl-copy", serde_json::json!(bin("wl-copy")));
     checks.insert("hyprctl", serde_json::json!(bin("hyprctl")));
     checks.insert("quickshell", serde_json::json!(bin("quickshell")));
-    checks.insert("whisper-cli", serde_json::json!(bin("whisper-cli") || bin("whisper-cpp")));
-    checks.insert("whisper-cli-cuda", serde_json::json!(bin("whisper-cli-cuda")));
-    checks.insert("vad-speech-segments", serde_json::json!(bin("vad-speech-segments")));
+    checks.insert(
+        "whisper-cli",
+        serde_json::json!(bin("whisper-cli") || bin("whisper-cpp")),
+    );
+    checks.insert(
+        "whisper-cli-cuda",
+        serde_json::json!(bin("whisper-cli-cuda")),
+    );
+    checks.insert(
+        "vad-speech-segments",
+        serde_json::json!(bin("vad-speech-segments")),
+    );
     checks.insert("curl-cleanup", serde_json::json!(bin("curl")));
+    let package_status = worker_sup::discover_model_packages(&paths::models_dir());
+    checks.insert(
+        "model_packages",
+        serde_json::json!(package_status
+            .iter()
+            .map(|package| serde_json::json!({
+                "root": package.root.display().to_string(),
+                "id": package.manifest.as_ref().map(|manifest| manifest.id.as_str()),
+                "valid": package.error.is_none(),
+                "error": package.error.as_deref(),
+            }))
+            .collect::<Vec<_>>()),
+    );
     let models = std::fs::read_dir(paths::models_dir())
         .map(|d| d.count())
         .unwrap_or(0);

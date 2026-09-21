@@ -1,0 +1,5 @@
+# Generated map output is derived from the tracked source, not graph input.
+graphify-out/
+
+# Keep an untracked Firebase configuration out of all generated artifacts.
+android/app/google-services.json

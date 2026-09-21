@@ -1,27 +1,3 @@
 <resources>
-    <string name="app_name">Vaani</string>
-    <string name="keyboard_name">Vaani keyboard</string>
-    <string name="status_ready">Vaani · hold Send to dictate</string>
-    <string name="status_starting">Starting…</string>
-    <string name="status_listening">Listening · release to finish</string>
-    <string name="status_finishing">Finishing…</string>
-    <string name="status_inserted">Text inserted</string>
-    <string name="status_no_speech">No speech detected</string>
-    <string name="status_cancelled">Dictation cancelled</string>
-    <string name="status_timed_out">Dictation timed out. Hold Send to retry.</string>
-    <string name="status_permission_off">Microphone is off. Open Vaani to allow access.</string>
-    <string name="status_password">Voice is disabled in password fields.</string>
-    <string name="dictation_cancel">Cancel dictation</string>
-    <string name="dictation_recovery_title">Couldn’t insert text</string>
-    <string name="dictation_recovery_body">Your dictation is safe.</string>
-    <string name="dictation_copy">Copy text</string>
-    <string name="dictation_retry">Try insertion again</string>
-    <string name="dictation_dismiss">Dismiss recovered text</string>
-    <string name="dictation_copied">Dictation copied</string>
-    <string name="dictation_hold_description">Hold to dictate; release to insert</string>
-    <string name="onboarding_back">Back</string>
-    <string name="onboarding_continue">Continue</string>
-    <string name="onboarding_finish">Finish setup</string>
-    <string name="onboarding_progress">%1$d of 4</string>
-    <string name="settings_cleanup">Clean up dictated text</string>
+    <string name="accessibility_description">Lets Vaani find the text box you are writing in so the floating button can paste your dictated words.</string>
 </resources>

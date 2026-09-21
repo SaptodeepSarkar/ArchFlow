@@ -22,9 +22,21 @@ pub fn run_timeout(
     capture: bool,
 ) -> anyhow::Result<std::process::Output> {
     let mut child = cmd
-        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(if capture { Stdio::piped() } else { Stdio::null() })
-        .stderr(if capture { Stdio::piped() } else { Stdio::null() })
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(if capture {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stderr(if capture {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .spawn()
         .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))?;
     if let Some(data) = input {
@@ -35,14 +47,21 @@ pub fn run_timeout(
     }
     let deadline = Instant::now() + Duration::from_secs(secs);
     loop {
-        match child.try_wait().map_err(|e| anyhow::anyhow!("wait failed: {e}"))? {
+        match child
+            .try_wait()
+            .map_err(|e| anyhow::anyhow!("wait failed: {e}"))?
+        {
             Some(status) => {
                 if capture {
                     return child
                         .wait_with_output()
                         .map_err(|e| anyhow::anyhow!("output failed: {e}"));
                 }
-                return Ok(std::process::Output { status, stdout: Vec::new(), stderr: Vec::new() });
+                return Ok(std::process::Output {
+                    status,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                });
             }
             None if Instant::now() >= deadline => {
                 let _ = child.kill();
@@ -112,7 +131,9 @@ fn snapshot_from_output(out: &std::process::Output) -> Option<String> {
     }
     let mut s = String::from_utf8(out.stdout.clone()).ok()?;
     let mut boundary = s.len().min(64 * 1024);
-    while !s.is_char_boundary(boundary) { boundary -= 1; }
+    while !s.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
     s.truncate(boundary);
     Some(s)
 }

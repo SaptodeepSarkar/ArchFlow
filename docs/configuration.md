@@ -10,7 +10,7 @@ saved `copy-only` keep that choice; restore the typing behavior with
 
 | Key | Values | Tradeoff |
 |---|---|---|
-| general.residency_profile | economy (default) / balanced / ready | Economy always exits sidecars after an operation; Balanced/Ready may retain supported sidecars for the configured TTL. |
+| general.residency_profile | economy (default) / balanced / ready | Economy exits sidecars after an operation; Balanced keeps supported sidecars warm for at least 60 seconds; Ready keeps them warm for up to 10 minutes. |
 | general.review_before_insertion | bool | Stricter control; window match ≠ same cursor field |
 | audio.device_selector | "" or stable source name | "" = PipeWire default each session; never numeric node ids |
 | audio.worker_threads | 1–16 (4) | Responsiveness vs CPU |
@@ -21,7 +21,7 @@ saved `copy-only` keep that choice; restore the typing behavior with
 | recognition.translate_to_en | bool | Opt-in translation; default preserves spoken language |
 | recognition.device | cpu/cuda | CUDA only with user GPU build; failure falls back to CPU visibly |
 | insertion.mode | automatic/review/copy-only | automatic types after a final focus check; copy-only keeps text on the clipboard |
-| insertion.app_overrides | map | Terminals default copy-only (multiline can execute!) |
+| insertion.app_overrides | UI or `insertion.app_override` as `app-id=mode` (`none` removes) | Terminals default copy-only (multiline can execute!); overrides are substring matches |
 | cleanup.mode | raw/clean/stream | raw is the default; clean/stream are explicit opt-ins. |
 | cleanup.model_path/cleanup.adapter_path | paths | Base Qwen3-0.6B dir plus explicit LoRA adapter dir for stream mode |
 | cleanup.word_threshold | 0–1000 (0) | Minimum words sent to the formatter; 0 formats every non-empty transcript |

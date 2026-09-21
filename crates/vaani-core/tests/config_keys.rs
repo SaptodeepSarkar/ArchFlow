@@ -9,13 +9,30 @@ fn whitelist_accepts_known_keys() {
     assert_eq!(c.set_key("recognition.live_model", "v5").unwrap(), "v5");
     assert_eq!(c.set_key("recognition.language", "hi").unwrap(), "hi");
     assert_eq!(c.set_key("audio.worker_threads", "8").unwrap(), "8");
-    assert_eq!(c.set_key("cleanup.model_path", "/models/base-model").unwrap(), "/models/base-model");
-    assert_eq!(c.set_key("cleanup.adapter_path", "/models/llm-v1").unwrap(), "/models/llm-v1");
+    assert_eq!(
+        c.set_key("cleanup.model_path", "/models/base-model")
+            .unwrap(),
+        "/models/base-model"
+    );
+    assert_eq!(
+        c.set_key("cleanup.adapter_path", "/models/llm-v1").unwrap(),
+        "/models/llm-v1"
+    );
     assert_eq!(c.set_key("cleanup.word_threshold", "0").unwrap(), "0");
     assert_eq!(
         c.set_key("general.residency_profile", "balanced").unwrap(),
         "balanced"
     );
+    assert_eq!(
+        c.set_key("insertion.app_override", "code=review").unwrap(),
+        "code=review"
+    );
+    assert_eq!(c.insertion_mode_for("code-editor"), "review");
+    assert_eq!(
+        c.set_key("insertion.app_override", "code=none").unwrap(),
+        "code=none"
+    );
+    assert_eq!(c.insertion_mode_for("code-editor"), "automatic");
 }
 
 #[test]
@@ -28,6 +45,8 @@ fn rejects_unknown_and_bad_values() {
     assert!(c.set_key("cleanup.endpoint", "ftp://x").is_err());
     assert!(c.set_key("hacker.key", "1").is_err());
     assert!(c.set_key("recognition.language", "auto").is_err());
+    assert!(c.set_key("insertion.app_override", "=review").is_err());
+    assert!(c.set_key("insertion.app_override", "code=unsafe").is_err());
 }
 
 #[test]
@@ -43,7 +62,8 @@ fn live_chunk_bounded() {
 fn vocabulary_appends_dedupes_and_clears() {
     let mut c = Config::default();
     assert_eq!(
-        c.set_key("cleanup.vocabulary", "Aarav, forgiveness").unwrap(),
+        c.set_key("cleanup.vocabulary", "Aarav, forgiveness")
+            .unwrap(),
         "Aarav, forgiveness"
     );
     // Case-insensitive dedupe on append.
