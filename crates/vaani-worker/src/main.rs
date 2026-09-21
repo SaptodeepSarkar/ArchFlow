@@ -71,7 +71,13 @@ fn main() {
         .collect();
 
     if samples.is_empty() {
-        emit_ok("", &language, true, "cpu-stub", t0.elapsed().as_millis() as u64);
+        emit_ok(
+            "",
+            &language,
+            true,
+            "cpu-stub",
+            t0.elapsed().as_millis() as u64,
+        );
         return;
     }
 
@@ -83,7 +89,13 @@ fn main() {
         }
     }
     if vad.is_silence() {
-        emit_ok("", &language, true, "cpu-stub", t0.elapsed().as_millis() as u64);
+        emit_ok(
+            "",
+            &language,
+            true,
+            "cpu-stub",
+            t0.elapsed().as_millis() as u64,
+        );
         return;
     }
 
@@ -94,7 +106,10 @@ fn main() {
     let backend_bin = if want_cuda {
         find_binary(&["whisper-cli-cuda", "whisper-cpp-cuda"])
             .map(|b| (b, "whisper-cli-cuda"))
-            .or_else(|| find_binary(&["whisper-cli", "whisper-cpp", "whisper", "main"]).map(|b| (b, "whisper-cli")))
+            .or_else(|| {
+                find_binary(&["whisper-cli", "whisper-cpp", "whisper", "main"])
+                    .map(|b| (b, "whisper-cli"))
+            })
     } else {
         find_binary(&["whisper-cli", "whisper-cpp", "whisper", "main"]).map(|b| (b, "whisper-cli"))
     };
@@ -105,24 +120,40 @@ fn main() {
         match run_faster_whisper(&model_path, &language, &prompt, want_cuda_flag(), &samples) {
             Ok(t) => (t, "fw-ct2"),
             Err(e) => {
-                eprintln!("vaani-worker: faster-whisper backend failed ({e}), falling back to stub");
+                eprintln!(
+                    "vaani-worker: faster-whisper backend failed ({e}), falling back to stub"
+                );
                 (stub_transcript(&samples), "cpu-stub")
             }
         }
     } else {
         match (backend_bin, model_exists(&model)) {
-        (Some((bin, label)), true) => match run_whisper_cli(&bin, &model_path, &language, threads, translate, &prompt, &samples) {
-            Ok(t) => (t, label),
-            Err(e) => {
-                eprintln!("vaani-worker: whisper backend failed ({e}), falling back to stub");
-                (stub_transcript(&samples), "cpu-stub")
-            }
-        },
-        _ => (stub_transcript(&samples), "cpu-stub"),
+            (Some((bin, label)), true) => match run_whisper_cli(
+                &bin,
+                &model_path,
+                &language,
+                threads,
+                translate,
+                &prompt,
+                &samples,
+            ) {
+                Ok(t) => (t, label),
+                Err(e) => {
+                    eprintln!("vaani-worker: whisper backend failed ({e}), falling back to stub");
+                    (stub_transcript(&samples), "cpu-stub")
+                }
+            },
+            _ => (stub_transcript(&samples), "cpu-stub"),
         }
     };
 
-    emit_ok(&vaani_core::transcript::polish(&text), &language, false, backend, t0.elapsed().as_millis() as u64);
+    emit_ok(
+        &vaani_core::transcript::polish(&text),
+        &language,
+        false,
+        backend,
+        t0.elapsed().as_millis() as u64,
+    );
 }
 
 fn want_cuda_flag() -> bool {
@@ -223,7 +254,9 @@ fn run_faster_whisper(
     if !prompt.is_empty() {
         cmd.arg("--prompt").arg(prompt);
     }
-    let out = cmd.output().map_err(|e| anyhow::anyhow!("fw sidecar spawn failed: {e}"))?;
+    let out = cmd
+        .output()
+        .map_err(|e| anyhow::anyhow!("fw sidecar spawn failed: {e}"))?;
     let _ = std::fs::remove_dir_all(&dir);
     if !out.status.success() {
         anyhow::bail!(
@@ -264,10 +297,16 @@ fn model_resolve(m: &str) -> String {
     }
     if !bare.is_empty() {
         let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
-            format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+            format!(
+                "{}/.local/share",
+                std::env::var("HOME").unwrap_or_else(|_| ".".into())
+            )
         });
         for b in &bare {
-            for cand in [format!("{base}/vaani/models/{b}.bin"), format!("{base}/vaani/models/{b}")] {
+            for cand in [
+                format!("{base}/vaani/models/{b}.bin"),
+                format!("{base}/vaani/models/{b}"),
+            ] {
                 if std::path::Path::new(&cand).exists() {
                     return cand;
                 }
@@ -287,7 +326,10 @@ fn vad_model_path() -> Option<String> {
         }
     }
     let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
-        format!("{}/.local/share", std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+        format!(
+            "{}/.local/share",
+            std::env::var("HOME").unwrap_or_else(|_| ".".into())
+        )
     });
     let cand = format!("{base}/vaani/models/ggml-silero-v5.1.2.bin");
     if std::path::Path::new(&cand).exists() {
@@ -298,7 +340,11 @@ fn vad_model_path() -> Option<String> {
 }
 
 fn find_binary(names: &[&str]) -> Option<String> {
-    let mut dirs: Vec<String> = std::env::var("PATH").unwrap_or_default().split(':').map(|s| s.to_string()).collect();
+    let mut dirs: Vec<String> = std::env::var("PATH")
+        .unwrap_or_default()
+        .split(':')
+        .map(|s| s.to_string())
+        .collect();
     // User-local + admin prefixes the systemd service PATH may lack.
     if let Ok(home) = std::env::var("HOME") {
         dirs.push(format!("{home}/.local/bin"));
@@ -368,7 +414,10 @@ fn run_whisper_cli(
         cmd.arg("--prompt").arg(prompt);
     }
     // Bounded inference time: 120 s audio + margin.
-    let mut child = cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped()).spawn()?;
+    let mut child = cmd
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
     let status = child.wait()?;
     let txt_path = out_prefix.with_extension("txt");
     let text = std::fs::read_to_string(&txt_path).unwrap_or_default();
@@ -379,7 +428,12 @@ fn run_whisper_cli(
     // Segment reconciliation across long outputs is done controller-side;
     // here do a light whitespace normalise only (raw mode).
     let _ = std::io::stdout().flush();
-    Ok(text.split_whitespace().collect::<Vec<_>>().join(" ").trim().to_string())
+    Ok(text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string())
 }
 
 /// Deterministic stub used when no model/binary is configured: never invents

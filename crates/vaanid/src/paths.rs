@@ -12,7 +12,10 @@ pub fn runtime_dir() -> PathBuf {
     } else {
         // Never invent a shared /tmp fallback with weak perms: scope to
         // /tmp/vaani-<uid> with 0700.
-        let uid = std::env::var("UID").ok().and_then(|s| s.parse::<u32>().ok()).unwrap_or(1000);
+        let uid = std::env::var("UID")
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(1000);
         PathBuf::from(format!("/tmp/vaani-{uid}"))
     }
 }
@@ -22,8 +25,7 @@ pub fn control_sock() -> PathBuf {
 }
 
 pub fn config_dir() -> PathBuf {
-    let base =
-        std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{}/.config", home()));
+    let base = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{}/.config", home()));
     PathBuf::from(base).join("vaani")
 }
 
@@ -35,6 +37,10 @@ pub fn data_dir() -> PathBuf {
 
 pub fn models_dir() -> PathBuf {
     data_dir().join("models")
+}
+
+pub fn personalization_path() -> PathBuf {
+    data_dir().join("personalization.jsonl")
 }
 
 pub fn ensure_dirs() -> anyhow::Result<()> {
@@ -51,14 +57,18 @@ pub fn ensure_dirs() -> anyhow::Result<()> {
 
 /// Explicit paths also work when another shell owns the default QML config.
 pub fn ui_path() -> PathBuf {
-    let config = std::env::var("XDG_CONFIG_HOME")
-        .unwrap_or_else(|_| format!("{}/.config", home()));
+    let config = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{}/.config", home()));
     let local = PathBuf::from(config).join("quickshell/vaani/shell.qml");
-    if local.is_file() { return local; }
-    let data = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+    if local.is_file() {
+        return local;
+    }
+    let data =
+        std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
     for base in data.split(':').filter(|s| !s.is_empty()) {
         let candidate = PathBuf::from(base).join("quickshell/vaani/shell.qml");
-        if candidate.is_file() { return candidate; }
+        if candidate.is_file() {
+            return candidate;
+        }
     }
     local
 }

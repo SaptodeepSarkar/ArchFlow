@@ -33,9 +33,9 @@ pub fn strip_fillers(text: &str) -> String {
 /// Words that may repeat on purpose (emphasis, affirmation). Single-word
 /// duplicates of these are preserved; everything else collapses.
 const INTENTIONAL_DOUBLES: &[&str] = &[
-    "no", "yes", "yeah", "yep", "nope", "oh", "ha", "hey", "hi", "hello",
-    "well", "so", "very", "really", "quite", "far", "long", "many", "much",
-    "more", "most", "again", "over", "bye", "please", "thanks", "sorry",
+    "no", "yes", "yeah", "yep", "nope", "oh", "ha", "hey", "hi", "hello", "well", "so", "very",
+    "really", "quite", "far", "long", "many", "much", "more", "most", "again", "over", "bye",
+    "please", "thanks", "sorry",
 ];
 
 /// Collapse repetitions: false starts ("genuine genuinely" — a token that is
@@ -112,10 +112,7 @@ mod tests {
     #[test]
     fn repetitions_collapse_but_emphasis_survives() {
         use super::collapse_repetitions;
-        assert_eq!(
-            collapse_repetitions("i can't i can't move"),
-            "i can't move"
-        );
+        assert_eq!(collapse_repetitions("i can't i can't move"), "i can't move");
         assert_eq!(
             collapse_repetitions("genuine genuinely sorry"),
             "genuinely sorry"
@@ -135,9 +132,6 @@ mod tests {
             "the theatre was full"
         );
         // Full polish chains both passes.
-        assert_eq!(
-            super::polish("uh i can't i can't move"),
-            "i can't move"
-        );
+        assert_eq!(super::polish("uh i can't i can't move"), "i can't move");
     }
 }

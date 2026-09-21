@@ -1,6 +1,6 @@
 mod capture;
-mod clipboard;
 mod cleanup;
+mod clipboard;
 mod daemon;
 mod focus;
 mod inserter;
@@ -22,7 +22,8 @@ async fn main() -> anyhow::Result<()> {
     let _args = Args::parse();
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "vaanid=info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "vaanid=info".into()),
         )
         .init();
     // Logs: state, timings, versions only. Never audio/transcripts/titles.

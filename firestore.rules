@@ -1,0 +1,112 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsUser(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validEnvelope(data, recordId) {
+      return data.keys().hasOnly([
+          'schema_version', 'entity', 'id', 'revision', 'logical_clock',
+          'writer_device_id', 'updated_at_ms', 'deleted_at_ms', 'value'
+        ])
+        && data.schema_version == 1
+        && data.id == recordId
+        && data.revision is int
+        && data.revision >= 0
+        && data.logical_clock is int
+        && data.logical_clock >= 0
+        && data.writer_device_id is string
+        && data.writer_device_id.size() > 0
+        && data.writer_device_id.size() <= 128
+        && data.updated_at_ms is int
+        && data.deleted_at_ms == null
+        && data.value != null;
+    }
+
+    function validValue(data) {
+      return (data.entity == 'vocabulary'
+          && data.value.keys().hasOnly([
+            'id', 'canonical', 'spoken_aliases', 'category',
+            'created_at_ms', 'updated_at_ms'
+          ])
+          && data.value.id == data.id
+          && data.value.canonical is string
+          && data.value.canonical.size() > 0
+          && data.value.canonical.size() <= 500)
+        || (data.entity == 'snippet'
+          && data.value.keys().hasOnly([
+            'id', 'trigger', 'value', 'created_at_ms', 'updated_at_ms'
+          ])
+          && data.value.id == data.id
+          && data.value.trigger is string
+          && data.value.trigger.size() > 0
+          && data.value.trigger.size() <= 500
+          && data.value.value is string
+          && data.value.value.size() > 0
+          && data.value.value.size() <= 5000)
+        || (data.entity == 'replacement'
+          && data.value.keys().hasOnly([
+            'id', 'source', 'target', 'created_at_ms', 'updated_at_ms'
+          ])
+          && data.value.id == data.id
+          && data.value.source is string
+          && data.value.source.size() > 0
+          && data.value.source.size() <= 500
+          && data.value.target is string
+          && data.value.target.size() > 0
+          && data.value.target.size() <= 5000);
+    }
+
+    function validLiveRecord(data, recordId) {
+      return validEnvelope(data, recordId)
+        && data.entity in ['vocabulary', 'snippet', 'replacement']
+        && validValue(data);
+    }
+
+    function validTombstone(data, recordId) {
+      return data.keys().hasOnly([
+          'schema_version', 'entity', 'id', 'revision', 'logical_clock',
+          'writer_device_id', 'updated_at_ms', 'deleted_at_ms', 'value'
+        ])
+        && data.schema_version == 1
+        && data.id == recordId
+        && data.entity in ['vocabulary', 'snippet', 'replacement']
+        && data.revision is int
+        && data.revision >= 0
+        && data.logical_clock is int
+        && data.logical_clock >= 0
+        && data.writer_device_id is string
+        && data.writer_device_id.size() > 0
+        && data.writer_device_id.size() <= 128
+        && data.updated_at_ms is int
+        && data.deleted_at_ms is int
+        && data.value == null;
+    }
+
+    match /users/{uid}/personalization/{recordId} {
+      allow get, list: if ownsUser(uid);
+      allow create: if ownsUser(uid)
+        && (validLiveRecord(request.resource.data, recordId)
+          || validTombstone(request.resource.data, recordId));
+      allow update: if ownsUser(uid)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.entity == resource.data.entity
+        && request.resource.data.logical_clock >= resource.data.logical_clock
+        && request.resource.data.revision >= resource.data.revision
+        && (validLiveRecord(request.resource.data, recordId)
+          || validTombstone(request.resource.data, recordId));
+      // Deletion is represented by a signed tombstone so offline devices
+      // converge instead of resurrecting a removed personalization record.
+      allow delete: if false;
+    }
+
+    // Audio, raw dictations, tokens, and arbitrary user documents are not
+    // part of the sync surface and are denied by the default rule.
+  }
+}

@@ -1,5 +1,7 @@
 # Vaani — local-first dictation for Hyprland/Wayland
 
+[![Verify](https://github.com/SaptodeepSarkar/ArchFlow/actions/workflows/verify.yml/badge.svg?branch=feat/ecosystem-core-integration)](https://github.com/SaptodeepSarkar/ArchFlow/actions/workflows/verify.yml)
+
 Vaani records only after activation, transcribes locally, and types the final
 text into the original focused Wayland app by default. Delivery is rechecked
 against that window, and is never automatic for terminals, review sessions, or
@@ -78,13 +80,41 @@ environments stay copy-only.
 
 ## Android keyboard
 
-The `android/` directory contains a native Vaani `InputMethodService` for
-Android phones and tablets. It can be enabled beside Gboard or Samsung
-Keyboard and commits cleaned Unicode text into the focused field. The setup
-screen opens Android's keyboard settings and exposes the cleanup preference.
+The `android/` directory is a fresh Kotlin/Compose Android client. Vaani is
+overlay-first: Gboard, Samsung Keyboard, or the user's existing keyboard stays
+active normally, while a hold-to-speak Vaani bubble floats above the current
+app. Android Accessibility text-box access lets the bubble paste into the
+focused editable field; password or unavailable fields fall back to the
+clipboard. The native `InputMethodService` remains an optional compatibility
+surface, not a requirement for using Vaani.
 
 Open `android/` in Android Studio with JDK 17 and SDK 35 to build and install
-the debug APK. Android requests the platform on-device speech recognizer when
-available (`EXTRA_PREFER_OFFLINE`); devices without an offline recognizer are
-reported clearly. A JNI whisper.cpp engine and a bundled quantized LLM remain
-future model adapters, so no model weights are shipped in this repository.
+the debug APK. The onboarding uses the original Vaani editorial artwork and
+opens the real Android Accessibility and overlay permission surfaces. Firebase Auth is
+wired to the existing `org.vaani.keyboard` project registration. The APK
+embeds whisper.cpp and llama.cpp runtimes while keeping STT/LLM weights out of
+Git; user-installed model packs run privately from `files/models/`, with safe
+deterministic fallbacks when a pack is absent. The Home screen can import both
+packs through Android's document picker. It also exposes the floating
+Vaani button; Android's overlay settings must be approved before it can appear
+above another app. The keyboard inspects the focused `EditorInfo` to detect
+password/multiline fields and automatically downgrades those targets to
+clipboard-only delivery. See
+[`android/README.md`](android/README.md) for model paths and ADB staging.
+
+Every push and pull request runs Rust formatting/tests, website syntax checks,
+Android unit/APK verification, and Android instrumented tests on an API 35
+emulator. Run the corresponding Android check locally with:
+
+```sh
+cd android
+./gradlew testDebugUnitTest assembleDebug connectedDebugAndroidTest
+```
+
+The Android unit suite covers model-output guarding, field detection, and the
+insert-or-copy delivery boundary. The API 35 instrumented suite covers the
+product onboarding flow, keyboard handoff demo, and private model-pack import;
+the debug editor harness provides a repeatable ADB surface for manually
+checking Accessibility paste and clipboard fallback. The overlay listening
+visualizer follows live RMS callbacks and safely no-ops when its Android
+permission has not been granted.

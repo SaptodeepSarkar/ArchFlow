@@ -1,0 +1,19 @@
+{
+  "project_info": {
+    "project_number": "555825788955",
+    "project_id": "arch-flow-vanni",
+    "storage_bucket": "arch-flow-vanni.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:555825788955:android:7735b6b8ab43a8f0c1a0be",
+        "android_client_info": { "package_name": "org.vaani.keyboard" }
+      },
+      "oauth_client": [],
+      "api_key": [{ "current_key": "AIzaSyDF1Btpfs4w6V5EJXKLRir9iR3hh22EVQA" }],
+      "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+    }
+  ],
+  "configuration_version": "1"
+}
