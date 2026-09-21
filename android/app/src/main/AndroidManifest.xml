@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
-    <application android:allowBackup="false" android:label="Vaani" android:icon="@drawable/ic_vaani_launcher" android:roundIcon="@drawable/ic_vaani_launcher" android:theme="@style/Theme.Vaani" android:usesCleartextTraffic="false">
+    <application android:allowBackup="false" android:label="Vaani" android:icon="@mipmap/ic_vaani_launcher" android:roundIcon="@mipmap/ic_vaani_launcher" android:theme="@style/Theme.Vaani" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

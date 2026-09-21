@@ -11,27 +11,28 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.BorderStroke
@@ -40,6 +41,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,9 +51,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -107,9 +110,9 @@ private fun VaaniApp() {
         if (it) page = 8
     }
     when (page) {
-        0 -> ProductIntroScreen(0, "4× faster\nthan typing", "Speak naturally. Vaani turns the thought in your head into clear words, without breaking your flow.", R.drawable.onboarding_arrival) { page = 1 }
-        1 -> ProductIntroScreen(1, "100+\nlanguages", "From English to Hindi, Bengali, Spanish, and beyond — your voice can move the way you do.", R.drawable.onboarding_keyboard) { page = 2 }
-        2 -> ProductIntroScreen(2, "Works in\nany app", "Messages, notes, search, email. If there is a text field, Vaani is already at home.", R.drawable.onboarding_ready) { page = 3 }
+        0 -> ProductIntroScreen(0, "The thought.\nWritten.", R.drawable.onboarding_v2_arrival) { page = 1 }
+        1 -> ProductIntroScreen(1, "Your voice,\nyour language.", R.drawable.onboarding_v2_language) { page = 2 }
+        2 -> ProductIntroScreen(2, "Wherever you\nwrite.", R.drawable.onboarding_v2_everywhere) { page = 3 }
         3 -> AuthScreen(onSignedIn = { page = 4 }, onSkip = { page = 4 })
         4 -> ProductDemoScreen(onNext = { page = 5 })
         5 -> AccessibilitySetupScreen(onOpenAccessibility = {
@@ -149,141 +152,174 @@ private fun VaaniApp() {
     }
 }
 
-private val introBackgrounds = listOf(
-    Color(0xFFE8E9E5),
-    Color(0xFFE6DDD2),
-    Color(0xFFDDE5DE),
-)
-
 @Composable
-private fun ProductIntroScreen(step: Int, title: String, body: String, art: Int, onNext: () -> Unit) {
-    val transition = rememberInfiniteTransition(label = "intro-flow-$step")
-    val drift by transition.animateFloat(
-        initialValue = -22f,
-        targetValue = 22f,
-        animationSpec = infiniteRepeatable(tween(3600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "drift",
-    )
-    val ink = Color(0xFF20231F)
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(introBackgrounds[step], introBackgrounds[step].copy(alpha = 0.76f), Color(0xFFF6F2EC))))) {
+private fun ProductIntroScreen(step: Int, title: String, art: Int, onNext: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(VaaniColor.Ink)) {
         Image(
             painter = painterResource(art), contentDescription = null,
-            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit, alpha = 0.10f,
+            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
         )
-        FlowCharacter(step = step, drift = drift)
-        Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 52.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Vaani", color = ink, fontSize = 25.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
-                    Text("${step + 1} / 3", color = ink.copy(alpha = 0.56f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    listOf(
+                        VaaniColor.Ink.copy(alpha = 0.12f),
+                        Color.Transparent,
+                        VaaniColor.Ink.copy(alpha = 0.14f),
+                    ),
+                ),
+            ),
+        )
+        Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 62.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    VaaniLockup()
                 }
-                Box(Modifier.fillMaxWidth().height(1.dp).background(ink.copy(alpha = 0.12f)))
-                Text(title, color = ink, fontSize = 47.sp, lineHeight = 48.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Normal)
-                Text(body, color = ink.copy(alpha = 0.72f), fontSize = 18.sp, lineHeight = 27.sp, modifier = Modifier.fillMaxWidth(0.9f))
+                Spacer(Modifier.height(108.dp))
+                Text(title, color = VaaniColor.Cloud, fontSize = 46.sp, lineHeight = 50.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Normal, textAlign = TextAlign.Center)
+                if (step == 1) LanguageWords()
+                if (step == 2) WritingPlaces()
+                Spacer(Modifier.weight(1f))
             }
-            Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
-                if (step == 0) VoicePill(drift = drift, ink = ink) else IntroChips(step, ink, drift)
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(22.dp)) {
+                OnboardingDots(active = step)
                 Button(
                     onClick = onNext,
                     modifier = Modifier.fillMaxWidth().height(56.dp).semantics { testTag = "onboarding_action" },
-                    shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, ink.copy(alpha = 0.20f)),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE9E4FF), contentColor = ink),
-                ) { Text(if (step == 0) "Meet Vaani" else "Keep going", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(2.dp, Color(0xFF3B3348)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8DCFF), contentColor = Color(0xFF241F2C)),
+                ) { Text(if (step == 0) "Get started" else "Next", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
             }
         }
     }
 }
 
 @Composable
-private fun VoicePill(drift: Float, ink: Color) {
+private fun VaaniLockup() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Canvas(Modifier.size(27.dp)) {
+            val stroke = 4.dp.toPx()
+            val left = androidx.compose.ui.geometry.Offset(size.width * 0.18f, size.height * 0.25f)
+            val bottom = androidx.compose.ui.geometry.Offset(size.width * 0.50f, size.height * 0.78f)
+            val accentStart = androidx.compose.ui.geometry.Offset(size.width * 0.65f, size.height * 0.52f)
+            val right = androidx.compose.ui.geometry.Offset(size.width * 0.82f, size.height * 0.25f)
+            val ribbon = Color(0xFFFFFDFC)
+            drawLine(ribbon, left, bottom, strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(ribbon, bottom, accentStart, strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(Color(0xFFFFD4A3), accentStart, right, strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        }
+        Text("Vaani", color = VaaniColor.Cloud, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp)
+    }
+}
+
+@Composable
+private fun LanguageWords() {
+    val travel = remember { Animatable(0f) }
+    val languages = listOf("অসমীয়া", "বাংলা", "ગુજરાતી", "हिन्दी", "ಕನ್ನಡ", "മലയാളം", "मराठी", "தமிழ்", "తెలుగు")
+    val rowHeight = 66f
+    val cycleHeight = languages.size * rowHeight
+    LaunchedEffect(Unit) {
+        // The first few pixels ease in, then the rail maintains one continuous pace.
+        travel.animateTo(42f, animationSpec = tween(durationMillis = 900, easing = FastOutLinearInEasing))
+        while (true) {
+            travel.animateTo(cycleHeight, animationSpec = tween(durationMillis = ((cycleHeight - travel.value) / 76f * 1000f).toInt(), easing = LinearEasing))
+            travel.snapTo(0f)
+        }
+    }
+    Box(Modifier.fillMaxWidth().height(405.dp).padding(top = 42.dp).clipToBounds()) {
+        for (virtualIndex in -languages.size..languages.size * 2) {
+            val language = languages[(virtualIndex % languages.size + languages.size) % languages.size]
+            val y = virtualIndex * rowHeight - travel.value
+            val opacity = (1f - kotlin.math.abs(y - 145f) / 190f).coerceIn(0.18f, 1f)
+            LanguageRailChip(
+                language = language,
+                modifier = Modifier.align(Alignment.TopCenter).offset(y = y.dp).graphicsLayer {
+                    alpha = opacity
+                    scaleX = 0.92f + opacity * 0.08f
+                    scaleY = 0.92f + opacity * 0.08f
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun LanguageRailChip(language: String, modifier: Modifier = Modifier) {
     Box(
-        Modifier.fillMaxWidth().height(116.dp).background(Color.White.copy(alpha = 0.68f), RoundedCornerShape(58.dp)).padding(horizontal = 22.dp, vertical = 18.dp),
+        modifier = modifier
+            .background(VaaniColor.Cloud.copy(alpha = 0.16f), RoundedCornerShape(22.dp))
+            .padding(horizontal = 28.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.matchParentSize()) {
-            val barColor = ink.copy(alpha = 0.22f)
-            val count = 24
-            val gap = size.width / (count + 1)
-            for (index in 0 until count) {
-                val wave = (kotlin.math.sin(index * 0.8 + drift / 10f).toFloat() + 1f) / 2f
-                val barHeight = size.height * (0.18f + wave * 0.30f)
-                drawRoundRect(barColor, topLeft = androidx.compose.ui.geometry.Offset(gap * (index + 1), (size.height - barHeight) / 2f), size = androidx.compose.ui.geometry.Size(3.dp.toPx(), barHeight), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx()))
-            }
-        }
-        Text("I am here to help you.", color = ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.offset(x = (drift / 2).dp).background(Color.White.copy(alpha = 0.78f), RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp))
+        Text(language, color = VaaniColor.Cloud, fontSize = 18.sp, fontWeight = FontWeight.Medium)
     }
 }
 
 @Composable
-private fun FlowCharacter(step: Int, drift: Float) {
-    val accent = when (step) { 0 -> Color(0xFFFF7656); 1 -> Color(0xFF5C72D9); else -> Color(0xFF4B8E78) }
-    Box(Modifier.fillMaxSize().offset(y = 92.dp).offset(x = (drift / 3).dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(230.dp)) {
-            val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
-            drawCircle(accent.copy(alpha = 0.13f), radius = size.minDimension * 0.48f, center = center)
-            drawCircle(accent.copy(alpha = 0.22f), radius = size.minDimension * 0.37f, center = center)
-            drawRoundRect(Color.White.copy(alpha = 0.9f), topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.29f, size.height * 0.26f), size = androidx.compose.ui.geometry.Size(size.width * 0.42f, size.height * 0.42f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(42f, 42f))
-            drawCircle(accent, radius = size.minDimension * 0.035f, center = androidx.compose.ui.geometry.Offset(size.width * 0.42f, size.height * 0.42f))
-            drawCircle(accent, radius = size.minDimension * 0.035f, center = androidx.compose.ui.geometry.Offset(size.width * 0.58f, size.height * 0.42f))
-            drawArc(accent, startAngle = 25f, sweepAngle = 130f, useCenter = false, topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.41f, size.height * 0.40f), size = androidx.compose.ui.geometry.Size(size.width * 0.18f, size.height * 0.15f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5f, cap = StrokeCap.Round))
-            drawRoundRect(accent.copy(alpha = 0.9f), topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.36f, size.height * 0.68f), size = androidx.compose.ui.geometry.Size(size.width * 0.28f, size.height * 0.16f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(28f, 28f))
-            drawLine(accent, androidx.compose.ui.geometry.Offset(size.width * 0.28f, size.height * 0.71f), androidx.compose.ui.geometry.Offset(size.width * 0.16f, size.height * 0.78f), strokeWidth = 9f, cap = StrokeCap.Round)
-            drawLine(accent, androidx.compose.ui.geometry.Offset(size.width * 0.72f, size.height * 0.71f), androidx.compose.ui.geometry.Offset(size.width * 0.84f, size.height * 0.64f), strokeWidth = 9f, cap = StrokeCap.Round)
-        }
-        Box(Modifier.offset(y = (-112).dp).background(Color.White.copy(alpha = 0.76f), RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 9.dp)) {
-            Text(if (step == 0) "Hi, I’m Vaani" else if (step == 1) "Say hello in any language" else "I’m here wherever you write", color = Color(0xFF20231F), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+private fun WritingPlaces() {
+    val travel = remember { Animatable(0f) }
+    val destinations = listOf(
+        AppDestination("Slack", R.drawable.brand_slack, Color(0xFFFFFBF4)),
+        AppDestination("WhatsApp", R.drawable.brand_whatsapp, Color(0xFFFFFBF4)),
+        AppDestination("Gmail", R.drawable.brand_gmail, Color(0xFFFFFBF4)),
+        AppDestination("Notion", R.drawable.brand_notion, Color(0xFFFFFBF4)),
+        AppDestination("Telegram", R.drawable.brand_telegram, Color(0xFFFFFBF4)),
+        AppDestination("Canva", R.drawable.brand_canva, Color(0xFF7256D9)),
+        AppDestination("X", R.drawable.brand_x, Color(0xFF121116)),
+    )
+    LaunchedEffect(Unit) {
+        travel.animateTo(0.045f, animationSpec = tween(durationMillis = 900, easing = FastOutLinearInEasing))
+        while (true) {
+            travel.animateTo(1f, animationSpec = tween(durationMillis = ((1f - travel.value) * 8200f).toInt(), easing = LinearEasing))
+            travel.snapTo(0f)
         }
     }
-}
-
-@Composable
-private fun IntroChips(step: Int, ink: Color, drift: Float) {
-    val labels = when (step) {
-        0 -> listOf("listen", "understand", "write")
-        1 -> listOf("English", "हिन्दी", "বাংলা", "Español")
-        else -> listOf("Messages", "Notes", "Email", "Search")
-    }
-    if (step == 2) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                AppBadge("Messages", "M", Color(0xFF6B7CFF), ink, -2f + drift / 14f, Modifier.weight(1f))
-                AppBadge("Notes", "N", Color(0xFFFF9B62), ink, 3f - drift / 16f, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                AppBadge("Email", "@", Color(0xFF54A78B), ink, 2f - drift / 16f, Modifier.weight(1f))
-                AppBadge("Search", "⌕", Color(0xFFB56CF2), ink, -3f + drift / 14f, Modifier.weight(1f))
-            }
-        }
-    } else {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            labels.take(4).forEachIndexed { index, label ->
-                Box(
-                    Modifier.offset(x = (drift / 18f * if (index % 2 == 0) 1f else -1f).dp)
-                        .background(Color.White.copy(alpha = 0.66f), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 11.dp, vertical = 10.dp)
-                ) {
-                    Text(label, color = ink.copy(alpha = 0.78f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                }
+    BoxWithConstraints(Modifier.fillMaxWidth().height(405.dp).padding(top = 40.dp)) {
+        // The intro column is inset by 28 dp. Let the ribbon deliberately escape that inset
+        // so marks arrive at and leave through the physical screen edges.
+        val edgeToEdgeWidth = maxWidth + 56.dp
+        Box(Modifier.width(edgeToEdgeWidth).offset(x = (-28).dp)) {
+            destinations.forEachIndexed { index, destination ->
+                val progress = (index.toFloat() / destinations.size - travel.value + 1f) % 1f
+                val (x, y) = destinationRibbonPoint(progress, edgeToEdgeWidth.value)
+                AppLogoTile(
+                    destination = destination,
+                    modifier = Modifier.align(Alignment.TopStart).offset(x = (x - 30f).dp, y = (y - 30f).dp).graphicsLayer {
+                        rotationZ = -14f + progress * 28f
+                    },
+                )
             }
         }
     }
 }
 
+private data class AppDestination(val name: String, val logo: Int, val surface: Color)
+
+private fun destinationRibbonPoint(progress: Float, width: Float): Pair<Float, Float> {
+    val x = -62f + (width + 124f) * progress
+    // A single, continuous ribbon: it rises through the middle and twists as it exits.
+    val y = 250f - kotlin.math.sin(progress * Math.PI).toFloat() * 160f -
+        kotlin.math.sin(progress * Math.PI * 2f).toFloat() * 40f
+    return x to y
+}
+
 @Composable
-private fun AppBadge(label: String, glyph: String, accent: Color, ink: Color, bob: Float, modifier: Modifier) {
-    Row(
-        modifier = modifier
-            .offset(y = bob.dp)
-            .background(Color.White.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
-            .padding(horizontal = 11.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
+private fun AppLogoTile(destination: AppDestination, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(60.dp).background(destination.surface, RoundedCornerShape(18.dp)),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(34.dp).background(accent.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
-            Text(glyph, color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Image(painter = painterResource(destination.logo), contentDescription = destination.name, modifier = Modifier.size(48.dp), contentScale = ContentScale.Fit)
+    }
+}
+
+@Composable
+private fun OnboardingDots(active: Int) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        repeat(3) { index ->
+            Box(Modifier.size(if (index == active) 10.dp else 8.dp).background(if (index == active) VaaniColor.Cloud else VaaniColor.Cloud.copy(alpha = 0.48f), CircleShape))
         }
-        Text(label, color = ink.copy(alpha = 0.82f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
