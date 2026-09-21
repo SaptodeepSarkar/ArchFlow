@@ -51,14 +51,20 @@ pub fn insert_automatic(
         return copy_ready(text, "terminal target: copy-only policy");
     }
     if text.contains('\n') && looks_shell_like(text) {
-        return copy_ready(text, "multiline shell-like text: copy-only to avoid accidental execution");
+        return copy_ready(
+            text,
+            "multiline shell-like text: copy-only to avoid accidental execution",
+        );
     }
     // Automatic mode: type directly via the virtual keyboard (wtype).
     // This sends text straight into the focused window without
     // needing a paste chord.
     if configured_mode == "automatic" {
         return match inject_stream(text) {
-            Ok(()) => InsertOutcome::DispatchAttempted(format!("typed via keyboard into {}", current.app_id)),
+            Ok(()) => InsertOutcome::DispatchAttempted(format!(
+                "typed via keyboard into {}",
+                current.app_id
+            )),
             Err(e) => {
                 // Some Wayland clients/compositor states reject literal
                 // virtual-keyboard text while still accepting a virtual
@@ -160,10 +166,7 @@ pub(crate) fn commit_delta(text: &str, target: &FocusTarget) -> Result<(), Strin
 /// modifier); GUI apps paste from the clipboard with Ctrl+V.
 fn uses_primary_paste(app_id: &str) -> bool {
     let l = app_id.to_lowercase();
-    l.contains("foot")
-        || l.contains("kitty")
-        || l.contains("alacritty")
-        || l.contains("wezterm")
+    l.contains("foot") || l.contains("kitty") || l.contains("alacritty") || l.contains("wezterm")
 }
 
 fn paste_chord_for(app_id: &str) -> String {
@@ -225,9 +228,7 @@ fn dispatch_paste(chord: &str) -> anyhow::Result<()> {
         }
     }
 
-    let lua = format!(
-        r#"hl.dispatch(hl.dsp.send_shortcut({{ mods = "{mods}", key = "{key}" }}))"#
-    );
+    let lua = format!(r#"hl.dispatch(hl.dsp.send_shortcut({{ mods = "{mods}", key = "{key}" }}))"#);
     let mut cmd = std::process::Command::new("hyprctl");
     cmd.arg("eval").arg(&lua);
     let out = clipboard::run_timeout(cmd, None, 5, true)
@@ -237,7 +238,11 @@ fn dispatch_paste(chord: &str) -> anyhow::Result<()> {
         Ok(())
     } else {
         let err = String::from_utf8_lossy(&out.stderr);
-        let detail = if err.trim().is_empty() { stdout.trim().to_string() } else { err.trim().to_string() };
+        let detail = if err.trim().is_empty() {
+            stdout.trim().to_string()
+        } else {
+            err.trim().to_string()
+        };
         anyhow::bail!("{detail}")
     }
 }
@@ -271,7 +276,11 @@ fn chord_parts(chord: &str) -> anyhow::Result<(String, String)> {
         anyhow::bail!("empty chord");
     }
     let key = parts.pop().unwrap().to_lowercase();
-    let mods = parts.iter().map(|m| m.to_lowercase()).collect::<Vec<_>>().join(" ");
+    let mods = parts
+        .iter()
+        .map(|m| m.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ");
     for s in std::iter::once(key.as_str()).chain(mods.split(' ')) {
         if s.is_empty() || !s.chars().all(|c| c.is_ascii_alphanumeric()) {
             anyhow::bail!("invalid chord fragment");
@@ -316,7 +325,10 @@ mod tests {
 
 fn looks_shell_like(t: &str) -> bool {
     let l = t.to_lowercase();
-    ["rm -rf", "sudo ", "mkfs", ":(){", "chmod ", "curl ", "wget ", "dd if=", "shutdown", "reboot"]
-        .iter()
-        .any(|p| l.contains(p))
+    [
+        "rm -rf", "sudo ", "mkfs", ":(){", "chmod ", "curl ", "wget ", "dd if=", "shutdown",
+        "reboot",
+    ]
+    .iter()
+    .any(|p| l.contains(p))
 }

@@ -77,15 +77,20 @@ async fn main() -> anyhow::Result<()> {
         Cmd::ConfigGet => RequestKind::ConfigGet,
         Cmd::ConfigSet { key, value } => RequestKind::ConfigSet { key, value },
     };
-    let as_json = matches!(kind, RequestKind::Status | RequestKind::Doctor | RequestKind::ConfigGet);
+    let as_json = matches!(
+        kind,
+        RequestKind::Status | RequestKind::Doctor | RequestKind::ConfigGet
+    );
     let want_text = matches!(kind, RequestKind::RecoverPending | RequestKind::Inject);
 
     let mut req = Request::new(kind);
     req.session_id = None;
 
-    let mut stream = UnixStream::connect(sock_path())
-        .await
-        .map_err(|_| anyhow::anyhow!("cannot reach vaanid — is the user service running? (systemctl --user status vaanid)"))?;
+    let mut stream = UnixStream::connect(sock_path()).await.map_err(|_| {
+        anyhow::anyhow!(
+            "cannot reach vaanid — is the user service running? (systemctl --user status vaanid)"
+        )
+    })?;
     let (r, mut w) = stream.split();
     let mut lines = BufReader::new(r).lines();
     // First line is the state snapshot.
@@ -102,7 +107,11 @@ async fn main() -> anyhow::Result<()> {
         }
         let is_ours = serde_json::from_str::<serde_json::Value>(&line)
             .ok()
-            .and_then(|v| v.get("request_id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+            .and_then(|v| {
+                v.get("request_id")
+                    .and_then(|id| id.as_str())
+                    .map(|s| s.to_string())
+            })
             == Some(want_id.clone());
         if is_ours {
             response = line;
@@ -122,7 +131,11 @@ async fn main() -> anyhow::Result<()> {
                 let msg = v.get("message").and_then(|s| s.as_str()).unwrap_or("");
                 let ok = v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false);
                 if want_text {
-                    if let Some(t) = v.get("data").and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
+                    if let Some(t) = v
+                        .get("data")
+                        .and_then(|d| d.get("text"))
+                        .and_then(|t| t.as_str())
+                    {
                         println!("{t}");
                     } else {
                         println!("no pending text");
@@ -132,7 +145,11 @@ async fn main() -> anyhow::Result<()> {
                     let d = v.get("data").unwrap();
                     let peak = d.get("peak").and_then(|x| x.as_f64()).unwrap_or(0.0);
                     let rms = d.get("rms").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                    let verdict = if rms > 0.02 { "level OK" } else { "very quiet — check input gain/source" };
+                    let verdict = if rms > 0.02 {
+                        "level OK"
+                    } else {
+                        "very quiet — check input gain/source"
+                    };
                     println!("peak {peak:.3} rms {rms:.3} — {verdict}");
                 } else if ok {
                     println!("{state}: {msg}");

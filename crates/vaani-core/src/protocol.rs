@@ -29,9 +29,14 @@ pub enum RequestKind {
     RecoverPending,
     DiscardPending,
     Subscribe,
-    MicTest { secs: u32 },
+    MicTest {
+        secs: u32,
+    },
     /// Strictly validated single-key config update (whitelisted keys only).
-    ConfigSet { key: String, value: String },
+    ConfigSet {
+        key: String,
+        value: String,
+    },
     /// Returns current effective configuration as JSON.
     ConfigGet,
     /// Stream cleaned text into the active target via virtual keyboard.

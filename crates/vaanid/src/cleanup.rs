@@ -24,11 +24,19 @@ pub fn clean(text: &str, endpoint: &str, timeout_secs: u64, vocabulary: &[String
     }
 }
 
-fn try_clean(text: &str, endpoint: &str, timeout_secs: u64, vocab: &[String]) -> anyhow::Result<String> {
+fn try_clean(
+    text: &str,
+    endpoint: &str,
+    timeout_secs: u64,
+    vocab: &[String],
+) -> anyhow::Result<String> {
     let vocab_hint = if vocab.is_empty() {
         String::new()
     } else {
-        format!("\nDomain terms (do not alter their spelling): {}", vocab.join(", "))
+        format!(
+            "\nDomain terms (do not alter their spelling): {}",
+            vocab.join(", ")
+        )
     };
     let prompt = format!(
         "You are a conservative transcription editor. Fix ONLY punctuation, capitalization, and obvious filler words (um, uh). Preserve meaning, negation, numbers, names, units, code, paths, and the original language. Do not add facts, do not rephrase claims, do not translate. If unsure, return the input unchanged.\n{vocab_hint}\n<transcript>\n{text}\n</transcript>\nReturn ONLY the edited transcript, no commentary."
@@ -62,7 +70,12 @@ fn try_clean(text: &str, endpoint: &str, timeout_secs: u64, vocab: &[String]) ->
         anyhow::bail!("cleanup endpoint unreachable");
     }
     let v: serde_json::Value = serde_json::from_slice(&out.stdout)?;
-    let resp = v.get("response").and_then(|r| r.as_str()).unwrap_or("").trim().to_string();
+    let resp = v
+        .get("response")
+        .and_then(|r| r.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     if resp.is_empty() {
         anyhow::bail!("empty cleanup output");
     }
@@ -136,26 +149,60 @@ pub(crate) fn closed_special(text: &str) -> Option<String> {
         ("celebration emoji", "🎉"),
         ("smiley emoji", "🙂"),
     ];
-    let action_prefixes = ["add ", "add a ", "insert ", "insert a ", "use ", "use a ", "put ", "put a ", "include ", "include a ", "send ", "send a ", "give ", "give a "];
+    let action_prefixes = [
+        "add ",
+        "add a ",
+        "insert ",
+        "insert a ",
+        "use ",
+        "use a ",
+        "put ",
+        "put a ",
+        "include ",
+        "include a ",
+        "send ",
+        "send a ",
+        "give ",
+        "give a ",
+    ];
     if let Some((_, symbol)) = emoji.iter().find(|(cue, _)| {
-        lower == *cue || action_prefixes.iter().any(|prefix| lower.ends_with(&format!("{prefix}{cue}")))
+        lower == *cue
+            || action_prefixes
+                .iter()
+                .any(|prefix| lower.ends_with(&format!("{prefix}{cue}")))
     }) {
         return Some((*symbol).to_string());
     }
 
     let markers = ["first", "second", "third", "fourth", "fifth"];
     let words: Vec<&str> = normalized.split_whitespace().collect();
-    let positions: Vec<(usize, &str)> = words.iter().enumerate()
-        .filter_map(|(i, word)| markers.iter().find(|marker| marker.eq_ignore_ascii_case(word)).map(|_| (i, *word)))
+    let positions: Vec<(usize, &str)> = words
+        .iter()
+        .enumerate()
+        .filter_map(|(i, word)| {
+            markers
+                .iter()
+                .find(|marker| marker.eq_ignore_ascii_case(word))
+                .map(|_| (i, *word))
+        })
         .collect();
     if positions.len() >= 2 {
         let mut items = Vec::new();
         for (n, (start, _)) in positions.iter().enumerate() {
             let end = positions.get(n + 1).map(|(i, _)| *i).unwrap_or(words.len());
-            let item = words[start + 1..end].join(" ").trim_matches(|c: char| ",.;:".contains(c)).to_string();
-            if item.is_empty() { return None; }
+            let item = words[start + 1..end]
+                .join(" ")
+                .trim_matches(|c: char| ",.;:".contains(c))
+                .to_string();
+            if item.is_empty() {
+                return None;
+            }
             let mut chars = item.chars();
-            let title = chars.next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default() + chars.as_str();
+            let title = chars
+                .next()
+                .map(|c| c.to_uppercase().collect::<String>())
+                .unwrap_or_default()
+                + chars.as_str();
             items.push(format!("{}. {}", n + 1, title));
         }
         return Some(items.join("\n"));
@@ -190,8 +237,14 @@ mod tests {
 
     #[test]
     fn closed_special_handles_only_explicit_cues() {
-        assert_eq!(closed_special("please add a laughing emoji"), Some("😂".into()));
-        assert_eq!(closed_special("first launch VSCode second inspect logs"), Some("1. Launch VSCode\n2. Inspect logs".into()));
+        assert_eq!(
+            closed_special("please add a laughing emoji"),
+            Some("😂".into())
+        );
+        assert_eq!(
+            closed_special("first launch VSCode second inspect logs"),
+            Some("1. Launch VSCode\n2. Inspect logs".into())
+        );
         assert_eq!(closed_special("I do not want a laughing emoji"), None);
         assert_eq!(closed_special("open the browser"), None);
     }

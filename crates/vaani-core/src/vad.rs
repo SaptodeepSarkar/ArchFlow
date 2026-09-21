@@ -42,18 +42,7 @@ impl Vad {
             sum += x * x;
             if (prev >= 0.0) != (x >= 0.0) {
                 zc += 1;
-    #[test]
-    fn very_quiet_voice_level_is_not_discarded() {
-        let mut v = Vad::default();
-        for i in 0..50 {
-            let b: Vec<f32> = (0..BLOCK_SAMPLES)
-                .map(|n| 0.005 * ((i * BLOCK_SAMPLES + n) as f32 * 0.08).sin())
-                .collect();
-            v.push_block(&b);
-        }
-        assert!(!v.is_silence());
-    }
-}
+            }
             prev = x;
         }
         let rms = (sum / block.len() as f32).sqrt();
@@ -79,6 +68,32 @@ impl Vad {
         }
         // Fewer than 5% speech blocks -> silence.
         self.speech_blocks * 20 < self.total_blocks
+    }
+}
+
+impl crate::engine::VadEngine for Vad {
+    fn engine_id(&self) -> &str {
+        "energy-zcr"
+    }
+
+    fn push_block(&mut self, block: &[f32]) -> Result<bool, crate::engine::EngineError> {
+        if block.len() != BLOCK_SAMPLES {
+            return Err(crate::engine::EngineError::new(
+                crate::engine::EngineErrorKind::InvalidInput,
+                format!("VAD block must contain {BLOCK_SAMPLES} samples"),
+            ));
+        }
+        Ok(Vad::push_block(self, block))
+    }
+
+    fn is_silence(&self) -> bool {
+        Vad::is_silence(self)
+    }
+
+    fn reset(&mut self) {
+        self.hang = 0;
+        self.speech_blocks = 0;
+        self.total_blocks = 0;
     }
 }
 
@@ -140,5 +155,14 @@ mod tests {
             v.push_block(&b);
         }
         assert!(!v.is_silence());
+    }
+
+    #[test]
+    fn adapter_rejects_unbounded_block_shape() {
+        use crate::engine::VadEngine;
+        let mut v = Vad::default();
+        let error = VadEngine::push_block(&mut v, &[0.0; BLOCK_SAMPLES - 1]).unwrap_err();
+        assert_eq!(error.kind, crate::engine::EngineErrorKind::InvalidInput);
+        assert_eq!(v.engine_id(), "energy-zcr");
     }
 }

@@ -51,7 +51,7 @@ impl CaptureHandle {
             .arg("--channels")
             .arg("1")
             .arg("-"); // stdout
-        // Never touch global graph: no --volume, no device switching.
+                       // Never touch global graph: no --volume, no device switching.
         let mut child = cmd
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -157,6 +157,10 @@ pub fn mic_test(secs: u32) -> anyhow::Result<(f32, f32)> {
         }
     }
     h.stop();
-    let rms = if n > 0 { (sum / n as f64).sqrt() as f32 } else { 0.0 };
+    let rms = if n > 0 {
+        (sum / n as f64).sqrt() as f32
+    } else {
+        0.0
+    };
     Ok((peak, rms))
 }
