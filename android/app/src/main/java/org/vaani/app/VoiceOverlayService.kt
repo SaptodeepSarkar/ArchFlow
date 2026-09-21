@@ -8,7 +8,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RectF
+import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -23,6 +25,7 @@ import kotlinx.coroutines.launch
 class VoiceOverlayService : Service() {
     private lateinit var manager: WindowManager
     private lateinit var bubble: VoiceBubbleView
+    private var attached = false
     private var stt: SttSession? = null
     private val formatScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -51,11 +54,18 @@ class VoiceOverlayService : Service() {
                 true
             }
         }
-        manager.addView(bubble, WindowManager.LayoutParams(
-            dp(184), dp(104),
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; x = 24 })
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            stopSelf()
+            return
+        }
+        runCatching {
+            manager.addView(bubble, WindowManager.LayoutParams(
+                dp(184), dp(104),
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT,
+            ).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; x = 24 })
+            attached = true
+        }.onFailure { stopSelf() }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -97,7 +107,12 @@ class VoiceOverlayService : Service() {
         }
     }
 
-    override fun onDestroy() { stt?.cancel(); formatScope.cancel(); manager.removeView(bubble); super.onDestroy() }
+    override fun onDestroy() {
+        stt?.cancel()
+        formatScope.cancel()
+        if (attached) manager.removeViewImmediate(bubble)
+        super.onDestroy()
+    }
 }
 
 /** Product-facing overlay control: a quiet halo when idle, a listening card while held. */
