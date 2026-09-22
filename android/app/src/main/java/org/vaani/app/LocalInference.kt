@@ -18,10 +18,12 @@ object LocalInference {
     private suspend fun formatChunks(context: Context, source: String): String {
         val chunks = source.split(Regex("\\s+")).filter(String::isNotBlank).chunked(MAX_WORDS_PER_CHUNK)
         if (chunks.isEmpty()) return ""
-        return chunks.joinToString(" ") { words -> formatOne(context, words.joinToString(" ")) }
+        return buildList {
+            chunks.forEach { words -> add(formatOne(context, words.joinToString(" "))) }
+        }.joinToString(" ")
     }
 
-    private fun formatOne(context: Context, source: String): String {
+    private suspend fun formatOne(context: Context, source: String): String {
         val modelPath = LocalModels(context).formatterModelFile() ?: return SafeFormatter.format(source)
         return runCatching {
             val model = Llama.loadModel(

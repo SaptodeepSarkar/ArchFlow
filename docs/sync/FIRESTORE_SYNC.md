@@ -5,23 +5,25 @@ connection. The initial cloud surface is deliberately narrow:
 
 `/users/{uid}/personalization/{recordId}`
 
-Only vocabulary, snippet, and replacement records are eligible. Each record
-uses the versioned `vaani-core` envelope: schema version, stable record ID,
-revision, Lamport-style logical clock, writer device ID, update time, and an
-optional value or deletion tombstone. The local repository remains the source
-of immediate behavior; the Android Firebase provider pushes/pulls records after
-optional sign-in through a bounded, network-constrained periodic WorkManager
-job, and also exposes an explicit sync action. It applies the same deterministic
-merge policy in both paths. The Linux/Windows provider adapters remain to be
-connected.
+Only vocabulary, snippet, and replacement records are eligible. Each record is
+serialized as versioned `vaani-core` JSON, gzip-compressed, then encrypted with
+AES-256-GCM on the device. Firestore receives only its record ID, update time,
+nonce, and ciphertext. A 256-bit recovery code is generated on a first device
+and explicitly added to other devices; it is protected at rest by each
+platform's secure store and is never derived from an account password.
+
+The local repository remains the source of immediate behavior. An Android local
+edit schedules one bounded sync, while an opaque FCM `sync_available` wakeup
+schedules a single WorkManager pull. Neither carries vocabulary, links, or
+dictation text. Android and desktop share the envelope, record JSON, and
+deterministic `(logical clock, writer ID, revision, updated time)` merge rule.
 
 The rules in [`firestore.rules`](../../firestore.rules) enforce:
 
 - authentication and same-user reads/writes;
-- an allow-listed envelope and entity-specific value shape;
-- stable IDs, bounded text, non-negative revisions/clocks, and monotonic
-  updates;
-- tombstone-only deletion, with no hard deletes;
+- the allow-listed encrypted envelope only; plaintext record fields are denied;
+- stable document IDs and monotonic encrypted-envelope update times;
+- no hard deletes for personalization records;
 - no storage path for audio, raw dictations, tokens, or arbitrary documents.
 
 The repository binds its Firebase CLI default to the existing `arch-flow-vanni`
@@ -46,15 +48,15 @@ operator-approved deploy:
 cd firebase
 npm install
 firebase emulators:exec --only firestore "npm test"
-firebase deploy --only firestore:rules,firestore:indexes
+cd ..
+firebase deploy --only firestore:rules,firestore:indexes,functions
 ```
 
 Deployment is intentionally not attempted by the repository build. The core
 `SyncProvider` contract, local JSONL implementation, Android auth client/provider,
 and a desktop Firestore REST provider plus email/password Auth client are
-source-implemented. Desktop tokens remain memory-only in the shared client; the
-desktop provider accepts an injected Firebase ID-token supplier so Linux and
-Windows can bind it to OS-secure credential storage. `DesktopSyncClient` provides
-the local-first sign-in/sync lifecycle, and `SecureSessionStore` implements the
-platform keyring binding. Desktop sign-in UI and runtime keyring availability
-checks still require environment-specific shell work.
+source-implemented. The desktop provider uses the same recovery-code envelope
+and its OS credential store; Android uses Android Keystore for its local copy.
+Firebase Cloud Functions sends only an opaque FCM wakeup after an encrypted
+record changes. Deploying that function requires an operator-approved Firebase
+billing plan, so it is deliberately not done by repository builds.

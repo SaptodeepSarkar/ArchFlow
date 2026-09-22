@@ -15,6 +15,9 @@
             <meta-data android:name="android.view.im" android:resource="@xml/method" />
         </service>
         <service android:name=".VoiceOverlayService" android:exported="false" />
+        <service android:name=".VaaniSyncMessagingService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
         <service android:name=".VaaniAccessibilityService" android:exported="false" android:label="Vaani text-box access" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_service" />
