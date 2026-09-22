@@ -180,7 +180,8 @@ class VoiceOverlayService : Service() {
                 onRms = { level -> bubble.post { bubble.level = level } },
                 onResult = { raw -> formatScope.launch {
                     bubble.post { bubble.state = VoiceBubbleView.State.PROCESSING }
-                    val text = LocalInference.format(this@VoiceOverlayService, raw)
+                    val text = PersonalizationStore(this@VoiceOverlayService)
+                        .render(LocalInference.format(this@VoiceOverlayService, raw))
                     val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                     val result = TextDelivery.deliver(
                         text = text,

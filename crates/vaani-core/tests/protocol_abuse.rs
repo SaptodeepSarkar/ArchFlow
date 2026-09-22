@@ -40,6 +40,20 @@ fn all_ops_roundtrip() {
             key: "recognition.model".into(),
             value: "small".into(),
         },
+        RequestKind::PersonalizationGet,
+        RequestKind::PersonalizationAddVocabulary {
+            canonical: "Vaani".into(),
+            spoken_alias: Some("vaani".into()),
+            category: Some("name".into()),
+        },
+        RequestKind::PersonalizationAddReplacement {
+            source: "my github".into(),
+            target: "https://github.com/example".into(),
+        },
+        RequestKind::PersonalizationRemove {
+            entity: vaani_core::protocol::PersonalizationEntity::Vocabulary,
+            id: "rule-1".into(),
+        },
     ] {
         let r = Request::new(kind);
         let line = r.to_line().unwrap();

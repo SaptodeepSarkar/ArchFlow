@@ -1216,7 +1216,7 @@ private fun VaaniWorkspace(
                 }
             }
             when (tab) {
-                "Dictionary" -> WorkspaceEmpty("Your personal words will appear here.")
+                "Dictionary" -> PersonalizationWorkspace()
                 "Style" -> StyleWorkspace()
                 else -> WorkspaceEmpty("Saved snippets will appear here.")
             }
@@ -1229,6 +1229,52 @@ private fun VaaniWorkspace(
         )
         Spacer(Modifier.height(12.dp))
         VaaniPrimaryButton(if (overlayEnabled) "Vaani control is active" else "Enable Vaani control", onToggleOverlay)
+    }
+}
+
+@Composable
+private fun PersonalizationWorkspace() {
+    val context = LocalContext.current
+    val store = remember { PersonalizationStore(context) }
+    var snapshot by remember { mutableStateOf(store.snapshot()) }
+    var spelling by remember { mutableStateOf("") }
+    var heardAs by remember { mutableStateOf("") }
+    var source by remember { mutableStateOf("") }
+    var target by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf<String?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Personal vocabulary", color = VaaniColor.Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Names and places guide recognition; “heard as” corrects a phonetic spelling.", color = VaaniColor.Muted, fontSize = 13.sp)
+        OutlinedTextField(value = spelling, onValueChange = { spelling = it }, label = { Text("Exact spelling") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(value = heardAs, onValueChange = { heardAs = it }, label = { Text("Heard as (optional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedButton(onClick = {
+            runCatching { store.addVocabulary(spelling, heardAs); snapshot = store.snapshot(); spelling = ""; heardAs = "" }
+                .onFailure { message = "Enter a short personal term." }
+        }, enabled = spelling.isNotBlank()) { Text("Add term") }
+        snapshot.vocabulary.forEach { item ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(item.canonical, color = VaaniColor.Ink, fontWeight = FontWeight.SemiBold)
+                    Text(item.aliases.takeIf { it.isNotEmpty() }?.joinToString(prefix = "Heard as: ") ?: "Recognition spelling", color = VaaniColor.Muted, fontSize = 12.sp)
+                }
+                OutlinedButton(onClick = { store.removeVocabulary(item.id); snapshot = store.snapshot() }) { Text("Remove") }
+            }
+        }
+        Text("Text replacements", color = VaaniColor.Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Replace a complete phrase once final dictation is ready—for example, “my github” → your link.", color = VaaniColor.Muted, fontSize = 13.sp)
+        OutlinedTextField(value = source, onValueChange = { source = it }, label = { Text("When Vaani writes this") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(value = target, onValueChange = { target = it }, label = { Text("Replace it with") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedButton(onClick = {
+            runCatching { store.addReplacement(source, target); snapshot = store.snapshot(); source = ""; target = "" }
+                .onFailure { message = "Enter a short source and replacement." }
+        }, enabled = source.isNotBlank() && target.isNotBlank()) { Text("Add replacement") }
+        snapshot.replacements.forEach { item ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("${item.source} → ${item.target}", color = VaaniColor.Ink, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                OutlinedButton(onClick = { store.removeReplacement(item.id); snapshot = store.snapshot() }) { Text("Remove") }
+            }
+        }
+        message?.let { Text(it, color = VaaniColor.Muted, fontSize = 12.sp) }
     }
 }
 

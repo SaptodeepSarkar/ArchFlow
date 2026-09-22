@@ -3,6 +3,14 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Stable, platform-neutral categories for portable personalization records.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PersonalizationEntity {
+    Vocabulary,
+    Replacement,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Request {
     pub protocol_version: u32,
@@ -39,6 +47,27 @@ pub enum RequestKind {
     },
     /// Returns current effective configuration as JSON.
     ConfigGet,
+    /// Returns the local snapshot of portable vocabulary and replacement
+    /// rules. This contains settings, never raw dictation.
+    PersonalizationGet,
+    /// Add a canonical spelling plus an optional phrase Vaani may hear.
+    PersonalizationAddVocabulary {
+        canonical: String,
+        #[serde(default)]
+        spoken_alias: Option<String>,
+        #[serde(default)]
+        category: Option<String>,
+    },
+    /// Replace a complete phrase once final dictation has been recognized.
+    PersonalizationAddReplacement {
+        source: String,
+        target: String,
+    },
+    /// Remove a user-managed personalization record by its stable ID.
+    PersonalizationRemove {
+        entity: PersonalizationEntity,
+        id: String,
+    },
     /// Stream cleaned text into the active target via virtual keyboard.
     /// Args: none. Daemon reads transcript from pending/cleaned state.
     Inject,

@@ -14,9 +14,12 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, Mutex};
 use vaani_core::config::Config;
-use vaani_core::protocol::{Event, Request, RequestKind, Response};
+use vaani_core::personalization::{PersonalizationSnapshot, Replacement, VocabularyEntry};
+use vaani_core::protocol::{Event, PersonalizationEntity, Request, RequestKind, Response};
 use vaani_core::state::{Session, State};
-use vaani_core::sync::StorageProvider;
+use vaani_core::sync::{
+    JsonlStorage, PersonalizationRecord, StorageProvider, SyncEntityKind, SyncRecord,
+};
 
 #[derive(Clone)]
 struct Pending {
@@ -26,7 +29,7 @@ struct Pending {
 
 struct Shared {
     cfg: Config,
-    personalization: vaani_core::personalization::PersonalizationSnapshot,
+    personalization: PersonalizationSnapshot,
     session: Session,
     seq: u64,
     capture: Option<CaptureHandle>,
@@ -99,24 +102,11 @@ pub async fn run() -> anyhow::Result<()> {
 
     let (tx, _rx) = broadcast::channel::<Event>(256);
     let mut cfg = Config::load();
-    let mut personalization = vaani_core::personalization::PersonalizationSnapshot::default();
-    if let Ok(store) = vaani_core::sync::JsonlStorage::open(paths::personalization_path(), "linux")
-    {
+    let mut personalization = PersonalizationSnapshot::default();
+    if let Ok(store) = JsonlStorage::open(paths::personalization_path(), "linux") {
         if let Ok(snapshot) = store.personalization() {
             personalization = snapshot;
-            for term in personalization.vocabulary.iter().flat_map(|entry| {
-                std::iter::once(entry.canonical.as_str())
-                    .chain(entry.spoken_aliases.iter().map(String::as_str))
-            }) {
-                if !cfg
-                    .cleanup
-                    .vocabulary
-                    .iter()
-                    .any(|existing| existing.eq_ignore_ascii_case(&term))
-                {
-                    cfg.cleanup.vocabulary.push(term.to_string());
-                }
-            }
+            merge_personal_vocabulary(&mut cfg, &personalization);
         }
     }
     let shared = Arc::new(Mutex::new(Shared {
@@ -367,6 +357,75 @@ fn run_stream_cleanup(text: &str, cfg: &Config) -> llm_sup::CleanupResult {
     llm_sup::llm_cleanup(text, cfg)
 }
 
+fn merge_personal_vocabulary(cfg: &mut Config, snapshot: &PersonalizationSnapshot) {
+    for term in snapshot.vocabulary.iter().flat_map(|entry| {
+        std::iter::once(entry.canonical.as_str())
+            .chain(entry.spoken_aliases.iter().map(String::as_str))
+    }) {
+        if !cfg
+            .cleanup
+            .vocabulary
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(term))
+        {
+            cfg.cleanup.vocabulary.push(term.to_string());
+        }
+    }
+}
+
+fn setting_text(value: String, max_chars: usize) -> Result<String, String> {
+    let value = value.trim().to_string();
+    if value.is_empty() || value.chars().count() > max_chars || value.contains(['\n', '\r', '\0']) {
+        return Err("invalid personalization value".into());
+    }
+    Ok(value)
+}
+
+fn now_ms() -> Result<i64, String> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "system clock is invalid".to_string())
+        .and_then(|duration| {
+            i64::try_from(duration.as_millis()).map_err(|_| "system clock overflow".to_string())
+        })
+}
+
+fn refresh_personalization(shared: &mut Shared) -> Result<(), String> {
+    let store = JsonlStorage::open(paths::personalization_path(), "linux")
+        .map_err(|_| "could not open personalization storage".to_string())?;
+    let snapshot = store
+        .personalization()
+        .map_err(|_| "could not read personalization storage".to_string())?;
+    merge_personal_vocabulary(&mut shared.cfg, &snapshot);
+    shared.personalization = snapshot;
+    Ok(())
+}
+
+fn request_name(kind: &RequestKind) -> &'static str {
+    match kind {
+        RequestKind::Toggle => "toggle",
+        RequestKind::Start => "start",
+        RequestKind::Stop => "stop",
+        RequestKind::Cancel => "cancel",
+        RequestKind::LiveToggle => "live_toggle",
+        RequestKind::Status => "status",
+        RequestKind::Settings => "settings",
+        RequestKind::Doctor => "doctor",
+        RequestKind::CopyPending => "copy_pending",
+        RequestKind::RecoverPending => "recover_pending",
+        RequestKind::DiscardPending => "discard_pending",
+        RequestKind::Subscribe => "subscribe",
+        RequestKind::MicTest { .. } => "mic_test",
+        RequestKind::ConfigSet { .. } => "config_set",
+        RequestKind::ConfigGet => "config_get",
+        RequestKind::PersonalizationGet => "personalization_get",
+        RequestKind::PersonalizationAddVocabulary { .. } => "personalization_add_vocabulary",
+        RequestKind::PersonalizationAddReplacement { .. } => "personalization_add_replacement",
+        RequestKind::PersonalizationRemove { .. } => "personalization_remove",
+        RequestKind::Inject => "inject",
+    }
+}
+
 /// Key-repeat guard: activations within 800 ms of the previous accepted one
 /// are ignored (a held shortcut must not start+stop instantly).
 /// Returns true when this activation is accepted.
@@ -388,7 +447,9 @@ async fn dispatch(
     tx: broadcast::Sender<Event>,
 ) -> Response {
     let rid = req.request_id.clone();
-    tracing::info!(op = ?req.kind, rid = %rid, "ipc request");
+    // Request arguments can contain private settings such as names or links.
+    // Log only the operation name, never request payloads.
+    tracing::info!(op = request_name(&req.kind), rid = %rid, "ipc request");
     match req.kind {
         RequestKind::Toggle => {
             let busy = {
@@ -595,6 +656,236 @@ async fn dispatch(
             let g = shared.lock().await;
             let data = serde_json::to_value(&g.cfg).unwrap_or(serde_json::Value::Null);
             resp_ok(&rid, &g.session, None, Some(data))
+        }
+        RequestKind::PersonalizationGet => {
+            let g = shared.lock().await;
+            resp_ok(
+                &rid,
+                &g.session,
+                None,
+                Some(serde_json::json!({"personalization": g.personalization})),
+            )
+        }
+        RequestKind::PersonalizationAddVocabulary {
+            canonical,
+            spoken_alias,
+            category,
+        } => {
+            let canonical = match setting_text(canonical, 120) {
+                Ok(value) => value,
+                Err(message) => {
+                    let g = shared.lock().await;
+                    return Response {
+                        ok: false,
+                        message: Some(message),
+                        ..resp_ok(&rid, &g.session, None, None)
+                    };
+                }
+            };
+            let spoken_alias = match spoken_alias.filter(|value| !value.trim().is_empty()) {
+                Some(value) => match setting_text(value, 120) {
+                    Ok(value) => Some(value),
+                    Err(message) => {
+                        let g = shared.lock().await;
+                        return Response {
+                            ok: false,
+                            message: Some(message),
+                            ..resp_ok(&rid, &g.session, None, None)
+                        };
+                    }
+                },
+                None => None,
+            };
+            let category = match category.filter(|value| !value.trim().is_empty()) {
+                Some(value) => match setting_text(value, 32) {
+                    Ok(value) => Some(value),
+                    Err(message) => {
+                        let g = shared.lock().await;
+                        return Response {
+                            ok: false,
+                            message: Some(message),
+                            ..resp_ok(&rid, &g.session, None, None)
+                        };
+                    }
+                },
+                None => None,
+            };
+            let id = uuid::Uuid::new_v4().to_string();
+            let now = match now_ms() {
+                Ok(value) => value,
+                Err(message) => {
+                    let g = shared.lock().await;
+                    return Response {
+                        ok: false,
+                        message: Some(message),
+                        ..resp_ok(&rid, &g.session, None, None)
+                    };
+                }
+            };
+            let record = PersonalizationRecord::Vocabulary(SyncRecord::live(
+                SyncEntityKind::Vocabulary,
+                id.clone(),
+                1,
+                1,
+                "linux".into(),
+                now,
+                VocabularyEntry {
+                    id,
+                    canonical,
+                    spoken_aliases: spoken_alias.into_iter().collect(),
+                    category,
+                    created_at_ms: now,
+                    updated_at_ms: now,
+                },
+            ));
+            let mut g = shared.lock().await;
+            let result = JsonlStorage::open(paths::personalization_path(), "linux")
+                .map_err(|_| "could not open personalization storage".to_string())
+                .and_then(|store| {
+                    store
+                        .upsert(record)
+                        .map_err(|_| "could not save vocabulary".to_string())
+                })
+                .and_then(|_| refresh_personalization(&mut g));
+            match result {
+                Ok(()) => resp_ok(
+                    &rid,
+                    &g.session,
+                    Some("vocabulary saved".into()),
+                    Some(serde_json::json!({"personalization": g.personalization})),
+                ),
+                Err(message) => Response {
+                    ok: false,
+                    message: Some(message),
+                    ..resp_ok(&rid, &g.session, None, None)
+                },
+            }
+        }
+        RequestKind::PersonalizationAddReplacement { source, target } => {
+            let source = match setting_text(source, 160) {
+                Ok(value) => value,
+                Err(message) => {
+                    let g = shared.lock().await;
+                    return Response {
+                        ok: false,
+                        message: Some(message),
+                        ..resp_ok(&rid, &g.session, None, None)
+                    };
+                }
+            };
+            let target = match setting_text(target, 512) {
+                Ok(value) => value,
+                Err(message) => {
+                    let g = shared.lock().await;
+                    return Response {
+                        ok: false,
+                        message: Some(message),
+                        ..resp_ok(&rid, &g.session, None, None)
+                    };
+                }
+            };
+            let id = uuid::Uuid::new_v4().to_string();
+            let now = match now_ms() {
+                Ok(value) => value,
+                Err(message) => {
+                    let g = shared.lock().await;
+                    return Response {
+                        ok: false,
+                        message: Some(message),
+                        ..resp_ok(&rid, &g.session, None, None)
+                    };
+                }
+            };
+            let record = PersonalizationRecord::Replacement(SyncRecord::live(
+                SyncEntityKind::Replacement,
+                id.clone(),
+                1,
+                1,
+                "linux".into(),
+                now,
+                Replacement {
+                    id,
+                    source,
+                    target,
+                    created_at_ms: now,
+                    updated_at_ms: now,
+                },
+            ));
+            let mut g = shared.lock().await;
+            let result = JsonlStorage::open(paths::personalization_path(), "linux")
+                .map_err(|_| "could not open personalization storage".to_string())
+                .and_then(|store| {
+                    store
+                        .upsert(record)
+                        .map_err(|_| "could not save replacement".to_string())
+                })
+                .and_then(|_| refresh_personalization(&mut g));
+            match result {
+                Ok(()) => resp_ok(
+                    &rid,
+                    &g.session,
+                    Some("replacement saved".into()),
+                    Some(serde_json::json!({"personalization": g.personalization})),
+                ),
+                Err(message) => Response {
+                    ok: false,
+                    message: Some(message),
+                    ..resp_ok(&rid, &g.session, None, None)
+                },
+            }
+        }
+        RequestKind::PersonalizationRemove { entity, id } => {
+            if id.len() > 64 || id.is_empty() {
+                let g = shared.lock().await;
+                return Response {
+                    ok: false,
+                    message: Some("invalid personalization record".into()),
+                    ..resp_ok(&rid, &g.session, None, None)
+                };
+            }
+            let entity = match entity {
+                PersonalizationEntity::Vocabulary => SyncEntityKind::Vocabulary,
+                PersonalizationEntity::Replacement => SyncEntityKind::Replacement,
+            };
+            let mut g = shared.lock().await;
+            let result = (|| {
+                let store = JsonlStorage::open(paths::personalization_path(), "linux")
+                    .map_err(|_| "could not open personalization storage".to_string())?;
+                let revision = store
+                    .records()
+                    .map_err(|_| "could not read personalization storage".to_string())?
+                    .into_iter()
+                    .find_map(|record| match (&record, entity) {
+                        (PersonalizationRecord::Vocabulary(value), SyncEntityKind::Vocabulary)
+                            if value.id == id =>
+                        {
+                            Some(value.revision)
+                        }
+                        (
+                            PersonalizationRecord::Replacement(value),
+                            SyncEntityKind::Replacement,
+                        ) if value.id == id => Some(value.revision),
+                        _ => None,
+                    })
+                    .ok_or_else(|| "personalization record no longer exists".to_string())?;
+                store
+                    .tombstone(entity, &id, revision.saturating_add(1), now_ms()?)
+                    .map_err(|_| "could not remove personalization record".to_string())?;
+                refresh_personalization(&mut g)
+            })();
+            match result {
+                Ok(()) => resp_ok(
+                    &rid,
+                    &g.session,
+                    Some("personalization removed".into()),
+                    Some(serde_json::json!({"personalization": g.personalization})),
+                ),
+                Err(message) => Response {
+                    ok: false,
+                    message: Some(message),
+                    ..resp_ok(&rid, &g.session, None, None)
+                },
+            }
         }
         RequestKind::ConfigSet { key, value } => {
             if key.len() > 64 || value.len() > 512 {
@@ -1335,9 +1626,11 @@ async fn stop_flow(
                 return resp_ok("", &s, Some("silence: no text".into()), None);
             }
             // Every non-empty final STT transcript goes through the local
-            // formatter. Its source-grounded guard retains raw text only if
-            // the formatter fails or produces an unsafe rewrite.
-            let mut final_text = vaani_core::personalization::render(&t.text, &g.personalization);
+            // formatter first. Portable personalization is applied after
+            // that conservative edit, matching the Android/text-pipeline
+            // order and keeping user replacements exact.
+            let personal_snapshot = g.personalization.clone();
+            let mut final_text = t.text;
             let _ = g.session.transition(State::Cleaning);
             emit(
                 tx,
@@ -1358,7 +1651,7 @@ async fn stop_flow(
                 return resp_ok("", &s, Some("stale cleanup discarded".into()), None);
             }
             g.last_formatter = cleaned.outcome.into();
-            final_text = cleaned.text;
+            final_text = vaani_core::personalization::render(&cleaned.text, &personal_snapshot);
             if manual {
                 g.last_delivery = "clipboard_only_manual_stop".into();
                 g.pending = Some(Pending {
