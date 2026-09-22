@@ -250,7 +250,7 @@ impl ShortcutSpec {
     }
 
     pub fn default() -> Self {
-        Self::parse("SUPER+ALT+SPACE").expect("default shortcut is valid")
+        Self::parse("SUPER+H").expect("default shortcut is valid")
     }
 
     pub fn modifiers(&self) -> &[ShortcutModifier] {
@@ -1099,7 +1099,7 @@ mod tests {
         let spec = ShortcutSpec::parse("meta + alt + space").unwrap();
         assert_eq!(spec.canonical(), "ALT+SUPER+SPACE");
         assert_eq!(spec.key(), "SPACE");
-        assert_eq!(ShortcutSpec::default().canonical(), "ALT+SUPER+SPACE");
+        assert_eq!(ShortcutSpec::default().canonical(), "SUPER+H");
     }
 
     #[test]

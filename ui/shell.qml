@@ -419,12 +419,15 @@ Scope {
             colors: theme
             onFinished: {
                 root.showOnboarding = false;
-                root.showSettings = false;
             }
         }
     }
     Component {
         id: settingsComponent
-        SettingsView { bridge: root; colors: theme }
+        SettingsView {
+            bridge: root
+            colors: theme
+            onReplayWelcome: root.showOnboarding = true
+        }
     }
 }

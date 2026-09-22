@@ -49,7 +49,8 @@ pub struct General {
     #[serde(default)]
     pub onboarding_complete: bool,
     /// Human-readable compositor shortcut, generated into the app-owned
-    /// Hyprland include by the installer/user. The daemon never grabs keys.
+    /// Hyprland include by the installer or desktop Settings. The daemon never
+    /// grabs keys itself.
     #[serde(default = "default_shortcut")]
     pub shortcut: String,
 }

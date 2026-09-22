@@ -3,6 +3,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Quickshell.Io
 
 Rectangle {
     id: app
@@ -15,11 +16,37 @@ Rectangle {
     property string doctorText: ""
     property string micText: ""
     property string accountText: "Local only"
+    property bool serviceActive: false
+    property bool serviceEnabled: false
+    property string serviceMessage: "Checking the Vaani service…"
+    property string pendingServiceAction: ""
+    signal replayWelcome()
 
-    Component.onCompleted: { bridge.settingsApi = app; requestConfig(); }
+    Component.onCompleted: { bridge.settingsApi = app; requestConfig(); refreshService(); }
     Component.onDestruction: if (bridge.settingsApi === app) bridge.settingsApi = null
     function requestConfig() { bridge.sendOp("config_get"); }
     function setKey(key, value) { bridge.sendOp("config_set", {key: key, value: value}); }
+    function saveShortcut(value) {
+        var trimmed = value.trim();
+        if (trimmed.length === 0) {
+            serviceMessage = "Enter a shortcut such as SUPER+H.";
+            return;
+        }
+        pendingServiceAction = "shortcut";
+        serviceMessage = "Saving shortcut and reloading Hyprland…";
+        shortcutWriter.exec(["vaani-desktop", "shortcut", trimmed]);
+    }
+    function refreshService() {
+        if (!serviceProbe.running)
+            serviceProbe.exec(["systemctl", "--user", "is-active", "--quiet", "vaanid.service"]);
+        if (!bootProbe.running)
+            bootProbe.exec(["systemctl", "--user", "is-enabled", "--quiet", "vaanid.service"]);
+    }
+    function manageService(action) {
+        pendingServiceAction = action;
+        serviceMessage = (action === "start" ? "Starting" : action === "stop" ? "Stopping" : action === "enable" ? "Enabling start at login" : "Disabling start at login") + "…";
+        serviceCommand.exec(["systemctl", "--user", action, "vaanid.service"]);
+    }
     function routeData(data) {
         if (data.key !== undefined) requestConfig();
         else if (data.general && data.recognition) cfg = data;
@@ -27,6 +54,44 @@ Rectangle {
         else if (data.peak !== undefined) micText = "peak " + Number(data.peak).toFixed(3) + " · rms " + Number(data.rms).toFixed(3) + (Number(data.rms) > 0.02 ? " — ready" : " — very quiet");
     }
     function addVocabulary(value) { if (value.trim().length > 0) { setKey("cleanup.vocabulary", value.trim()); requestConfig(); } }
+
+    Timer {
+        id: serviceRefreshTimer
+        interval: 350
+        repeat: false
+        onTriggered: app.refreshService()
+    }
+    Process {
+        id: serviceProbe
+        onExited: function(exitCode) {
+            app.serviceActive = exitCode === 0;
+            if (!serviceCommand.running && !shortcutWriter.running)
+                app.serviceMessage = app.serviceActive ? "Vaani is listening for your shortcut." : "Vaani is stopped. Start it here when you are ready.";
+        }
+    }
+    Process {
+        id: bootProbe
+        onExited: function(exitCode) { app.serviceEnabled = exitCode === 0; }
+    }
+    Process {
+        id: serviceCommand
+        onExited: function(exitCode) {
+            var verb = app.pendingServiceAction;
+            app.serviceMessage = exitCode === 0
+                ? (verb === "start" ? "Vaani started." : verb === "stop" ? "Vaani stopped." : verb === "enable" ? "Vaani will start when you log in." : "Vaani will not start automatically.")
+                : "That service change failed. Check the systemd user session.";
+            serviceRefreshTimer.restart();
+        }
+    }
+    Process {
+        id: shortcutWriter
+        onExited: function(exitCode) {
+            app.serviceMessage = exitCode === 0
+                ? "Shortcut saved and Hyprland reload requested."
+                : "Shortcut was not saved. Use a supported chord such as SUPER+H.";
+            app.requestConfig();
+        }
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -41,11 +106,7 @@ Rectangle {
                 anchors.fill: parent; anchors.margins: 18; spacing: 8
                 RowLayout {
                     Layout.fillWidth: true; spacing: 9
-                    Rectangle {
-                        width: 32; height: 32; radius: 10; color: "#E8DCFF"
-                        Row { anchors.centerIn: parent; spacing: 3; Repeater { model: [9, 18, 13, 21]; Rectangle { required property int modelData; width: 3; height: modelData; radius: 2; color: "#54296C" } } }
-                    }
-                    Label { text: "Vaani"; color: "#19161C"; font.pixelSize: 21; font.bold: true }
+                    VaaniMark { markSize: 31; dark: false }
                 }
                 Label { text: "Your voice. Your device."; color: "#827B87"; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                 Item { Layout.preferredHeight: 16 }
@@ -81,11 +142,12 @@ Rectangle {
                 Flickable {
                     contentWidth: width; contentHeight: homeColumn.implicitHeight; clip: true
                     ColumnLayout { id: homeColumn; width: parent.width; spacing: 18
-                        Rectangle { Layout.fillWidth: true; implicitHeight: 208; radius: 28; color: "#FFD4A3"
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 252; radius: 28; color: "#FFD4A3"
                             ColumnLayout { anchors.fill: parent; anchors.margins: 28; spacing: 10
                                 Label { text: "VOICE, WITHOUT THE FRICTION"; color: "#6B3A85"; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.4 }
                                 Label { text: "Speak.\nVaani writes."; color: "#19161C"; font.pixelSize: 34; font.bold: true; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                                 Label { text: "Press " + (app.cfg.general ? app.cfg.general.shortcut : "SUPER+H") + " anywhere to start dictating."; color: "#57505C"; font.pixelSize: 14 }
+                                VaaniButton { text: "Replay welcome"; tone: "secondary"; onClicked: app.replayWelcome() }
                             }
                         }
                         RowLayout { Layout.fillWidth: true; spacing: 14
@@ -135,26 +197,45 @@ Rectangle {
                         Label { text: "Primary shortcut"; color: "#19161C"; font.bold: true }
                         RowLayout { Layout.fillWidth: true
                             VaaniField { id: shortcut; Layout.fillWidth: true; text: app.cfg.general ? app.cfg.general.shortcut : "SUPER+H"; placeholderText: "SUPER+H" }
-                            VaaniButton { text: "Save shortcut"; onClicked: app.setKey("general.shortcut", shortcut.text) }
+                            VaaniButton { text: "Save shortcut"; enabled: !shortcutWriter.running; onClicked: app.saveShortcut(shortcut.text) }
                         }
-                        Label { text: "This saves the preference. Update the app-owned Hyprland include after changing it."; color: "#827B87"; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                        Label { text: "This updates Vaani’s app-owned Hyprland include and asks Hyprland to reload it."; color: "#827B87"; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                         Label { text: "Model residency"; color: "#19161C"; font.bold: true }
                         RowLayout { Layout.fillWidth: true; spacing: 10; Repeater { model: ["economy", "balanced", "ready"]; delegate: VaaniButton { required property string modelData; Layout.fillWidth: true; text: modelData; tone: app.cfg.general && app.cfg.general.residency_profile === modelData ? "primary" : "secondary"; onClicked: app.setKey("general.residency_profile", modelData) } } }
                         Label { text: "Economy unloads after each dictation. Balanced keeps the model warm briefly. Ready keeps it resident longer."; color: "#827B87"; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                         RowLayout { Layout.fillWidth: true; spacing: 14
                             ColumnLayout { Layout.fillWidth: true
                                 Label { text: "Final model"; color: "#19161C"; font.bold: true }
-                                ComboBox { Layout.fillWidth: true; model: ["tiny", "base", "base.en", "small", "cozy", "v5"]; currentIndex: Math.max(0, model.indexOf(app.cfg.recognition ? app.cfg.recognition.model : "base")); onActivated: app.setKey("recognition.model", currentText) }
+                                VaaniSelect { Layout.fillWidth: true; values: ["tiny", "base", "base.en", "small", "cozy", "v5"]; currentIndex: Math.max(0, values.indexOf(app.cfg.recognition ? app.cfg.recognition.model : "base")); onValueSelected: value => app.setKey("recognition.model", value) }
                             }
                             ColumnLayout { Layout.fillWidth: true
                                 Label { text: "Language"; color: "#19161C"; font.bold: true }
-                                ComboBox { Layout.fillWidth: true; model: ["en", "hi", "bn"]; currentIndex: Math.max(0, model.indexOf(app.cfg.recognition ? app.cfg.recognition.language : "en")); onActivated: app.setKey("recognition.language", currentText) }
+                                VaaniSelect { Layout.fillWidth: true; values: ["en", "hi", "bn"]; currentIndex: Math.max(0, values.indexOf(app.cfg.recognition ? app.cfg.recognition.language : "en")); onValueSelected: value => app.setKey("recognition.language", value) }
                             }
                         }
                         Label { text: "Inference sidecar idle seconds"; color: "#19161C"; font.bold: true }
                         SpinBox { from: 0; to: 600; value: app.cfg.recognition ? app.cfg.recognition.server_idle_secs : 0; onValueModified: app.setKey("recognition.server_idle_secs", String(value)) }
                         VaaniButton { text: "Test microphone"; onClicked: bridge.sendOp("mic_test", {secs: 3}) }
                         Label { text: app.micText; color: "#6B3A85"; font.pixelSize: 12 }
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#E8E2E7"; Layout.topMargin: 8; Layout.bottomMargin: 4 }
+                        Label { text: "Vaani service"; color: "#19161C"; font.pixelSize: 18; font.bold: true }
+                        Label { text: "This is the user service that receives " + (app.cfg.general ? app.cfg.general.shortcut : "SUPER+H") + "."; color: "#827B87"; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 106; radius: 20; color: "#FFFDFB"; border.width: 1; border.color: "#E8E2E7"
+                            ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 9
+                                RowLayout { Layout.fillWidth: true
+                                    Label { text: app.serviceActive ? "●  Running" : "●  Stopped"; color: app.serviceActive ? "#22755E" : "#827B87"; font.bold: true; Layout.fillWidth: true }
+                                    VaaniButton { text: app.serviceActive ? "Stop service" : "Start service"; tone: app.serviceActive ? "secondary" : "primary"; enabled: !serviceCommand.running; onClicked: app.manageService(app.serviceActive ? "stop" : "start") }
+                                }
+                                Label { text: app.serviceMessage; color: "#57505C"; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                            }
+                        }
+                        VaaniToggle {
+                            title: "Start Vaani at login"
+                            description: "Keeps the shortcut service ready after you sign in to your graphical session."
+                            checked: app.serviceEnabled
+                            busy: serviceCommand.running
+                            onRequested: checked => app.manageService(checked ? "enable" : "disable")
+                        }
                     }
                 }
 

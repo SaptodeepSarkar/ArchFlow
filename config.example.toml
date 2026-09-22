@@ -14,8 +14,8 @@ live_chunk_secs = 1
 # hands-free finish: transcribe after N seconds of silence following speech
 # (1-10). 0 disables (manual stop only). SUPER+H mid-session discards.
 auto_stop_secs = 1
-# Primary toggle shortcut shown by the desktop setup/settings app. Hyprland
-# bindings remain app-owned and are regenerated only when the user asks.
+# Primary toggle shortcut shown by the desktop setup/settings app. Saving it
+# from Settings regenerates Vaani's app-owned Hyprland include and reloads it.
 shortcut = "SUPER+H"
 onboarding_complete = false
 
