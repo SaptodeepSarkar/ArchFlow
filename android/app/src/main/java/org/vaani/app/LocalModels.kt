@@ -20,6 +20,10 @@ class LocalModels(context: Context) {
 
     fun formatterModelFile(): File? = modelFile(ModelKind.FORMATTER)
 
+    /** Optional V6 package; callers must still keep the V5 fallback available. */
+    fun v6FormatterFile(): File? = File(root, "formatter/model.v6tg")
+        .takeIf { it.isFile && it.length() > 0L }
+
     fun modelFile(kind: ModelKind): File? = when (kind) {
         ModelKind.STT -> listOf(
             File(root, "stt/ggml-base.bin"),
