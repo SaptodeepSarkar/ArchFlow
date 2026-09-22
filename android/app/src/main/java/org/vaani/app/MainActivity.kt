@@ -1160,6 +1160,20 @@ private fun VaaniWorkspace(
             account = account,
             message = accountMessage,
             onClose = { accountOpen = false },
+            onCreateSync = {
+                val sync = EncryptedPersonalizationSync(context)
+                val code = sync.createRecoveryCode()
+                accountMessage = "Save this recovery code before adding another device: $code"
+                scope.launch {
+                    sync.sync().onFailure { accountMessage = it.message ?: "Recovery code created; encrypted sync could not finish." }
+                }
+            },
+            onImportSync = { code ->
+                runCatching { EncryptedPersonalizationSync(context).importRecoveryCode(code) }
+                    .onSuccess { scope.launch { EncryptedPersonalizationSync(context).sync(); accountMessage = "Encrypted sync complete." } }
+                    .onFailure { accountMessage = "That recovery code is invalid." }
+            },
+            onSync = { scope.launch { EncryptedPersonalizationSync(context).sync().onSuccess { accountMessage = "Encrypted sync complete." }.onFailure { accountMessage = it.message ?: "Encrypted sync could not finish." } } },
             onEmail = { email, password, create ->
                 scope.launch {
                     val result = if (create) accountClient.signUp(email, password) else accountClient.signIn(email, password)
@@ -1167,7 +1181,10 @@ private fun VaaniWorkspace(
                         account = it
                         accountMessage = "Account connected. Preparing your local models on Wi-Fi."
                         ModelRelease.enqueue(context)
-                        FirebasePersonalization(context).read()
+                        VaaniSyncMessagingService.registerCurrentDevice(context)
+                        EncryptedPersonalizationSync(context).sync().onFailure {
+                            accountMessage = "Account connected. Create or add your recovery code to enable private sync."
+                        }
                     }.onFailure { accountMessage = it.message ?: "That account could not be opened." }
                 }
             },
@@ -1179,7 +1196,10 @@ private fun VaaniWorkspace(
                         account = it
                         accountMessage = "Account connected. Preparing your local models on Wi-Fi."
                         ModelRelease.enqueue(context)
-                        FirebasePersonalization(context).read()
+                        VaaniSyncMessagingService.registerCurrentDevice(context)
+                        EncryptedPersonalizationSync(context).sync().onFailure {
+                            accountMessage = "Account connected. Create or add your recovery code to enable private sync."
+                        }
                     }.onFailure { accountMessage = it.message ?: "Google sign-in could not be completed." }
                 }
             },
@@ -1235,6 +1255,7 @@ private fun VaaniWorkspace(
 @Composable
 private fun PersonalizationWorkspace() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val store = remember { PersonalizationStore(context) }
     var snapshot by remember { mutableStateOf(store.snapshot()) }
     var spelling by remember { mutableStateOf("") }
@@ -1248,7 +1269,7 @@ private fun PersonalizationWorkspace() {
         OutlinedTextField(value = spelling, onValueChange = { spelling = it }, label = { Text("Exact spelling") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(value = heardAs, onValueChange = { heardAs = it }, label = { Text("Heard as (optional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedButton(onClick = {
-            runCatching { store.addVocabulary(spelling, heardAs); snapshot = store.snapshot(); spelling = ""; heardAs = "" }
+            runCatching { store.addVocabulary(spelling, heardAs); snapshot = store.snapshot(); spelling = ""; heardAs = ""; scope.launch { EncryptedPersonalizationSync(context).sync() } }
                 .onFailure { message = "Enter a short personal term." }
         }, enabled = spelling.isNotBlank()) { Text("Add term") }
         snapshot.vocabulary.forEach { item ->
@@ -1257,7 +1278,7 @@ private fun PersonalizationWorkspace() {
                     Text(item.canonical, color = VaaniColor.Ink, fontWeight = FontWeight.SemiBold)
                     Text(item.aliases.takeIf { it.isNotEmpty() }?.joinToString(prefix = "Heard as: ") ?: "Recognition spelling", color = VaaniColor.Muted, fontSize = 12.sp)
                 }
-                OutlinedButton(onClick = { store.removeVocabulary(item.id); snapshot = store.snapshot() }) { Text("Remove") }
+                OutlinedButton(onClick = { store.removeVocabulary(item.id); snapshot = store.snapshot(); scope.launch { EncryptedPersonalizationSync(context).sync() } }) { Text("Remove") }
             }
         }
         Text("Text replacements", color = VaaniColor.Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -1265,13 +1286,13 @@ private fun PersonalizationWorkspace() {
         OutlinedTextField(value = source, onValueChange = { source = it }, label = { Text("When Vaani writes this") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(value = target, onValueChange = { target = it }, label = { Text("Replace it with") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedButton(onClick = {
-            runCatching { store.addReplacement(source, target); snapshot = store.snapshot(); source = ""; target = "" }
+            runCatching { store.addReplacement(source, target); snapshot = store.snapshot(); source = ""; target = ""; scope.launch { EncryptedPersonalizationSync(context).sync() } }
                 .onFailure { message = "Enter a short source and replacement." }
         }, enabled = source.isNotBlank() && target.isNotBlank()) { Text("Add replacement") }
         snapshot.replacements.forEach { item ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("${item.source} → ${item.target}", color = VaaniColor.Ink, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                OutlinedButton(onClick = { store.removeReplacement(item.id); snapshot = store.snapshot() }) { Text("Remove") }
+                OutlinedButton(onClick = { store.removeReplacement(item.id); snapshot = store.snapshot(); scope.launch { EncryptedPersonalizationSync(context).sync() } }) { Text("Remove") }
             }
         }
         message?.let { Text(it, color = VaaniColor.Muted, fontSize = 12.sp) }
@@ -1312,12 +1333,16 @@ private fun AccountWorkspace(
     account: VaaniAccount?,
     message: String?,
     onClose: () -> Unit,
+    onCreateSync: () -> Unit,
+    onImportSync: (String) -> Unit,
+    onSync: () -> Unit,
     onEmail: (String, String, Boolean) -> Unit,
     onGoogle: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var recoveryCode by remember { mutableStateOf("") }
     var create by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxSize().background(VaaniColor.Paper).imePadding().padding(horizontal = 24.dp, vertical = 38.dp),
@@ -1339,6 +1364,14 @@ private fun AccountWorkspace(
                         Text("Your model download starts on unmetered Wi-Fi.", color = VaaniColor.Ink, fontSize = 13.sp)
                     }
                 }
+                Text("Encrypted sync", color = VaaniColor.Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Your personal words and links are encrypted before they leave this device.", color = VaaniColor.Muted, fontSize = 13.sp)
+                OutlinedTextField(recoveryCode, { recoveryCode = it }, label = { Text("Recovery code for this device") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onCreateSync) { Text("Create recovery code") }
+                    OutlinedButton(onClick = { onImportSync(recoveryCode) }, enabled = recoveryCode.isNotBlank()) { Text("Add this device") }
+                }
+                OutlinedButton(onClick = onSync) { Text("Sync encrypted data") }
             } else {
                 OutlinedTextField(email, { email = it }, label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(password, { password = it }, label = { Text("Password (8+ characters)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
