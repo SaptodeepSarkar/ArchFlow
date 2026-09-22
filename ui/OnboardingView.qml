@@ -30,8 +30,8 @@ ColumnLayout {
     }
     function config(key, value) { bridge.sendOp("config_set", {key: key, value: value}); }
 
-    Label { text: "Vaani setup"; color: colors.accent; font.pixelSize: 13; font.bold: true; font.letterSpacing: 1.4 }
-    Label { text: ["A private voice tool for Linux", "Choose how Vaani works for you", "Check your microphone", "Teach Vaani your words", "Ready when you are"][page.step]; color: colors.text; font.pixelSize: 30; font.bold: true; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+    Label { text: "VAANI SETUP"; color: colors.accent; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1.4 }
+    Label { text: ["A private voice tool for Linux", "Choose how Vaani works for you", "Check your microphone", "Teach Vaani your words", "Ready when you are"][page.step]; color: colors.text; font.family: "Georgia"; font.pixelSize: 38; wrapMode: Text.WordWrap; Layout.fillWidth: true }
     Label { text: ["Speak in any focused text field, with the same local-first promise as the Android app.", "Use Vaani locally without an account, or connect later to sync vocabulary, snippets, and replacements.", "The test records only for this check and does not save audio.", "Add names, products, places, and technical terms exactly as you want them recognised.", "You can change every choice later in Settings."][page.step]; color: colors.muted; font.pixelSize: 15; wrapMode: Text.WordWrap; Layout.fillWidth: true }
 
     Item { Layout.fillHeight: true }
@@ -42,13 +42,13 @@ ColumnLayout {
         visible: page.step === 1
         Label { text: "Account is optional"; color: colors.text; font.bold: true }
         Label { text: "Local mode is ready immediately. Sign in later with `vaani-desktop login` to sync only your personalization records; recordings and raw dictation stay local."; color: colors.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-        Button { text: "Continue with local mode"; onClicked: page.step++ }
+        VaaniButton { text: "Continue with local mode"; onClicked: page.step++ }
     }
     ColumnLayout {
         Layout.fillWidth: true
         spacing: 12
         visible: page.step === 2
-        Button { text: "Test microphone (3 s)"; onClicked: bridge.sendOp("mic_test", {secs: 3}) }
+        VaaniButton { text: "Test microphone (3 s)"; onClicked: bridge.sendOp("mic_test", {secs: 3}) }
         Label { text: page.micText; color: colors.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
     }
     ColumnLayout {
@@ -58,8 +58,8 @@ ColumnLayout {
         Label { text: "Personal vocabulary"; color: colors.text; font.bold: true }
         RowLayout {
             Layout.fillWidth: true
-            TextField { id: vocabulary; Layout.fillWidth: true; placeholderText: "e.g. ArchFlow, Quickshell, Saptodeep"; onAccepted: addVocabulary() }
-            Button { text: "Add"; onClicked: addVocabulary() }
+            VaaniField { id: vocabulary; Layout.fillWidth: true; placeholderText: "e.g. ArchFlow, Quickshell, Saptodeep"; onAccepted: addVocabulary() }
+            VaaniButton { text: "Add"; onClicked: addVocabulary() }
         }
         Label { text: page.cfg.cleanup ? ("Saved: " + (page.cfg.cleanup.vocabulary || []).join(", ")) : ""; color: colors.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
         function addVocabulary() { if (vocabulary.text.trim().length > 0) { page.config("cleanup.vocabulary", vocabulary.text.trim()); vocabulary.text = ""; bridge.sendOp("config_get"); } }
@@ -75,9 +75,9 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true
-        Button { visible: page.step > 0; text: "Back"; onClicked: page.step-- }
+        VaaniButton { visible: page.step > 0; text: "Back"; tone: "secondary"; onClicked: page.step-- }
         Item { Layout.fillWidth: true }
-        Button {
+        VaaniButton {
             text: page.step === 4 ? "Finish setup" : "Continue"
             onClicked: {
                 if (page.step < 4) page.step++;
