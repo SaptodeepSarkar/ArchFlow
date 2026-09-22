@@ -5,7 +5,8 @@
 - `OnboardingView.qml`: first-run Android-inspired setup for local mode,
   microphone, vocabulary, and residency profile. Account sync remains optional
   and is owned by the secure `vaani-desktop login` boundary.
-- `SettingsView.qml`: 5 pages over `config_get`/`config_set` IPC + one-shot
+- `SettingsView.qml`: brand-aligned Home, Personalize, Settings, and Account
+  pages over `config_get`/`config_set` IPC + one-shot
   mic-test/doctor requests. No polling loops.
 
 Install: `~/.config/quickshell/vaani/{shell.qml,SettingsView.qml}`

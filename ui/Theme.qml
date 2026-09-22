@@ -10,13 +10,17 @@ QtObject {
         var value = scheme[key];
         return typeof value === "string" && /^#?[0-9a-fA-F]{6}$/.test(value) ? "#" + value.replace(/^#/, "") : fallback;
     }
-    readonly property color background: pick("background", "#101218")
-    readonly property color surface: pick("surfaceContainer", "#1B1E27")
-    readonly property color text: pick("onSurface", "#F0F0F7")
-    readonly property color muted: pick("onSurfaceVariant", "#B7BAC9")
-    readonly property color accent: pick("primary", "#C3B4FF")
-    readonly property color outline: pick("outlineVariant", "#3D4050")
-    readonly property color error: pick("error", "#FFB4AB")
+    // Vaani brand-kit defaults. A Caelestia scheme may still override these
+    // when explicitly supplied, but the app remains warm-paper by default.
+    readonly property color background: pick("background", "#FDFBF8")
+    readonly property color surface: pick("surfaceContainer", "#FFFDFB")
+    readonly property color text: pick("onSurface", "#19161C")
+    readonly property color muted: pick("onSurfaceVariant", "#827B87")
+    readonly property color accent: pick("primary", "#6B3A85")
+    readonly property color outline: pick("outlineVariant", "#E8E2E7")
+    readonly property color error: pick("error", "#B34E4E")
+    readonly property color lilac: "#E8DCFF"
+    readonly property color apricot: "#FFD4A3"
     property FileView source: FileView {
         path: Quickshell.env("VAANI_THEME_FILE") || ((Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/caelestia/scheme.json")
         watchChanges: true

@@ -16,7 +16,7 @@ live_chunk_secs = 1
 auto_stop_secs = 1
 # Primary toggle shortcut shown by the desktop setup/settings app. Hyprland
 # bindings remain app-owned and are regenerated only when the user asks.
-shortcut = "SUPER+ALT+SPACE"
+shortcut = "SUPER+H"
 onboarding_complete = false
 
 [audio]

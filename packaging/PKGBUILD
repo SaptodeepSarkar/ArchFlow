@@ -44,5 +44,7 @@ package() {
   install -Dm644 ui/Theme.qml "$pkgdir/usr/share/quickshell/vaani/Theme.qml"
   install -Dm644 ui/SettingsView.qml "$pkgdir/usr/share/quickshell/vaani/SettingsView.qml"
   install -Dm644 ui/OnboardingView.qml "$pkgdir/usr/share/quickshell/vaani/OnboardingView.qml"
+  install -Dm644 ui/VaaniButton.qml "$pkgdir/usr/share/quickshell/vaani/VaaniButton.qml"
+  install -Dm644 ui/VaaniField.qml "$pkgdir/usr/share/quickshell/vaani/VaaniField.qml"
   install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

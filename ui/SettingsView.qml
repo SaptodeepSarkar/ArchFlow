@@ -1,394 +1,180 @@
-// Vaani SettingsView: five pages, socket-driven (no polling loops).
-// Reads config once via config_get on open; writes via validated config_set.
-// One-shot mic-test / doctor requests only when the user presses the button.
+// Vaani desktop control surface. The visual tokens mirror brand/brand-kit.html:
+// warm paper, ink, plum intent, lilac actions, and apricot feature cards.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-ColumnLayout {
-    id: settingsRoot
+Rectangle {
+    id: app
     anchors.fill: parent
-    spacing: 0
-
-    property var cfg: ({})
-    property string doctorText: ""
-    property string micText: ""
-
+    color: "#FDFBF8"
     required property var bridge
     required property var colors
-    Component.onCompleted: { bridge.settingsApi = settingsRoot; requestConfig(); }
-    Component.onDestruction: { if (bridge.settingsApi === settingsRoot) bridge.settingsApi = null; }
+    property var cfg: ({})
+    property int page: 0
+    property string doctorText: ""
+    property string micText: ""
+    property string accountText: "Local only"
+
+    Component.onCompleted: { bridge.settingsApi = app; requestConfig(); }
+    Component.onDestruction: if (bridge.settingsApi === app) bridge.settingsApi = null
     function requestConfig() { bridge.sendOp("config_get"); }
-
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: 104
-        color: colors.surface
-        Column {
-            anchors.left: parent.left; anchors.leftMargin: 24
-            anchors.verticalCenter: parent.verticalCenter; spacing: 6
-            Label { text: "Vaani"; font.pixelSize: 30; font.weight: Font.DemiBold; color: colors.text }
-            Label { text: "Your voice. Your device."; color: colors.muted }
-        }
-        Label { anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; text: colors.dynamic ? "●  Dynamic theme" : "●  Vaani theme"; color: colors.accent }
-    }
-    Label { Layout.fillWidth: true; Layout.leftMargin: 24; text: bridge.statusText; color: colors.muted; wrapMode: Text.WordWrap }
+    function setKey(key, value) { bridge.sendOp("config_set", {key: key, value: value}); }
     function routeData(data) {
-        if (data.key !== undefined) {
-            requestConfig();
-        } else if (data.general && data.recognition) {
-            settingsRoot.cfg = data;
-        } else if (data.checks) {
-            settingsRoot.doctorText = JSON.stringify(data, null, 2);
-        } else if (data.peak !== undefined) {
-            var peak = Number(data.peak).toFixed(3);
-            var rms = Number(data.rms).toFixed(3);
-            settingsRoot.micText = "peak " + peak + " · rms " + rms + (Number(data.rms) > 0.02 ? " — level OK" : " — very quiet, check input gain / source");
-        }
+        if (data.key !== undefined) requestConfig();
+        else if (data.general && data.recognition) cfg = data;
+        else if (data.checks) doctorText = JSON.stringify(data, null, 2);
+        else if (data.peak !== undefined) micText = "peak " + Number(data.peak).toFixed(3) + " · rms " + Number(data.rms).toFixed(3) + (Number(data.rms) > 0.02 ? " — ready" : " — very quiet");
     }
-
-    function setKey(key, value) {
-        bridge.sendOp("config_set", {key: key, value: value});
-    }
+    function addVocabulary(value) { if (value.trim().length > 0) { setKey("cleanup.vocabulary", value.trim()); requestConfig(); } }
 
     RowLayout {
-        Layout.fillWidth: true
-        Layout.fillHeight: true
+        anchors.fill: parent
         spacing: 0
         Rectangle {
-            Layout.preferredWidth: 170
+            Layout.preferredWidth: 204
             Layout.fillHeight: true
-            color: colors.surface
+            color: "#FFFDFB"
+            border.color: "#E8E2E7"
+            border.width: 1
             ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 12
-                spacing: 6
+                anchors.fill: parent; anchors.margins: 18; spacing: 8
+                RowLayout {
+                    Layout.fillWidth: true; spacing: 9
+                    Rectangle {
+                        width: 32; height: 32; radius: 10; color: "#E8DCFF"
+                        Row { anchors.centerIn: parent; spacing: 3; Repeater { model: [9, 18, 13, 21]; Rectangle { required property int modelData; width: 3; height: modelData; radius: 2; color: "#54296C" } } }
+                    }
+                    Label { text: "Vaani"; color: "#19161C"; font.pixelSize: 21; font.bold: true }
+                }
+                Label { text: "Your voice. Your device."; color: "#827B87"; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                Item { Layout.preferredHeight: 16 }
                 Repeater {
-                    model: ["General", "Audio", "Recognition", "Shortcuts", "Privacy & diagnostics"]
-                    delegate: Button {
+                    model: ["Home", "Personalize", "Settings", "Account"]
+                    delegate: VaaniButton {
                         required property int index
                         required property string modelData
-                        Layout.fillWidth: true
-                        text: modelData
-                        highlighted: pages.currentIndex === index
-                        onClicked: pages.currentIndex = index
+                        Layout.fillWidth: true; text: modelData; tone: app.page === index ? "primary" : "text"
+                        onClicked: app.page = index
                     }
                 }
                 Item { Layout.fillHeight: true }
-                Label { text: "Private by default\nRuns on your device"; color: colors.muted; font.pixelSize: 11 }
+                Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#E8E2E7" }
+                Label { text: "LOCAL-FIRST"; color: "#6B3A85"; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.2 }
+                Label { text: "Audio and raw dictation stay on this device."; color: "#827B87"; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             }
         }
-    StackLayout {
-        id: pages
-        currentIndex: 0
-        Layout.fillWidth: true
-        Layout.fillHeight: true
-        Layout.margins: 16
-
-        // ---- General ----
         ColumnLayout {
-            spacing: 10
-            Label {
-                text: "Dictation profile"
-                font.bold: true
-            }
-            ComboBox {
-                model: ["economy", "balanced", "ready"]
-                currentIndex: Math.max(0, ["economy", "balanced", "ready"].indexOf(settingsRoot.cfg.general ? settingsRoot.cfg.general.residency_profile : "economy"))
-                onActivated: settingsRoot.setKey("general.residency_profile", currentText)
-            }
-            Label {
-                text: settingsRoot.cfg.general && settingsRoot.cfg.general.residency_profile === "ready"
-                    ? "Ready keeps the selected model warm for up to 10 minutes; it uses more memory."
-                    : settingsRoot.cfg.general && settingsRoot.cfg.general.residency_profile === "balanced"
-                        ? "Balanced keeps the model warm for at least 60 seconds, speeding up repeated dictation."
-                        : "Economy unloads the model after each dictation, saving inactive memory."
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-                color: colors.muted
-            }
-            CheckBox {
-                text: "Review before insertion"
-                checked: settingsRoot.cfg.general ? settingsRoot.cfg.general.review_before_insertion : false
-                onToggled: settingsRoot.setKey("general.review_before_insertion", checked ? "true" : "false")
-            }
-            Label {
-                text: "Delivery mode"
-                font.bold: true
-            }
-            ComboBox {
-                model: ["automatic", "review", "copy-only"]
-                currentIndex: Math.max(0, ["automatic", "review", "copy-only"].indexOf(settingsRoot.cfg.insertion ? settingsRoot.cfg.insertion.mode : "automatic"))
-                onActivated: settingsRoot.setKey("insertion.mode", currentText)
-            }
-            Label {
-                text: settingsRoot.cfg.insertion && settingsRoot.cfg.insertion.mode === "copy-only"
-                    ? "Copy-only keeps the complete result on the clipboard."
-                    : settingsRoot.cfg.insertion && settingsRoot.cfg.insertion.mode === "review"
-                        ? "Review pauses before insertion so you can confirm the focused field."
-                        : "Automatic types after a final focus check; terminals and shell-like text remain copy-only."
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-                color: colors.muted
-            }
-            Label {
-                text: "App overrides"
-                font.bold: true
-            }
-            Label {
-                text: "Match a focused app-id substring and choose a safer delivery mode."
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-                color: colors.muted
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                TextField {
-                    id: overridePattern
-                    Layout.fillWidth: true
-                    placeholderText: "App id, e.g. code or firefox"
-                }
-                ComboBox {
-                    id: overrideMode
-                    model: ["automatic", "review", "copy-only"]
-                }
-                Button {
-                    text: "Save"
-                    onClicked: {
-                        if (overridePattern.text.trim().length > 0) {
-                            settingsRoot.setKey("insertion.app_override", overridePattern.text.trim() + "=" + overrideMode.currentText)
-                            overridePattern.text = ""
-                        }
-                    }
-                }
-            }
-            Repeater {
-                model: settingsRoot.cfg.insertion && settingsRoot.cfg.insertion.app_overrides
-                    ? Object.keys(settingsRoot.cfg.insertion.app_overrides)
-                    : []
-                delegate: RowLayout {
-                    required property string modelData
-                    Layout.fillWidth: true
-                    Label {
-                        text: modelData + " → " + settingsRoot.cfg.insertion.app_overrides[modelData]
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                    }
-                    Button {
-                        text: "Remove"
-                        onClicked: settingsRoot.setKey("insertion.app_override", modelData + "=none")
-                    }
-                }
-            }
-            Label { text: "Personal vocabulary"; font.bold: true }
-            Label {
-                text: "Names and technical terms are added to the recognizer prompt and never sent as dictation history."
-                wrapMode: Text.WordWrap; Layout.fillWidth: true; color: colors.muted
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                TextField { id: vocabularyField; Layout.fillWidth: true; placeholderText: "Add a word or name" }
-                Button {
-                    text: "Add"
-                    onClicked: {
-                        if (vocabularyField.text.trim().length > 0) {
-                            settingsRoot.setKey("cleanup.vocabulary", vocabularyField.text.trim())
-                            vocabularyField.text = ""
-                        }
-                    }
-                }
-            }
-            Label {
-                text: settingsRoot.cfg.cleanup ? (settingsRoot.cfg.cleanup.vocabulary || []).join(", ") : ""
-                color: colors.text; wrapMode: Text.WordWrap; Layout.fillWidth: true
-            }
-        }
-
-        // ---- Audio ----
-        ColumnLayout {
-            spacing: 10
-            Label {
-                text: "Input device (empty = PipeWire default source)"
-                font.bold: true
-            }
-            TextField {
-                Layout.fillWidth: true
-                placeholderText: "e.g. alsa_input.usb-… (stable name, not numeric node id)"
-                text: settingsRoot.cfg.audio ? settingsRoot.cfg.audio.device_selector : ""
-                onEditingFinished: settingsRoot.setKey("audio.device_selector", text)
-            }
-            Label {
-                text: "CPU worker threads (1–16, default 4)"
-                font.bold: true
-            }
-            SpinBox {
-                from: 1
-                to: 16
-                value: settingsRoot.cfg.audio ? settingsRoot.cfg.audio.worker_threads : 4
-                onValueModified: settingsRoot.setKey("audio.worker_threads", String(value))
-            }
-            Button {
-                text: "Test microphone (3 s)"
-                onClicked: {
-                    bridge.sendOp("mic_test", {
-                            "secs": 3
-                        });
-                }
-            }
-            Label {
-                text: settingsRoot.micText
-                color: colors.muted
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-        }
-
-        // ---- Recognition ----
-        ColumnLayout {
-            spacing: 10
-            Label {
-                text: "Recognition model"
-                font.bold: true
-            }
-            ComboBox {
-                model: ["tiny", "base", "base.en", "small", "cozy", "v5"]
-                currentIndex: Math.max(0, ["tiny", "base", "base.en", "small", "cozy", "v5"].indexOf(settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.model : "base"))
-                onActivated: settingsRoot.setKey("recognition.model", currentText)
-            }
-            Label {
-                text: "Live preview model"
-                font.bold: true
-            }
-            ComboBox {
-                model: ["tiny", "base", "base.en", "small", "cozy", "v5"]
-                currentIndex: Math.max(0, ["tiny", "base", "base.en", "small", "cozy", "v5"].indexOf(settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.live_model : "base"))
-                onActivated: settingsRoot.setKey("recognition.live_model", currentText)
-            }
-            Label {
-                text: "Preview text is provisional; final insertion always uses the selected final model."
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-                color: colors.muted
-            }
-            Label {
-                text: "Language (explicit setting; auto-detection fails on short utterances)"
-                font.bold: true
-            }
-            ComboBox {
-                model: ["en", "hi", "bn"]
-                currentIndex: Math.max(0, ["en", "hi", "bn"].indexOf(settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.language : "en"))
-                onActivated: settingsRoot.setKey("recognition.language", currentText)
-            }
-            Label {
-                text: "Compute device (CPU default; CUDA needs a user-selected GPU build)"
-                font.bold: true
-            }
-            ComboBox {
-                model: ["cpu", "cuda"]
-                currentIndex: (settingsRoot.cfg.recognition && settingsRoot.cfg.recognition.device === "cuda") ? 1 : 0
-                onActivated: settingsRoot.setKey("recognition.device", currentText)
-            }
-            Label {
-                text: "Inference sidecar idle limit (seconds)"
-                font.bold: true
-            }
-            SpinBox {
-                from: 0
-                to: 600
-                value: settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.server_idle_secs : 0
-                onValueModified: settingsRoot.setKey("recognition.server_idle_secs", String(value))
-            }
-            Label {
-                text: "Economy always unloads after use. Balanced enforces at least 60 seconds; Ready enforces up to 10 minutes."
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-                color: colors.muted
-            }
-            CheckBox {
-                text: "Translate to English (opt-in)"
-                checked: settingsRoot.cfg.recognition ? settingsRoot.cfg.recognition.translate_to_en : false
-                onToggled: settingsRoot.setKey("recognition.translate_to_en", checked ? "true" : "false")
-            }
-        }
-
-        // ---- Shortcuts ----
-        ScrollView {
-            ColumnLayout {
-                width: parent.width
-                spacing: 8
-                Label {
-                    text: "Primary shortcut (Hyprland invokes the CLI; Vaani never reads /dev/input)"
-                    font.bold: true
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                }
+            Layout.fillWidth: true; Layout.fillHeight: true; spacing: 0
+            Rectangle {
+                Layout.fillWidth: true; Layout.preferredHeight: 76; color: "#FDFBF8"
                 RowLayout {
-                    Layout.fillWidth: true
-                    TextField {
-                        id: shortcutField
-                        Layout.fillWidth: true
-                        text: settingsRoot.cfg.general ? settingsRoot.cfg.general.shortcut : "SUPER+ALT+SPACE"
-                        placeholderText: "SUPER+ALT+SPACE"
-                    }
-                    Button { text: "Save"; onClicked: settingsRoot.setKey("general.shortcut", shortcutField.text) }
-                }
-                Label {
-                    text: (settingsRoot.cfg.general ? settingsRoot.cfg.general.shortcut : "SUPER+ALT+SPACE") + " — toggle · Super+H — live dictation · Super+Alt+V — hold-to-talk · Super+Alt+Esc — cancel · Super+Alt+S — settings"
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                    color: colors.text
-                }
-                Label {
-                    text: "Classic Hyprland: source the installed vaani.conf. Lua setups: use vaani.lua. Add only one set of shortcuts and check for conflicts in your compositor config."
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                    color: colors.muted
+                    anchors.fill: parent; anchors.leftMargin: 32; anchors.rightMargin: 28
+                    Label { text: ["Good morning, speak freely.", "Make Vaani sound like you.", "Tune Vaani to your workflow.", "Sync only what you choose."][app.page]; color: "#19161C"; font.pixelSize: 23; font.bold: true; Layout.fillWidth: true }
+                    Rectangle { implicitWidth: 86; implicitHeight: 31; radius: 16; color: "#FFF0DF"; Label { anchors.centerIn: parent; text: "●  LOCAL"; color: "#54296C"; font.pixelSize: 10; font.bold: true } }
                 }
             }
-        }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#E8E2E7" }
+            StackLayout {
+                Layout.fillWidth: true; Layout.fillHeight: true; Layout.margins: 32; currentIndex: app.page
 
-        // ---- Privacy & Diagnostics ----
-        ColumnLayout {
-            spacing: 10
-            CheckBox {
-                text: "Transcript history (not implemented)"
-                enabled: false
-                checked: settingsRoot.cfg.privacy ? settingsRoot.cfg.privacy.save_history : false
-                onToggled: settingsRoot.setKey("privacy.save_history", checked ? "true" : "false")
-            }
-            CheckBox {
-                text: "Hide transcript previews (for screen sharing)"
-                checked: settingsRoot.cfg.privacy ? settingsRoot.cfg.privacy.hide_preview_on_sharing : false
-                onToggled: settingsRoot.setKey("privacy.hide_preview_on_sharing", checked ? "true" : "false")
-            }
-            Label {
-                text: "Always format final transcripts"
-                font.bold: true
-            }
-            Label {
-                text: "Every non-empty result is sent to Vaani’s local, source-grounded formatter. The original text is kept only when formatting fails or its safety guard rejects an unsafe rewrite."
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-                color: colors.muted
-            }
-            Button {
-                text: "Run diagnostics"
-                onClicked: {
-                    bridge.sendOp("doctor");
+                Flickable {
+                    contentWidth: width; contentHeight: homeColumn.implicitHeight; clip: true
+                    ColumnLayout { id: homeColumn; width: parent.width; spacing: 18
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 208; radius: 28; color: "#FFD4A3"
+                            ColumnLayout { anchors.fill: parent; anchors.margins: 28; spacing: 10
+                                Label { text: "VOICE, WITHOUT THE FRICTION"; color: "#6B3A85"; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.4 }
+                                Label { text: "Speak.\nVaani writes."; color: "#19161C"; font.pixelSize: 34; font.bold: true; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                Label { text: "Press " + (app.cfg.general ? app.cfg.general.shortcut : "SUPER+H") + " anywhere to start dictating."; color: "#57505C"; font.pixelSize: 14 }
+                            }
+                        }
+                        RowLayout { Layout.fillWidth: true; spacing: 14
+                            Rectangle { Layout.fillWidth: true; implicitHeight: 116; radius: 20; color: "#FFFDFB"; border.color: "#E8E2E7"
+                                Column { anchors.fill: parent; anchors.margins: 18; spacing: 6
+                                    Label { text: "Shortcut"; color: "#827B87"; font.pixelSize: 11; font.bold: true }
+                                    Label { text: app.cfg.general ? app.cfg.general.shortcut : "SUPER+H"; color: "#19161C"; font.pixelSize: 19; font.bold: true }
+                                    Label { text: "Change in Settings"; color: "#6B3A85"; font.pixelSize: 11 }
+                                }
+                            }
+                            Rectangle { Layout.fillWidth: true; implicitHeight: 116; radius: 20; color: "#FFFDFB"; border.color: "#E8E2E7"
+                                Column { anchors.fill: parent; anchors.margins: 18; spacing: 6
+                                    Label { text: "Model"; color: "#827B87"; font.pixelSize: 11; font.bold: true }
+                                    Label { text: app.cfg.recognition ? app.cfg.recognition.model : "base"; color: "#19161C"; font.pixelSize: 19; font.bold: true }
+                                    Label { text: app.cfg.general ? app.cfg.general.residency_profile : "economy"; color: "#6B3A85"; font.pixelSize: 11 }
+                                }
+                            }
+                        }
+                        Label { text: "Personal vocabulary"; color: "#19161C"; font.pixelSize: 17; font.bold: true }
+                        Label { text: app.cfg.cleanup && app.cfg.cleanup.vocabulary && app.cfg.cleanup.vocabulary.length ? app.cfg.cleanup.vocabulary.join("  ·  ") : "No words added yet — add names and technical terms in Personalize."; color: "#827B87"; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    }
                 }
-            }
-            ScrollView {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                TextArea {
-                    text: settingsRoot.doctorText
-                    readOnly: true
-                    wrapMode: Text.WordWrap
-                    placeholderText: "Diagnostics appear here."
+
+                Flickable {
+                    contentWidth: width; contentHeight: personalizeColumn.implicitHeight; clip: true
+                    ColumnLayout { id: personalizeColumn; width: parent.width; spacing: 18
+                        Label { text: "Your words, recognised properly."; color: "#19161C"; font.pixelSize: 30; font.bold: true; Layout.fillWidth: true }
+                        Label { text: "Names, places, products, and technical terms are used as recognition context. They never become dictation history."; color: "#827B87"; font.pixelSize: 14; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 132; radius: 24; color: "#E8DCFF"
+                            ColumnLayout { anchors.fill: parent; anchors.margins: 22; spacing: 10
+                                Label { text: "PERSONAL VOCABULARY"; color: "#54296C"; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.3 }
+                                RowLayout { Layout.fillWidth: true
+                                    VaaniField { id: vocab; Layout.fillWidth: true; placeholderText: "Add a word or name" }
+                                    VaaniButton { text: "Add word"; onClicked: { app.addVocabulary(vocab.text); vocab.text = "" } }
+                                }
+                            }
+                        }
+                        Label { text: app.cfg.cleanup && app.cfg.cleanup.vocabulary ? app.cfg.cleanup.vocabulary.join("  ·  ") : ""; color: "#57505C"; font.pixelSize: 15; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    }
+                }
+
+                Flickable {
+                    contentWidth: width; contentHeight: settingsColumn.implicitHeight; clip: true
+                    ColumnLayout { id: settingsColumn; width: parent.width; spacing: 15
+                        Label { text: "Settings"; color: "#19161C"; font.pixelSize: 30; font.bold: true }
+                        Label { text: "Make the tradeoffs visible. Vaani never changes these silently."; color: "#827B87"; font.pixelSize: 14 }
+                        Label { text: "Primary shortcut"; color: "#19161C"; font.bold: true }
+                        RowLayout { Layout.fillWidth: true
+                            VaaniField { id: shortcut; Layout.fillWidth: true; text: app.cfg.general ? app.cfg.general.shortcut : "SUPER+H"; placeholderText: "SUPER+H" }
+                            VaaniButton { text: "Save shortcut"; onClicked: app.setKey("general.shortcut", shortcut.text) }
+                        }
+                        Label { text: "This saves the preference. Update the app-owned Hyprland include after changing it."; color: "#827B87"; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                        Label { text: "Model residency"; color: "#19161C"; font.bold: true }
+                        RowLayout { Layout.fillWidth: true; spacing: 10; Repeater { model: ["economy", "balanced", "ready"]; delegate: VaaniButton { required property string modelData; Layout.fillWidth: true; text: modelData; tone: app.cfg.general && app.cfg.general.residency_profile === modelData ? "primary" : "secondary"; onClicked: app.setKey("general.residency_profile", modelData) } } }
+                        Label { text: "Economy unloads after each dictation. Balanced keeps the model warm briefly. Ready keeps it resident longer."; color: "#827B87"; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                        RowLayout { Layout.fillWidth: true; spacing: 14
+                            ColumnLayout { Layout.fillWidth: true
+                                Label { text: "Final model"; color: "#19161C"; font.bold: true }
+                                ComboBox { Layout.fillWidth: true; model: ["tiny", "base", "base.en", "small", "cozy", "v5"]; currentIndex: Math.max(0, model.indexOf(app.cfg.recognition ? app.cfg.recognition.model : "base")); onActivated: app.setKey("recognition.model", currentText) }
+                            }
+                            ColumnLayout { Layout.fillWidth: true
+                                Label { text: "Language"; color: "#19161C"; font.bold: true }
+                                ComboBox { Layout.fillWidth: true; model: ["en", "hi", "bn"]; currentIndex: Math.max(0, model.indexOf(app.cfg.recognition ? app.cfg.recognition.language : "en")); onActivated: app.setKey("recognition.language", currentText) }
+                            }
+                        }
+                        Label { text: "Inference sidecar idle seconds"; color: "#19161C"; font.bold: true }
+                        SpinBox { from: 0; to: 600; value: app.cfg.recognition ? app.cfg.recognition.server_idle_secs : 0; onValueModified: app.setKey("recognition.server_idle_secs", String(value)) }
+                        VaaniButton { text: "Test microphone"; onClicked: bridge.sendOp("mic_test", {secs: 3}) }
+                        Label { text: app.micText; color: "#6B3A85"; font.pixelSize: 12 }
+                    }
+                }
+
+                Flickable {
+                    contentWidth: width; contentHeight: accountColumn.implicitHeight; clip: true
+                    ColumnLayout { id: accountColumn; width: parent.width; spacing: 18
+                        Label { text: "Your Vaani account"; color: "#19161C"; font.pixelSize: 30; font.bold: true }
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 142; radius: 24; color: "#FFD4A3"
+                            Column { anchors.fill: parent; anchors.margins: 22; spacing: 8
+                                Label { text: "OPTIONAL SYNC"; color: "#6B3A85"; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.3 }
+                                Label { text: "Keep your words close."; color: "#19161C"; font.pixelSize: 24; font.bold: true }
+                                Label { text: "Only vocabulary, snippets, and replacements sync. Audio and raw dictation never leave this device."; color: "#57505C"; wrapMode: Text.WordWrap; width: parent.width }
+                            }
+                        }
+                        Label { text: "Use the secure desktop account command when you want sync:"; color: "#827B87"; font.pixelSize: 14 }
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 52; radius: 16; color: "#19161C"; Label { anchors.centerIn: parent; text: "vaani-desktop login"; color: "#FDFBF8"; font.family: "monospace"; font.pixelSize: 14 } }
+                        Label { text: "Account status: " + app.accountText; color: "#6B3A85"; font.bold: true }
+                    }
                 }
             }
         }
     }
-}
-
 }

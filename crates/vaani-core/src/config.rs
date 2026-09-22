@@ -143,7 +143,7 @@ fn default_auto_stop() -> u64 {
     1
 }
 fn default_shortcut() -> String {
-    "SUPER+ALT+SPACE".into()
+    "SUPER+H".into()
 }
 fn default_threads() -> u32 {
     4
