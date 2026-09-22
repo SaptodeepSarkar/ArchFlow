@@ -22,6 +22,17 @@
       "size_bytes": 386405344,
       "license": "Apache-2.0",
       "note": "V5 formatter exported from the released local checkpoint and quantized Q8_0."
+    },
+    {
+      "id": "vaani-v6-tagger",
+      "kind": "formatter_v6",
+      "runtime": "vaani-v6-tagger",
+      "android_compatible": true,
+      "url": "https://github.com/SaptodeepSarkar/ArchFlow/releases/download/v1.2.0/vaani-v6-tagger.v6tg",
+      "sha256": "bc813025c6c7cf844fec826510af5a5555de9fa676cb0658bca738e01435e81f",
+      "size_bytes": 834512,
+      "license": "MIT",
+      "note": "Shared V6 source-grounded formatter artifact; promotion remains challenge-gated."
     }
   ]
 }
