@@ -13,9 +13,11 @@ and explicitly added to other devices; it is protected at rest by each
 platform's secure store and is never derived from an account password.
 
 The local repository remains the source of immediate behavior. An Android local
-edit schedules one bounded sync, while an opaque FCM `sync_available` wakeup
-schedules a single WorkManager pull. Neither carries vocabulary, links, or
-dictation text. Android and desktop share the envelope, record JSON, and
+edit schedules one bounded sync, and the app pulls once on sign-in and resume.
+On Blaze, an opaque FCM `sync_available` wakeup additionally schedules a single
+WorkManager pull. On Spark, Cloud Functions are unavailable, so background
+push-triggered sync is not possible; no plaintext workaround or polling loop is
+introduced. Android and desktop share the envelope, record JSON, and
 deterministic `(logical clock, writer ID, revision, updated time)` merge rule.
 
 The rules in [`firestore.rules`](../../firestore.rules) enforce:
@@ -49,7 +51,7 @@ cd firebase
 npm install
 firebase emulators:exec --only firestore "npm test"
 cd ..
-firebase deploy --only firestore:rules,firestore:indexes,functions
+./firebase/deploy-spark.sh
 ```
 
 Deployment is intentionally not attempted by the repository build. The core
@@ -58,5 +60,8 @@ and a desktop Firestore REST provider plus email/password Auth client are
 source-implemented. The desktop provider uses the same recovery-code envelope
 and its OS credential store; Android uses Android Keystore for its local copy.
 Firebase Cloud Functions sends only an opaque FCM wakeup after an encrypted
-record changes. Deploying that function requires an operator-approved Firebase
-billing plan, so it is deliberately not done by repository builds.
+record changes when the project is on Blaze. The Spark-safe deploy script skips
+that service and deploys rules/indexes only. Firebase documents that Cloud
+Functions deployment requires Blaze; Firestore, Authentication, and FCM remain
+available under Spark. See [Firebase pricing](https://firebase.google.com/pricing)
+and [Cloud Functions quotas](https://firebase.google.com/docs/functions/quotas).
