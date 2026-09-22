@@ -12,6 +12,7 @@ Rectangle {
     required property var bridge
     required property var colors
     property var cfg: ({})
+    property var personalization: ({ vocabulary: [], replacements: [] })
     property int page: 0
     property string doctorText: ""
     property string micText: ""
@@ -22,9 +23,10 @@ Rectangle {
     property string pendingServiceAction: ""
     signal replayWelcome()
 
-    Component.onCompleted: { bridge.settingsApi = app; requestConfig(); refreshService(); }
+    Component.onCompleted: { bridge.settingsApi = app; requestConfig(); requestPersonalization(); refreshService(); }
     Component.onDestruction: if (bridge.settingsApi === app) bridge.settingsApi = null
     function requestConfig() { bridge.sendOp("config_get"); }
+    function requestPersonalization() { bridge.sendOp("personalization_get"); }
     function setKey(key, value) { bridge.sendOp("config_set", {key: key, value: value}); }
     function saveShortcut(value) {
         var trimmed = value.trim();
@@ -49,11 +51,24 @@ Rectangle {
     }
     function routeData(data) {
         if (data.key !== undefined) requestConfig();
+        else if (data.personalization !== undefined) personalization = data.personalization;
         else if (data.general && data.recognition) cfg = data;
         else if (data.checks) doctorText = JSON.stringify(data, null, 2);
         else if (data.peak !== undefined) micText = "peak " + Number(data.peak).toFixed(3) + " · rms " + Number(data.rms).toFixed(3) + (Number(data.rms) > 0.02 ? " — ready" : " — very quiet");
     }
-    function addVocabulary(value) { if (value.trim().length > 0) { setKey("cleanup.vocabulary", value.trim()); requestConfig(); } }
+    function addVocabulary(canonical, spokenAlias) {
+        if (canonical.trim().length === 0) return;
+        bridge.sendOp("personalization_add_vocabulary", {
+            canonical: canonical.trim(),
+            spoken_alias: spokenAlias.trim(),
+            category: "personal"
+        });
+    }
+    function addReplacement(source, target) {
+        if (source.trim().length === 0 || target.trim().length === 0) return;
+        bridge.sendOp("personalization_add_replacement", { source: source.trim(), target: target.trim() });
+    }
+    function removePersonalization(entity, id) { bridge.sendOp("personalization_remove", { entity: entity, id: id }); }
 
     Timer {
         id: serviceRefreshTimer
@@ -175,17 +190,62 @@ Rectangle {
                     contentWidth: width; contentHeight: personalizeColumn.implicitHeight; clip: true
                     ColumnLayout { id: personalizeColumn; width: parent.width; spacing: 18
                         Label { text: "Your words, recognised properly."; color: "#19161C"; font.pixelSize: 30; font.bold: true; Layout.fillWidth: true }
-                        Label { text: "Names, places, products, and technical terms are used as recognition context. They never become dictation history."; color: "#827B87"; font.pixelSize: 14; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                        Rectangle { Layout.fillWidth: true; implicitHeight: 132; radius: 24; color: "#E8DCFF"
-                            ColumnLayout { anchors.fill: parent; anchors.margins: 22; spacing: 10
+                        Label { text: "Names, places, products, and technical terms guide recognition and preserve your chosen spelling. These local rules never become dictation history."; color: "#827B87"; font.pixelSize: 14; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 204; radius: 24; color: "#E8DCFF"
+                            ColumnLayout { anchors.fill: parent; anchors.margins: 22; spacing: 9
                                 Label { text: "PERSONAL VOCABULARY"; color: "#54296C"; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.3 }
-                                RowLayout { Layout.fillWidth: true
-                                    VaaniField { id: vocab; Layout.fillWidth: true; placeholderText: "Add a word or name" }
-                                    VaaniButton { text: "Add word"; onClicked: { app.addVocabulary(vocab.text); vocab.text = "" } }
+                                Label { text: "Exact spelling"; color: "#57505C"; font.pixelSize: 12 }
+                                VaaniField { id: vocab; Layout.fillWidth: true; placeholderText: "e.g. Saptodeep or Bengaluru" }
+                                Label { text: "Heard as (optional)"; color: "#57505C"; font.pixelSize: 12 }
+                                RowLayout { Layout.fillWidth: true; spacing: 10
+                                    VaaniField { id: vocabAlias; Layout.fillWidth: true; placeholderText: "e.g. sapto deep" }
+                                    VaaniButton { text: "Add term"; onClicked: { app.addVocabulary(vocab.text, vocabAlias.text); vocab.text = ""; vocabAlias.text = "" } }
                                 }
                             }
                         }
-                        Label { text: app.cfg.cleanup && app.cfg.cleanup.vocabulary ? app.cfg.cleanup.vocabulary.join("  ·  ") : ""; color: "#57505C"; font.pixelSize: 15; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                        Repeater {
+                            model: app.personalization.vocabulary || []
+                            delegate: Rectangle {
+                                required property var modelData
+                                Layout.fillWidth: true; implicitHeight: 52; radius: 16; color: "#FFFDFB"; border.color: "#E8E2E7"
+                                RowLayout { anchors.fill: parent; anchors.margins: 13; spacing: 10
+                                    ColumnLayout { Layout.fillWidth: true; spacing: 2
+                                        Label { text: modelData.canonical; color: "#19161C"; font.pixelSize: 14; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        Label { text: modelData.spoken_aliases && modelData.spoken_aliases.length ? "Heard as: " + modelData.spoken_aliases.join(", ") : "Recognition spelling"; color: "#827B87"; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                                    }
+                                    VaaniButton { text: "Remove"; tone: "text"; onClicked: app.removePersonalization("vocabulary", modelData.id) }
+                                }
+                            }
+                        }
+                        Label { visible: !(app.personalization.vocabulary && app.personalization.vocabulary.length); text: "No personal terms yet."; color: "#827B87"; font.pixelSize: 13 }
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 190; radius: 24; color: "#FFF0DF"
+                            ColumnLayout { anchors.fill: parent; anchors.margins: 22; spacing: 9
+                                Label { text: "TEXT REPLACEMENTS"; color: "#8A4E24"; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.3 }
+                                Label { text: "When Vaani writes this"; color: "#57505C"; font.pixelSize: 12 }
+                                VaaniField { id: replacementSource; Layout.fillWidth: true; placeholderText: "my github" }
+                                Label { text: "Replace it with"; color: "#57505C"; font.pixelSize: 12 }
+                                RowLayout { Layout.fillWidth: true; spacing: 10
+                                    VaaniField { id: replacementTarget; Layout.fillWidth: true; placeholderText: "https://github.com/your-name" }
+                                    VaaniButton { text: "Add rule"; onClicked: { app.addReplacement(replacementSource.text, replacementTarget.text); replacementSource.text = ""; replacementTarget.text = "" } }
+                                }
+                            }
+                        }
+                        Label { text: "Rules apply once to complete phrases only, so they do not alter parts of other words or loop into one another."; color: "#827B87"; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                        Repeater {
+                            model: app.personalization.replacements || []
+                            delegate: Rectangle {
+                                required property var modelData
+                                Layout.fillWidth: true; implicitHeight: 62; radius: 16; color: "#FFFDFB"; border.color: "#E8E2E7"
+                                RowLayout { anchors.fill: parent; anchors.margins: 13; spacing: 10
+                                    ColumnLayout { Layout.fillWidth: true; spacing: 2
+                                        Label { text: modelData.source + "  →  " + modelData.target; color: "#19161C"; font.pixelSize: 13; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        Label { text: "Complete phrase replacement"; color: "#827B87"; font.pixelSize: 11 }
+                                    }
+                                    VaaniButton { text: "Remove"; tone: "text"; onClicked: app.removePersonalization("replacement", modelData.id) }
+                                }
+                            }
+                        }
+                        Label { visible: !(app.personalization.replacements && app.personalization.replacements.length); text: "No text replacements yet."; color: "#827B87"; font.pixelSize: 13 }
                     }
                 }
 
