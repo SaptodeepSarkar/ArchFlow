@@ -33,6 +33,7 @@ dependencies {
     implementation("androidx.compose.ui:ui:1.7.6")
     implementation("androidx.compose.ui:ui-tooling-preview:1.7.6")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.79")
     // Native, file-backed on-device engines. Model weights are never bundled.
     implementation("dev.ffmpegkit-maintained:whisper-android:1.0.0")
     implementation("dev.ffmpegkit-maintained:llama-android:0.1.1")
