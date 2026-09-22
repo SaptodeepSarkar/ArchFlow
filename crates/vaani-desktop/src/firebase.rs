@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use vaani_core::engine::{EngineError, EngineErrorKind};
 use vaani_core::sync::{PersonalizationRecord, SyncEntityKind, SyncProvider, SyncRecord};
+use vaani_core::sync_crypto::{decrypt_record, encrypt_record, EncryptedEnvelope, RecoveryKey};
 
 const FIRESTORE_BASE: &str = "https://firestore.googleapis.com";
 const AUTH_BASE: &str = "https://identitytoolkit.googleapis.com/v1";
@@ -257,6 +258,108 @@ pub struct FirebaseRestProvider<T> {
     agent: ureq::Agent,
 }
 
+/// End-to-end encrypted Firestore provider. Firestore can authorize the
+/// account path but cannot inspect a vocabulary word, trigger, URL, or
+/// replacement target. Legacy `FirebaseRestProvider` remains available only
+/// for migration tooling; normal desktop sync uses this provider.
+pub struct EncryptedFirebaseRestProvider<T> {
+    inner: FirebaseRestProvider<T>,
+    key: RecoveryKey,
+}
+
+impl<T: FirebaseTokenProvider> EncryptedFirebaseRestProvider<T> {
+    pub fn new(project_id: impl Into<String>, token_provider: T, key: RecoveryKey) -> Self {
+        Self {
+            inner: FirebaseRestProvider::new(project_id, token_provider),
+            key,
+        }
+    }
+
+    fn push_one(&self, record: &PersonalizationRecord) -> Result<(), EngineError> {
+        let updated_at_ms = record_updated_at(record);
+        let envelope = encrypt_record(&self.key, record.id(), updated_at_ms, record)
+            .map_err(|_| network_error("could not encrypt personalization record"))?;
+        let token = self.inner.auth_header()?;
+        self.inner
+            .agent
+            .patch(self.inner.document_url(Some(record.id()))?)
+            .header("Authorization", token)
+            .send_json(json!({ "fields": encrypted_fields(&envelope) }))
+            .map_err(|_| network_error("encrypted Firestore write failed"))?;
+        Ok(())
+    }
+
+    fn pull_page(
+        &self,
+        page_token: Option<&str>,
+    ) -> Result<(Vec<PersonalizationRecord>, Option<String>), EngineError> {
+        let token = self.inner.auth_header()?;
+        let mut request = self
+            .inner
+            .agent
+            .get(self.inner.document_url(None)?)
+            .header("Authorization", token);
+        if let Some(page_token) = page_token {
+            request = request.query("pageToken", page_token);
+        }
+        let mut response = request
+            .call()
+            .map_err(|_| network_error("encrypted Firestore read failed"))?;
+        let body: Value = response
+            .body_mut()
+            .read_json()
+            .map_err(|_| network_error("encrypted Firestore response was invalid"))?;
+        let documents = body
+            .get("documents")
+            .and_then(Value::as_array)
+            .ok_or_else(|| network_error("Firestore response omitted documents"))?;
+        if documents.len() > MAX_PULL_RECORDS {
+            return Err(network_error("Firestore personalization limit exceeded"));
+        }
+        let mut records = Vec::with_capacity(documents.len());
+        for document in documents {
+            if let Some(record) = encrypted_record_from_document(document, &self.key)? {
+                records.push(record);
+            }
+        }
+        Ok((
+            records,
+            body.get("nextPageToken")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned),
+        ))
+    }
+}
+
+impl<T: FirebaseTokenProvider> SyncProvider for EncryptedFirebaseRestProvider<T> {
+    fn push(&self, records: &[PersonalizationRecord]) -> Result<(), EngineError> {
+        for record in records {
+            self.push_one(record)?;
+        }
+        Ok(())
+    }
+
+    fn pull(
+        &self,
+        _cursor: Option<&str>,
+    ) -> Result<(Vec<PersonalizationRecord>, Option<String>), EngineError> {
+        let mut all = Vec::new();
+        let mut page = None;
+        loop {
+            let (records, next) = self.pull_page(page.as_deref())?;
+            all.extend(records);
+            page = next;
+            if page.is_none() {
+                return Ok((all, None));
+            }
+            if all.len() > MAX_PULL_RECORDS {
+                return Err(network_error("Firestore personalization limit exceeded"));
+            }
+        }
+    }
+}
+
 impl<T: FirebaseTokenProvider> FirebaseRestProvider<T> {
     pub fn new(project_id: impl Into<String>, token_provider: T) -> Self {
         Self {
@@ -432,6 +535,56 @@ fn firestore_fields(record: &PersonalizationRecord) -> Map<String, Value> {
         value.map_or_else(null_value, |value| map_value(value)),
     );
     fields
+}
+
+fn record_updated_at(record: &PersonalizationRecord) -> i64 {
+    match record {
+        PersonalizationRecord::Vocabulary(record) => record.updated_at_ms,
+        PersonalizationRecord::Snippet(record) => record.updated_at_ms,
+        PersonalizationRecord::Replacement(record) => record.updated_at_ms,
+    }
+}
+
+fn encrypted_fields(envelope: &EncryptedEnvelope) -> Map<String, Value> {
+    [
+        (
+            "schema_version".into(),
+            integer_value(envelope.schema_version),
+        ),
+        ("record_id".into(), string_value(&envelope.record_id)),
+        (
+            "updated_at_ms".into(),
+            integer_value(envelope.updated_at_ms),
+        ),
+        ("compression".into(), string_value(&envelope.compression)),
+        ("cipher".into(), string_value(&envelope.cipher)),
+        ("nonce".into(), string_value(&envelope.nonce)),
+        ("ciphertext".into(), string_value(&envelope.ciphertext)),
+    ]
+    .into_iter()
+    .collect()
+}
+
+fn encrypted_record_from_document(
+    document: &Value,
+    key: &RecoveryKey,
+) -> Result<Option<PersonalizationRecord>, EngineError> {
+    let fields = document
+        .get("fields")
+        .and_then(Value::as_object)
+        .ok_or_else(|| network_error("Firestore document omitted fields"))?;
+    let envelope = EncryptedEnvelope {
+        schema_version: required_u64(fields, "schema_version")? as u32,
+        record_id: required_string(fields, "record_id")?.to_owned(),
+        updated_at_ms: required_i64(fields, "updated_at_ms")?,
+        compression: required_string(fields, "compression")?.to_owned(),
+        cipher: required_string(fields, "cipher")?.to_owned(),
+        nonce: required_string(fields, "nonce")?.to_owned(),
+        ciphertext: required_string(fields, "ciphertext")?.to_owned(),
+    };
+    decrypt_record(key, &envelope)
+        .map(Some)
+        .map_err(|_| network_error("encrypted personalization record could not be verified"))
 }
 
 fn record_from_document(document: &Value) -> Result<Option<PersonalizationRecord>, EngineError> {

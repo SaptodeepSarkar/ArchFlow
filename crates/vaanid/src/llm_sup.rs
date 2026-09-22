@@ -26,6 +26,10 @@ struct LlmServer {
 static LLM_SERVER: std::sync::OnceLock<std::sync::Mutex<Option<LlmServer>>> =
     std::sync::OnceLock::new();
 static LLM_JOB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+/// Leave enough context for the formatter's instructions and an output that
+/// preserves every source word. Long dictation is formatted as sequential,
+/// independently guarded pieces instead of producing a truncated response.
+const MAX_FORMAT_WORDS_PER_CHUNK: usize = 72;
 
 /// A formatter result with a non-sensitive route identifier. The identifier
 /// is safe to expose through diagnostics: it never includes dictated text.
@@ -326,7 +330,43 @@ pub fn prefill(cfg: &Config) -> anyhow::Result<()> {
 /// receives a deterministic, source-preserving punctuation/casing fallback.
 /// Blocking — call from `spawn_blocking`.
 pub fn llm_cleanup(text: &str, cfg: &Config) -> CleanupResult {
-    let formatted = match crate::cleanup::closed_special(text) {
+    let chunks = format_chunks(text, MAX_FORMAT_WORDS_PER_CHUNK);
+    let formatted = if chunks.len() > 1 {
+        let mut outcomes = Vec::with_capacity(chunks.len());
+        let text = chunks
+            .iter()
+            .map(|chunk| {
+                let result = llm_cleanup_one(chunk, cfg);
+                outcomes.push(result.outcome);
+                result.text
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        CleanupResult {
+            text,
+            outcome: if outcomes
+                .iter()
+                .all(|outcome| *outcome == "sidecar_accepted")
+            {
+                "chunked_sidecar_accepted"
+            } else {
+                "chunked_with_safe_fallback"
+            },
+        }
+    } else {
+        llm_cleanup_one(text, cfg)
+    };
+    // Economy means no formatter model stays resident between dictations.
+    // Unlike the periodic reaper, this runs immediately after the request.
+    if cfg.effective_server_idle_secs() == 0 {
+        reap_idle_llm(0);
+    }
+    tracing::info!(formatter_outcome = formatted.outcome, "formatter completed");
+    formatted
+}
+
+fn llm_cleanup_one(text: &str, cfg: &Config) -> CleanupResult {
+    match crate::cleanup::closed_special(text) {
         Some(special) => CleanupResult {
             text: special,
             outcome: "deterministic_structure",
@@ -342,14 +382,18 @@ pub fn llm_cleanup(text: &str, cfg: &Config) -> CleanupResult {
             },
             Err(_) => one_shot_result(text, cfg, "sidecar_failed"),
         },
-    };
-    // Economy means no formatter model stays resident between dictations.
-    // Unlike the periodic reaper, this runs immediately after the request.
-    if cfg.effective_server_idle_secs() == 0 {
-        reap_idle_llm(0);
     }
-    tracing::info!(formatter_outcome = formatted.outcome, "formatter completed");
-    formatted
+}
+
+fn format_chunks(text: &str, max_words: usize) -> Vec<String> {
+    let words = text.split_whitespace().collect::<Vec<_>>();
+    if words.len() <= max_words {
+        return vec![text.to_string()];
+    }
+    words
+        .chunks(max_words)
+        .map(|chunk| chunk.join(" "))
+        .collect()
 }
 
 fn one_shot_result(text: &str, cfg: &Config, prefix: &'static str) -> CleanupResult {
@@ -368,5 +412,24 @@ fn one_shot_result(text: &str, cfg: &Config, prefix: &'static str) -> CleanupRes
             text: crate::cleanup::conservative_format(text),
             outcome: "sidecar_failed_oneshot_rejected_deterministic_fallback",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_chunks;
+
+    #[test]
+    fn long_format_input_is_bounded_without_losing_words() {
+        let source = (0..145)
+            .map(|n| format!("word{n}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let chunks = format_chunks(&source, 72);
+        assert_eq!(chunks.len(), 3);
+        assert!(chunks
+            .iter()
+            .all(|chunk| chunk.split_whitespace().count() <= 72));
+        assert_eq!(chunks.join(" "), source);
     }
 }
