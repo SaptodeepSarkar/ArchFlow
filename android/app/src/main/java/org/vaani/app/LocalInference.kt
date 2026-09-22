@@ -24,6 +24,9 @@ object LocalInference {
     }
 
     private suspend fun formatOne(context: Context, source: String): String {
+        LocalModels(context).v6FormatterFile()?.let { file ->
+            runCatching { return formatV6(file.readBytes(), source) }
+        }
         val modelPath = LocalModels(context).formatterModelFile() ?: return SafeFormatter.format(source)
         return runCatching {
             val model = Llama.loadModel(
@@ -46,6 +49,25 @@ object LocalInference {
     }
 
     private const val MAX_WORDS_PER_CHUNK = 72
+
+    private fun formatV6(packageBytes: ByteArray, source: String): String {
+        val tokens = Regex("https?://[^\\s]+|/[^\\s]+|[A-Za-z0-9_][A-Za-z0-9_.-]*|[^\\w\\s]")
+            .findAll(source).map { it.value }.toList()
+        if (tokens.isEmpty()) return ""
+        val prediction = V6Tagger.load(packageBytes).predict(tokens)
+        val rendered = buildString {
+            tokens.indices.forEach { index ->
+                if (prediction.tokenLabels[index] == 1 || prediction.tokenLabels[index] == 2 || prediction.tokenLabels[index] == 3) return@forEach
+                val token = if (prediction.tokenLabels[index] == 4) tokens[index].replaceFirstChar { it.uppercase() } else tokens[index]
+                if (isNotEmpty() && token.firstOrNull()?.isLetterOrDigit() == true) append(' ')
+                append(token)
+                when (prediction.punctuation[index]) {
+                    1 -> append(','); 2 -> append('.'); 3 -> append('?'); 4 -> append('!'); 5 -> append(':'); 6 -> append(';')
+                }
+            }
+        }.trim()
+        return if (ModelOutputGuard.isSafeEdit(source, rendered)) rendered else SafeFormatter.format(source)
+    }
 
 }
 
