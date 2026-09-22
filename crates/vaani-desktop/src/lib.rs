@@ -369,9 +369,10 @@ pub mod firebase;
 pub mod personalization;
 #[cfg(any(unix, windows))]
 pub mod platform;
-pub use credentials::SecureSessionStore;
+pub use credentials::{SecureSessionStore, SyncKeyStore};
 pub use firebase::{
-    FirebaseEmailAuth, FirebaseRestProvider, FirebaseSession, FirebaseTokenProvider,
+    EncryptedFirebaseRestProvider, FirebaseEmailAuth, FirebaseRestProvider, FirebaseSession,
+    FirebaseTokenProvider,
 };
 pub use personalization::PersonalizationRepository;
 
@@ -458,14 +459,17 @@ impl DesktopSyncClient {
         self.session.as_ref().map(FirebaseSession::email)
     }
 
-    pub fn sync_once(&mut self) -> Result<vaani_core::sync::SyncCycle, EngineError> {
+    pub fn sync_once_encrypted(
+        &mut self,
+        key: vaani_core::sync_crypto::RecoveryKey,
+    ) -> Result<vaani_core::sync::SyncCycle, EngineError> {
         let session = self.session.as_ref().ok_or_else(|| {
             EngineError::new(
                 vaani_core::engine::EngineErrorKind::Unavailable,
                 "sign in to sync personalization",
             )
         })?;
-        let provider = FirebaseRestProvider::new(self.project_id.clone(), session);
+        let provider = EncryptedFirebaseRestProvider::new(self.project_id.clone(), session, key);
         self.repository.sync_once(&provider, &mut self.cursor)
     }
 }
@@ -1317,7 +1321,9 @@ mod tests {
             client.repository().render("my email").unwrap(),
             "person@example.test"
         );
-        assert!(client.sync_once().is_err());
+        assert!(client
+            .sync_once_encrypted(vaani_core::sync_crypto::RecoveryKey::generate().unwrap())
+            .is_err());
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("outbox.jsonl"));
     }

@@ -7,8 +7,10 @@ use vaani_core::config::Config;
 use vaani_core::engine::EngineError;
 use vaani_core::personalization::PersonalizationSnapshot;
 use vaani_core::sync::SyncEntityKind;
+use vaani_core::sync_crypto::RecoveryKey;
 use vaani_desktop::{
     DesktopSyncClient, FirebaseEmailAuth, PersonalizationRepository, SecureSessionStore,
+    SyncKeyStore,
 };
 
 #[cfg(windows)]
@@ -467,12 +469,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let api_key = env_required("VAANI_FIREBASE_API_KEY")?;
             let store = SecureSessionStore::new(&project, &api_key);
             let repository = repository()?;
-            let mut client = DesktopSyncClient::new(project, repository);
+            let mut client = DesktopSyncClient::new(&project, repository);
             if !client.restore_session(&store)? {
                 return Err("not signed in; run `vaani-desktop login` first".into());
             }
-            let cycle = client.sync_once()?;
+            let key = SyncKeyStore::new(&project).load()?.ok_or("encrypted sync is not set up; run `vaani-desktop sync-key-create` on your first device or `vaani-desktop sync-key-import` on a new one")?;
+            let cycle = client.sync_once_encrypted(key)?;
             println!("synced: pushed {}, pulled {}", cycle.pushed, cycle.pulled);
+        }
+        "sync-key-create" => {
+            let project = env_required("VAANI_FIREBASE_PROJECT")?;
+            let store = SyncKeyStore::new(project);
+            if store.load()?.is_some() { return Err("an encrypted sync key already exists on this device".into()); }
+            let key = RecoveryKey::generate()?;
+            store.save(&key)?;
+            println!("Save this recovery code somewhere safe. It is required to add another device:\n{}", key.export());
+        }
+        "sync-key-import" => {
+            let project = env_required("VAANI_FIREBASE_PROJECT")?;
+            let code = prompt("Recovery code")?;
+            let key = RecoveryKey::import(&code)?;
+            SyncKeyStore::new(project).save(&key)?;
+            println!("encrypted sync key saved on this device");
         }
         "sign-out" => {
             let project = env_required("VAANI_FIREBASE_PROJECT")?;
@@ -510,7 +528,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "personalize" => personalization_menu(&repository()?)?,
         _ => {
             return Err(
-                "usage: vaani-desktop [app|run|settings|config-get|config-set KEY VALUE|shortcut [KEY]|login|sync|sign-out|status|doctor|personalize]".into(),
+                "usage: vaani-desktop [app|run|settings|config-get|config-set KEY VALUE|shortcut [KEY]|login|sync|sync-key-create|sync-key-import|sign-out|status|doctor|personalize]".into(),
             )
         }
     }

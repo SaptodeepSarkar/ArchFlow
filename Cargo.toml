@@ -19,6 +19,9 @@ thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.18", features = ["v4", "serde"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+flate2 = "1.1"
 
 [profile.release]
 lto = "thin"

@@ -2,6 +2,7 @@
 
 use crate::firebase::{FirebaseSession, PersistedFirebaseSession};
 use vaani_core::engine::{EngineError, EngineErrorKind};
+use vaani_core::sync_crypto::RecoveryKey;
 
 const SERVICE: &str = "Vaani";
 
@@ -10,6 +11,48 @@ const SERVICE: &str = "Vaani";
 pub struct SecureSessionStore {
     api_key: String,
     username: String,
+}
+
+/// Keeps the end-to-end sync key in the OS credential store. The recovery
+/// code is shown only when it is created or explicitly exported; Firestore
+/// never receives it.
+pub struct SyncKeyStore {
+    username: String,
+}
+
+impl SyncKeyStore {
+    pub fn new(project_id: impl Into<String>) -> Self {
+        Self {
+            username: format!("sync-key:{}", project_id.into()),
+        }
+    }
+
+    pub fn save(&self, key: &RecoveryKey) -> Result<(), EngineError> {
+        self.entry()?
+            .set_password(&key.export())
+            .map_err(|_| storage_error("could not save encrypted sync key"))
+    }
+
+    pub fn load(&self) -> Result<Option<RecoveryKey>, EngineError> {
+        let value = match self.entry()?.get_password() {
+            Ok(value) => value,
+            Err(keyring::Error::NoEntry) => return Ok(None),
+            Err(_) => return Err(storage_error("could not read encrypted sync key")),
+        };
+        RecoveryKey::import(&value)
+            .map(Some)
+            .map_err(|_| storage_error("encrypted sync key is invalid"))
+    }
+
+    pub fn clear(&self) -> Result<(), EngineError> {
+        let _ = self.entry()?.delete_credential();
+        Ok(())
+    }
+
+    fn entry(&self) -> Result<keyring::Entry, EngineError> {
+        keyring::Entry::new(SERVICE, &self.username)
+            .map_err(|_| storage_error("platform secure credential store unavailable"))
+    }
 }
 
 impl SecureSessionStore {

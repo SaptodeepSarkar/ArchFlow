@@ -12,8 +12,18 @@ import kotlinx.coroutines.withContext
  */
 object LocalInference {
     suspend fun format(context: Context, source: String): String = withContext(Dispatchers.IO) {
-        val modelPath = LocalModels(context).formatterModelFile() ?: return@withContext SafeFormatter.format(source)
-        runCatching {
+        formatChunks(context, source)
+    }
+
+    private suspend fun formatChunks(context: Context, source: String): String {
+        val chunks = source.split(Regex("\\s+")).filter(String::isNotBlank).chunked(MAX_WORDS_PER_CHUNK)
+        if (chunks.isEmpty()) return ""
+        return chunks.joinToString(" ") { words -> formatOne(context, words.joinToString(" ")) }
+    }
+
+    private fun formatOne(context: Context, source: String): String {
+        val modelPath = LocalModels(context).formatterModelFile() ?: return SafeFormatter.format(source)
+        return runCatching {
             val model = Llama.loadModel(
                 modelPath.absolutePath,
                 LlamaConfig(contextSize = 1024, threads = 2, gpuLayers = 0, temperature = 0.1f, topP = 0.9f, topK = 40, seed = 0),
@@ -23,7 +33,7 @@ object LocalInference {
                     model,
                     prompt = "SOURCE:\n$source\n\nReturn only the same words with conservative casing and punctuation. Do not add, remove, reorder, or replace words.",
                     systemPrompt = "You are Vaani's deterministic text editor. Never invent content.",
-                    maxTokens = 128,
+                    maxTokens = 256,
                 )
                 val candidate = result.text.trim().removePrefix("OUTPUT:").trim()
                 if (ModelOutputGuard.isSafeEdit(source, candidate)) candidate else SafeFormatter.format(source)
@@ -32,6 +42,8 @@ object LocalInference {
             }
         }.getOrElse { SafeFormatter.format(source) }
     }
+
+    private const val MAX_WORDS_PER_CHUNK = 72
 
 }
 

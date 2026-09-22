@@ -10,6 +10,7 @@ pub mod reconcile;
 pub mod segment;
 pub mod state;
 pub mod sync;
+pub mod sync_crypto;
 pub mod transcript;
 pub mod vad;
 
