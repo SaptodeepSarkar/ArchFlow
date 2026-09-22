@@ -25,7 +25,7 @@ import javax.net.ssl.HttpsURLConnection
  * into Vaani's files directory. The release manifest contains no user data.
  */
 object ModelRelease {
-    const val MANIFEST_URL = "https://github.com/SaptodeepSarkar/ArchFlow/releases/download/v5.0.0-android-starter/android-models.json"
+    const val MANIFEST_URL = "https://github.com/SaptodeepSarkar/ArchFlow/releases/latest/download/android-models.json"
     private const val UNIQUE_WORK = "vaani-model-release"
     private const val PREFERENCES = "vaani_model_release"
     private const val KEY_STATUS = "status"
@@ -84,6 +84,7 @@ class ModelReleaseWorker(appContext: Context, params: WorkerParameters) : Corout
                 val kind = when (item.getString("kind")) {
                     "stt" -> ModelKind.STT
                     "formatter" -> ModelKind.FORMATTER
+                    "formatter_v6" -> ModelKind.FORMATTER_V6
                     else -> continue
                 }
                 add(ModelAsset(

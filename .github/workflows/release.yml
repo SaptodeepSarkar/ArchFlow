@@ -12,6 +12,13 @@ jobs:
   android-apk:
     name: Publish Android APK
     runs-on: ubuntu-24.04
+    env:
+      # Repository/organization secrets must point to files made available to
+      # the runner (for example via an internal model-artifact step). The
+      # workflow refuses to claim model assets when these are absent.
+      ANDROID_STT_MODEL: ${{ secrets.ANDROID_STT_MODEL }}
+      ANDROID_FORMATTER_MODEL: ${{ secrets.ANDROID_FORMATTER_MODEL }}
+      V6_TAGGER_MODEL: ${{ secrets.V6_TAGGER_MODEL }}
     defaults:
       run:
         working-directory: android
@@ -31,13 +38,24 @@ jobs:
         run: |
           unzip -l dist/Vaani-Android-1.2.0-debug.apk | grep -q 'lib/arm64-v8a/libwhisper.so'
           unzip -l dist/Vaani-Android-1.2.0-debug.apk | grep -q 'lib/arm64-v8a/libllama.so'
+      - name: Stage and verify model release assets
+        if: ${{ env.ANDROID_STT_MODEL != '' && env.ANDROID_FORMATTER_MODEL != '' && env.V6_TAGGER_MODEL != '' }}
+        run: |
+          cd ..
+          RELEASE_TAG="${GITHUB_REF_NAME}" \
+          ANDROID_STT_MODEL="${ANDROID_STT_MODEL}" \
+          ANDROID_FORMATTER_MODEL="${ANDROID_FORMATTER_MODEL}" \
+          V6_TAGGER_MODEL="${V6_TAGGER_MODEL}" \
+          tools/prepare-release-models.sh android/dist/models
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Vaani ${{ github.ref_name }}
           generate_release_notes: true
           prerelease: true
-          files: android/dist/Vaani-Android-1.2.0-debug.apk
+          files: |
+            android/dist/Vaani-Android-1.2.0-debug.apk
+            android/dist/models/*
           body: |
             Install `Vaani-Android-1.2.0-debug.apk` on an arm64 Android device.
 

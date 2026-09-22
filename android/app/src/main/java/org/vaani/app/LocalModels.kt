@@ -11,6 +11,7 @@ data class ModelStatus(val sttAvailable: Boolean, val formatterAvailable: Boolea
 enum class ModelKind(val directory: String, val filename: String) {
     STT("stt", "ggml-base.bin"),
     FORMATTER("formatter", "model.gguf"),
+    FORMATTER_V6("formatter", "model.v6tg"),
 }
 
 /** Models are user-installed local files; weights are deliberately never bundled in Git. */
@@ -33,6 +34,7 @@ class LocalModels(context: Context) {
             File(root, "formatter/model.gguf"),
             File(root, "formatter/model.bin"),
         )
+        ModelKind.FORMATTER_V6 -> listOf(File(root, "formatter/model.v6tg"))
     }.firstOrNull { it.isFile && it.length() > 0L }
 
     fun status() = ModelStatus(sttModelFile() != null, formatterModelFile() != null)
