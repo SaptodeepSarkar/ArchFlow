@@ -29,6 +29,12 @@ cd ArchFlow
 systemctl --user enable --now vaanid.service
 ```
 
+`install.sh` also installs a visible **Vaani Desktop** launcher. Its actions
+open settings, start/stop `vaanid.service`, and enable the service at login.
+Remove the user-local installation with `./uninstall.sh`; it intentionally
+keeps `~/.config/vaani` and `~/.local/share/vaani` so models and personalization
+are not deleted.
+
 Add one of these app-owned shortcut files to the user's Hyprland setup:
 
 ```ini

@@ -24,6 +24,14 @@ cd vaani
 systemctl --user enable --now vaanid.service
 ```
 
+The launcher entry is installed as **Vaani Desktop**. Open it to reach settings;
+its launcher actions can start/stop the user service or enable it at login.
+To remove the user-local installation while keeping personal config and models:
+
+```sh
+./uninstall.sh
+```
+
 Add the installed app-owned Hyprland include:
 
 ```ini

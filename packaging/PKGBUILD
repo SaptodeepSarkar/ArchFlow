@@ -1,6 +1,6 @@
 # Maintainer: Vaani contributors
 pkgname=vaani
-pkgver=1.0.0
+pkgver=1.2.0
 pkgrel=1
 install=vaani.install
 pkgdesc="Local-first voice dictation for Hyprland/Wayland (Rust + whisper.cpp + Quickshell)"
@@ -43,5 +43,6 @@ package() {
   install -Dm644 ui/shell.qml "$pkgdir/usr/share/quickshell/vaani/shell.qml"
   install -Dm644 ui/Theme.qml "$pkgdir/usr/share/quickshell/vaani/Theme.qml"
   install -Dm644 ui/SettingsView.qml "$pkgdir/usr/share/quickshell/vaani/SettingsView.qml"
+  install -Dm644 ui/OnboardingView.qml "$pkgdir/usr/share/quickshell/vaani/OnboardingView.qml"
   install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
