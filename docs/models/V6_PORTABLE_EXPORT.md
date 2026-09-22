@@ -25,3 +25,10 @@ tagger family; the deterministic closed-cue fallback remains required. Native
 loaders must reproduce the Python logits/labels and pass the same challenge,
 protected-span, memory, and latency gates before either platform selects this
 package by default.
+
+## Runtime placement
+
+Linux looks for `~/.local/share/vaani/cleanup/model.v6tg` (or the equivalent
+`$XDG_DATA_HOME/vaani/cleanup/model.v6tg`). Android looks for
+`files/models/formatter/model.v6tg`. If the file is absent or fails parsing or
+source-preservation checks, both platforms retain their existing safe fallback.
