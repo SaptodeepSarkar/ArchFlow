@@ -140,6 +140,33 @@ fn llm_paths(cfg: &Config) -> (String, String) {
     (model_dir, adapter_dir)
 }
 
+fn v6_package_path() -> Option<std::path::PathBuf> {
+    let base = std::env::var_os("XDG_DATA_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share")))?;
+    let path = base.join("vaani/cleanup/model.v6tg");
+    path.is_file().then_some(path)
+}
+
+fn v6_cleanup(text: &str) -> Option<String> {
+    let package = v6_package_path().and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| vaani_core::v6_tagger::parse(&bytes).ok())?;
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() { return Some(String::new()); }
+    let (tokens, punctuation) = vaani_core::v6_tagger::predict(&package, &words).ok()?;
+    let mut output = String::new();
+    for (index, word) in words.iter().enumerate() {
+        if matches!(tokens[index], 1 | 2 | 3) { continue; }
+        if !output.is_empty() { output.push(' '); }
+        if tokens[index] == 4 {
+            let mut chars = word.chars();
+            if let Some(first) = chars.next() { output.extend(first.to_uppercase()); output.extend(chars); }
+        } else { output.push_str(word); }
+        output.push_str(match punctuation[index] { 1 => ",", 2 => ".", 3 => "?", 4 => "!", 5 => ":", 6 => ";", _ => "" });
+    }
+    crate::cleanup::semantic_ok(text, &output).then_some(output)
+}
+
 fn llm_ensure_locked(
     slot: &mut Option<LlmServer>,
     model_dir: &str,
@@ -371,7 +398,9 @@ fn llm_cleanup_one(text: &str, cfg: &Config) -> CleanupResult {
             text: special,
             outcome: "deterministic_structure",
         },
-        None => match llm_server_cleanup(text, cfg) {
+        None => match v6_cleanup(text) {
+            Some(s) => CleanupResult { text: s, outcome: "v6_native_accepted" },
+            None => match llm_server_cleanup(text, cfg) {
             Ok(s) if !s.is_empty() && crate::cleanup::semantic_ok(text, &s) => CleanupResult {
                 text: s,
                 outcome: "sidecar_accepted",
@@ -381,6 +410,7 @@ fn llm_cleanup_one(text: &str, cfg: &Config) -> CleanupResult {
                 outcome: "sidecar_rejected_deterministic_fallback",
             },
             Err(_) => one_shot_result(text, cfg, "sidecar_failed"),
+            },
         },
     }
 }
