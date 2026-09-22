@@ -14,7 +14,7 @@ config_root="${XDG_CONFIG_HOME:-$HOME/.config}"
 data_root="${XDG_DATA_HOME:-$HOME/.local/share}"
 bin_root="$HOME/.local/bin"
 cargo build --locked --release --workspace
-mkdir -p "$bin_root" "$config_root/systemd/user" "$config_root/hypr" "$data_root/applications" "$config_root/quickshell/vaani" "$data_root/vaani"
+mkdir -p "$bin_root" "$config_root/systemd/user" "$config_root/hypr" "$data_root/applications" "$config_root/quickshell/vaani/assets" "$data_root/vaani"
 for binary in vaanid vaani vaani-worker vaani-desktop; do
   install -m755 "target/release/$binary" "$bin_root/$binary"
 done
@@ -31,7 +31,12 @@ PY
 install -m644 packaging/hyprland/vaani.conf packaging/hyprland/vaani.lua "$config_root/hypr/"
 install -m644 packaging/vaani.desktop "$data_root/applications/vaani.desktop"
 install -m644 ui/*.qml "$config_root/quickshell/vaani/"
+install -m644 ui/assets/*.png "$config_root/quickshell/vaani/assets/"
 install -m644 config.example.toml "$data_root/vaani/"
+# Preserve an existing chosen shortcut when reinstalling, then regenerate the
+# app-owned include and request a compositor reload. It never edits the user's
+# main Hyprland configuration.
+"$bin_root/vaani-desktop" shortcut
 if [ "$with_trained_models" -eq 1 ]; then
   ./tools/install-trained-models.sh
 fi
@@ -39,4 +44,5 @@ if ! command -v wtype >/dev/null 2>&1 && [ ! -x "$bin_root/wtype" ]; then
   printf '%s\n' 'NOTE: wtype not found — automatic paste falls back to Hyprland send_shortcut, which some native Wayland apps ignore.' 'For dependable injection: pacman -S wtype (official repo, no sudo performed here).'
 fi
 systemctl --user daemon-reload || true
+systemctl --user try-restart vaanid.service || true
 printf '%s\n' 'Installed Vaani. Caelestia is optional.' 'Next: add ~/.local/bin to PATH, run ./tools/setup-stt.sh, then:' '  systemctl --user enable --now vaanid.service' '  vaani doctor' 'See README.md for compositor shortcuts and system package installation.'

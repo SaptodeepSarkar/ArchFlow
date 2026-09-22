@@ -128,14 +128,136 @@ fn set_setting(key: &str, value: &str) -> Result<(), Box<dyn std::error::Error>>
 }
 
 fn launch_app() -> Result<(), Box<dyn std::error::Error>> {
-    // The daemon remains the owner of the Quickshell socket and state. The
-    // launcher entry only asks the normal CLI to open the settings surface.
-    let status = std::process::Command::new("vaani")
-        .arg("settings")
-        .status()?;
-    if !status.success() {
-        return Err("could not open Vaani settings; start vaanid.service first".into());
+    #[cfg(target_os = "linux")]
+    {
+        // This window intentionally lives outside `vaanid.service`. It stays
+        // open while the user stops that service and can start it again from
+        // the same Settings page; the shell reconnects to the socket when it
+        // returns. The daemon still exclusively owns dictation state.
+        let config = Config::load();
+        let status = std::process::Command::new("quickshell")
+            .arg("-p")
+            .arg(ui_path())
+            .env("VAANI_SOCKET", control_socket_path())
+            .env("VAANI_OPEN_SETTINGS", "1")
+            .env(
+                "VAANI_ONBOARDING",
+                if config.general.onboarding_complete {
+                    "0"
+                } else {
+                    "1"
+                },
+            )
+            .status()?;
+        if !status.success() {
+            return Err("Vaani's settings window closed with an error".into());
+        }
+        Ok(())
     }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("the Vaani settings window is currently available on Linux only".into())
+    }
+}
+
+fn home_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| "cannot determine the home directory".into())
+}
+
+fn config_home() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    Ok(std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or(home_dir()?.join(".config")))
+}
+
+fn data_dirs() -> Vec<PathBuf> {
+    std::env::var("XDG_DATA_DIRS")
+        .unwrap_or_else(|_| "/usr/local/share:/usr/share".into())
+        .split(':')
+        .filter(|entry| !entry.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+fn ui_path() -> PathBuf {
+    let local = config_home()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("quickshell/vaani/shell.qml");
+    if local.is_file() {
+        return local;
+    }
+    data_dirs()
+        .into_iter()
+        .map(|base| base.join("quickshell/vaani/shell.qml"))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or(local)
+}
+
+fn control_socket_path() -> PathBuf {
+    if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
+        PathBuf::from(runtime).join("vaani/control.sock")
+    } else {
+        let uid = std::env::var("UID").unwrap_or_else(|_| "1000".into());
+        PathBuf::from(format!("/tmp/vaani-{uid}/control.sock"))
+    }
+}
+
+fn hyprland_chord(spec: &vaani_desktop::ShortcutSpec) -> String {
+    let mut tokens: Vec<String> = spec.canonical().split('+').map(str::to_owned).collect();
+    let key = tokens.pop().unwrap_or_default();
+    let modifiers = tokens.join(" ");
+    let key: String = match key.as_str() {
+        "SPACE" => "Space".into(),
+        "ESC" => "Escape".into(),
+        other => other.into(),
+    };
+    format!("{modifiers}, {key}")
+}
+
+fn alternate_live_shortcut(primary: &str) -> &'static str {
+    ["ALT+SUPER+H", "SHIFT+SUPER+H", "ALT+SUPER+J"]
+        .into_iter()
+        .find(|candidate| *candidate != primary)
+        .expect("alternate shortcuts are distinct")
+}
+
+fn hyprland_include(primary: &vaani_desktop::ShortcutSpec) -> String {
+    let primary_canonical = primary.canonical();
+    let live = vaani_desktop::ShortcutSpec::parse(alternate_live_shortcut(&primary_canonical))
+        .expect("built-in live shortcut is valid");
+    format!(
+        "# App-owned Hyprland include — managed by Vaani Settings.\n# Add exactly one line to hyprland.conf:\n#   source = ~/.config/hypr/vaani.conf\n# No recording shortcuts are registered for the lock screen.\n\n# Primary dictation shortcut selected in Vaani Settings.\nbindd = {}, Toggle Vaani dictation, exec, vaani toggle\n# Live dictation keeps a dedicated secondary chord.\nbindd = {}, Toggle Vaani live dictation, exec, vaani live-toggle\nbindd = SUPER ALT, V, Vaani hold-to-talk, exec, vaani start\nbinddr = SUPER ALT, V, Vaani hold release, exec, vaani stop\nbindd = SUPER ALT, Escape, Cancel Vaani operation, exec, vaani cancel\nbindd = SUPER ALT, S, Open Vaani settings, exec, vaani-desktop app\nbindd = SUPER ALT, C, Copy pending Vaani text, exec, vaani copy\nbindd = SUPER, J, Finish Vaani to clipboard, exec, vaani stop\n",
+        hyprland_chord(primary),
+        hyprland_chord(&live),
+    )
+}
+
+fn sync_hyprland_shortcut(value: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = Config::load();
+    if let Some(value) = value {
+        let validated = vaani_desktop::ShortcutSpec::parse(value)
+            .map_err(|error| format!("unsupported Hyprland shortcut: {error}"))?;
+        config
+            .set_key("general.shortcut", &validated.canonical())
+            .map_err(|error| format!("invalid shortcut: {error}"))?;
+        config.save()?;
+    }
+    let primary = vaani_desktop::ShortcutSpec::parse(&config.general.shortcut)
+        .map_err(|error| format!("unsupported Hyprland shortcut: {error}"))?;
+    let path = config_home()?.join("hypr/vaani.conf");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension("conf.tmp");
+    std::fs::write(&temporary, hyprland_include(&primary))?;
+    std::fs::rename(temporary, path)?;
+    let _ = std::process::Command::new("hyprctl").arg("reload").status();
+    println!(
+        "shortcut={} (Hyprland reload requested)",
+        primary.canonical()
+    );
     Ok(())
 }
 
@@ -323,6 +445,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let value = std::env::args().nth(3).ok_or("config-set requires a value")?;
             set_setting(&key, &value)?;
         }
+        "shortcut" => {
+            let value = std::env::args().nth(2);
+            sync_hyprland_shortcut(value.as_deref())?;
+        }
         "login" => {
             let project = env_required("VAANI_FIREBASE_PROJECT")?;
             let api_key = env_required("VAANI_FIREBASE_API_KEY")?;
@@ -384,9 +510,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "personalize" => personalization_menu(&repository()?)?,
         _ => {
             return Err(
-                "usage: vaani-desktop [app|run|settings|config-get|config-set KEY VALUE|login|sync|sign-out|status|doctor|personalize]".into(),
+                "usage: vaani-desktop [app|run|settings|config-get|config-set KEY VALUE|shortcut [KEY]|login|sync|sign-out|status|doctor|personalize]".into(),
             )
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_include_uses_the_saved_primary_chord() {
+        let primary = vaani_desktop::ShortcutSpec::parse("CTRL+SHIFT+F4").unwrap();
+        let include = hyprland_include(&primary);
+        assert!(include.contains("bindd = CTRL SHIFT, F4, Toggle Vaani dictation"));
+        assert!(include.contains("exec, vaani-desktop app"));
+    }
+
+    #[test]
+    fn live_chord_never_duplicates_primary() {
+        assert_ne!(alternate_live_shortcut("ALT+SUPER+H"), "ALT+SUPER+H");
+        assert_ne!(alternate_live_shortcut("SHIFT+SUPER+H"), "SHIFT+SUPER+H");
+    }
 }

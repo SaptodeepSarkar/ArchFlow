@@ -47,6 +47,14 @@ enum Cmd {
     },
 }
 
+fn open_settings_window() -> anyhow::Result<()> {
+    std::process::Command::new("vaani-desktop")
+        .arg("app")
+        .spawn()
+        .map_err(|error| anyhow::anyhow!("could not open Vaani settings: {error}"))?;
+    Ok(())
+}
+
 fn sock_path() -> String {
     let base = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
     if std::env::var("XDG_RUNTIME_DIR").is_err() {
@@ -60,6 +68,9 @@ fn sock_path() -> String {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    if matches!(&args.cmd, Cmd::Settings) {
+        return open_settings_window();
+    }
     let kind = match args.cmd {
         Cmd::Toggle => RequestKind::Toggle,
         Cmd::Start => RequestKind::Start,
@@ -67,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Cancel => RequestKind::Cancel,
         Cmd::LiveToggle => RequestKind::LiveToggle,
         Cmd::Status { .. } => RequestKind::Status,
-        Cmd::Settings => RequestKind::Settings,
+        Cmd::Settings => unreachable!("handled before IPC"),
         Cmd::Doctor => RequestKind::Doctor,
         Cmd::Copy => RequestKind::CopyPending,
         Cmd::Recover => RequestKind::RecoverPending,

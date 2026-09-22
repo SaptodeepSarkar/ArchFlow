@@ -2,16 +2,19 @@
 
 - `shell.qml`: event-driven overlay (Socket + SplitParser, snapshot-first,
   amplitude ≤30 Hz) + settings FloatingWindow host. Exits when idle.
-- `OnboardingView.qml`: first-run Android-inspired setup for local mode,
-  microphone, vocabulary, and residency profile. Account sync remains optional
-  and is owned by the secure `vaani-desktop login` boundary.
+- `OnboardingView.qml`: the Android-matched four-screen first-run story,
+  using the same local editorial artwork and native Vaani lockup.
 - `SettingsView.qml`: brand-aligned Home, Personalize, Settings, and Account
-  pages over `config_get`/`config_set` IPC + one-shot
-  mic-test/doctor requests. No polling loops.
+  pages, including start/stop and start-at-login controls for `vaanid`.
 
 Install: `~/.config/quickshell/vaani/{shell.qml,SettingsView.qml}`
-(pkg: `/usr/share/quickshell/vaani/`). Launched on demand by vaanid:
-overlay on STARTING, settings on `vaani settings` (VAANI_OPEN_SETTINGS=1).
+(pkg: `/usr/share/quickshell/vaani/`). The overlay is launched on demand by
+`vaanid`; the settings window is launched independently so it remains open
+while the service is stopped and restarted.
+
+The intro uses entrance motion plus Android-inspired language and writing-place
+rails. Set `VAANI_REDUCE_MOTION=1` before launching the desktop app to keep
+the same screens static.
 
 Verified against installed Quickshell 0.3.1: PanelWindow +
 WlrLayershell.exclusionMode/layer/keyboardFocus=None (no focus steal),
