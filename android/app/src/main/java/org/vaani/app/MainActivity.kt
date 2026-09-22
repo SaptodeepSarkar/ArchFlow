@@ -1150,7 +1150,12 @@ private fun VaaniWorkspace(
     var tab by remember { mutableStateOf("Dictionary") }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) access = OnboardingState.access(context)
+            if (event == Lifecycle.Event.ON_RESUME) {
+                access = OnboardingState.access(context)
+                if (accountClient.current() != null) {
+                    scope.launch { EncryptedPersonalizationSync(context).sync(pushLocal = false) }
+                }
+            }
         }
         lifecycle.lifecycle.addObserver(observer)
         onDispose { lifecycle.lifecycle.removeObserver(observer) }
