@@ -5,7 +5,7 @@ grammar, punctuation (commas/full stops), lists/points formatting, spelling,
 and light emotion cues — while never inventing facts. LLM v1 additionally
 learns source-grounded structure: bullets, dotted bullets, numbered sequences,
 explicit titles, name capitalization, explicit emoji, and no-invention
-controls. It serves Vaani's `cleanup.mode = "stream"` direct-torch path via
+controls. It serves Vaani's always-on direct-torch formatting path via
 `scripts/vaani_inject.py`.
 
 Hardware target: NVIDIA RTX 3050 6GB. Full fine-tuning does not fit;
@@ -49,15 +49,13 @@ source env.sh
 .venv/bin/python scripts/train_dpo.py
 ```
 
-## Vaani wiring (stream mode)
+## Vaani wiring
 
 ```toml
 [cleanup]
-mode = "stream"
 model_path = "/home/saptodeep/Projects/ArchFlow/training/cleanup-llm/output/base-model"
 adapter_path = "/home/saptodeep/Projects/ArchFlow/training/cleanup-llm/output/llm-v1"
 python_path = "/home/saptodeep/.local/bin/vaani_inject.py"
-word_threshold = 10
 ```
 
 The base model stays frozen. Only the selected LoRA adapter changes behavior.

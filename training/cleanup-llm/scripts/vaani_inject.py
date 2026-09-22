@@ -4,12 +4,12 @@
 Reads a raw transcript from stdin, applies the LoRA adapter trained on
 Qwen3-0.6B, prints the cleaned text to stdout. Falls back to the raw
 input on any error. Designed to be spawned by the vaanid daemon for
-the "stream" cleanup mode.
+the always-on local formatter.
 
 Memory footprint during inference: ~2.6 GB VRAM, ~300 MB RAM.
 First call loads the model (~5 s cold, warm from cache after).
 
-Usage: vaani_inject.py [--adapter PATH] [--threshold N] [--model NAME]
+Usage: vaani_inject.py [--adapter PATH] [--model-dir PATH]
 """
 import argparse
 import os
@@ -23,7 +23,6 @@ from peft import PeftModel
 OUT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "output"))
 DEFAULT_MODEL = os.path.join(OUT, "base-model")
 DEFAULT_ADAPTER = os.path.join(OUT, "dpo-sft")
-DEFAULT_THRESHOLD = 0
 
 SYSTEM = (
     "You are Vaani cleanup LLM v1, a source-grounded transcript formatter. "
@@ -78,18 +77,12 @@ def clean(tok, model, text):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default=DEFAULT_ADAPTER)
-    ap.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD)
     ap.add_argument("--model-dir", default=DEFAULT_MODEL)
     a = ap.parse_args()
 
     raw = sys.stdin.read().strip()
     if not raw:
         print("", end="")
-        sys.exit(0)
-
-    word_count = len(raw.split())
-    if word_count < a.threshold:
-        print(raw)
         sys.exit(0)
 
     try:

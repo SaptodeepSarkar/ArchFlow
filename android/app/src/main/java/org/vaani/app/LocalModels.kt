@@ -4,7 +4,9 @@ import android.content.Context
 import android.net.Uri
 import java.io.File
 
-data class ModelStatus(val sttAvailable: Boolean, val formatterAvailable: Boolean)
+data class ModelStatus(val sttAvailable: Boolean, val formatterAvailable: Boolean) {
+    val ready: Boolean get() = sttAvailable && formatterAvailable
+}
 
 enum class ModelKind(val directory: String, val filename: String) {
     STT("stt", "ggml-base.bin"),
@@ -14,15 +16,20 @@ enum class ModelKind(val directory: String, val filename: String) {
 /** Models are user-installed local files; weights are deliberately never bundled in Git. */
 class LocalModels(context: Context) {
     private val root = File(context.filesDir, "models").also { it.mkdirs() }
-    fun sttModelFile(): File? = listOf(
-        File(root, "stt/ggml-base.bin"),
-        File(root, "stt/model.bin"),
-    ).firstOrNull(File::isFile)
+    fun sttModelFile(): File? = modelFile(ModelKind.STT)
 
-    fun formatterModelFile(): File? = listOf(
-        File(root, "formatter/model.gguf"),
-        File(root, "formatter/model.bin"),
-    ).firstOrNull(File::isFile)
+    fun formatterModelFile(): File? = modelFile(ModelKind.FORMATTER)
+
+    fun modelFile(kind: ModelKind): File? = when (kind) {
+        ModelKind.STT -> listOf(
+            File(root, "stt/ggml-base.bin"),
+            File(root, "stt/model.bin"),
+        )
+        ModelKind.FORMATTER -> listOf(
+            File(root, "formatter/model.gguf"),
+            File(root, "formatter/model.bin"),
+        )
+    }.firstOrNull { it.isFile && it.length() > 0L }
 
     fun status() = ModelStatus(sttModelFile() != null, formatterModelFile() != null)
     fun installPath(kind: ModelKind): File = File(root, kind.directory).also { it.mkdirs() }

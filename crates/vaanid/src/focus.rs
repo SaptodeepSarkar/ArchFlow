@@ -59,8 +59,8 @@ pub fn recheck_target(start: &FocusTarget) -> Result<FocusTarget, String> {
     Ok(now)
 }
 
-/// Whether this app id is a terminal (copy-only default; multiline paste can
-/// execute commands even without synthetic Enter).
+/// Whether this app id is a terminal. Used for terminal-specific paste
+/// fallback selection; direct wtype delivery never sends Enter.
 pub fn is_terminal(app_id: &str) -> bool {
     let l = app_id.to_lowercase();
     [

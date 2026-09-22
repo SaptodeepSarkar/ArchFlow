@@ -1,6 +1,6 @@
 # AGENTS.md — working guide for AI agents on Vaani (repo: ArchFlow)
 
-Read this before changing code. The spec is `arch-voice-flow-build-prompt.md`.
+Read this before changing code. The spec is `docs/arch-voice-flow-build-prompt.md`.
 Environment truth lives in `docs/ADR-001-environment.md` — verify there, never assume.
 
 ## Project order (build slices map 1:1 to version commits)
@@ -150,10 +150,9 @@ vaani doctor                   # capability probe on the laptop
 ## Rules for agents
 
 - Economy profile first: no new long-lived processes, no polling loops, no TCP servers.
-- Audio/text never in logs, JSON, argv, or shell strings. Transcripts via stdin pipes/structured buffers only.
+- Audio/text never in logs, JSON, argv, or shell strings. Transcripts via stdin pipes/structured buffers only. But for wtype there is an execption, wtype can take text cleand by th LLM and directly use it to type the text in text felids. as wtype just uses the text once and never logs it it matches the requirments.
 - State machine (`vaani-core/src/state.rs`) is the single authority — only `vaanid` transitions it; stale-session results die.
 - UI is event-driven (`Socket` + `SplitParser`); QML never spawns per-tick commands.
-- Terminals are copy-only; never synthesize Enter; multiline shell-like text never auto-pastes.
 - Don't invent Quickshell/Hyprland/systemd APIs — check installed versions (`docs/ADR-001-environment.md`, local qmltypes, `hyprctl`, `man systemd.exec`).
 - Never report container numbers as laptop measurements. Missed targets reported honestly.
 - No `curl | sh`, no auto system upgrade, no edits to unrelated dotfiles in packaging.

@@ -14,6 +14,10 @@ live_chunk_secs = 1
 # hands-free finish: transcribe after N seconds of silence following speech
 # (1-10). 0 disables (manual stop only). SUPER+H mid-session discards.
 auto_stop_secs = 1
+# Primary toggle shortcut shown by the desktop setup/settings app. Hyprland
+# bindings remain app-owned and are regenerated only when the user asks.
+shortcut = "SUPER+ALT+SPACE"
+onboarding_complete = false
 
 [audio]
 # Empty = PipeWire default source at session start. Otherwise a stable
@@ -56,20 +60,17 @@ kitty = "copy-only"
 Alacritty = "copy-only"
 
 [cleanup]
-# raw (default: preserve recognizer output) | clean (needs endpoint below) | stream (local LLM)
-mode = "raw"
-endpoint = ""
-timeout_secs = 8
+# Every non-empty final transcript is sent to the local source-grounded
+# formatter. Raw text is retained only if that formatter fails or is rejected
+# by the safety guard.
 vocabulary = []
-# stream only: path to local LLM model dir (e.g. output/base-model from training/cleanup-llm).
+# Path to local formatter model dir (e.g. output/base-model from training/cleanup-llm).
 # If empty, daemon auto-detects next to the binary.
 model_path = ""
-# stream only: path to the local LLM LoRA adapter dir (e.g. output/llm-v1).
+# Path to the local LLM LoRA adapter dir (e.g. output/llm-v1).
 # Empty keeps the legacy dpo-sft adapter next to model_path.
 adapter_path = ""
-# stream only: skip LLM when transcript word count is below this (0 = clean all).
-word_threshold = 0
-# stream only: path to vaani_inject.py. If empty, daemon looks beside the binary.
+# Path to vaani_inject.py. If empty, daemon looks beside the binary.
 python_path = ""
 
 [privacy]

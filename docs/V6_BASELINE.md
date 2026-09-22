@@ -354,9 +354,9 @@ invention, and reordering; `cargo test --workspace` passed with 51 tests
 passing and one pre-existing ignored hardware test.
 
 The same closed special-cue boundary is now wired into Linux cleanup: explicit
-emoji requests and ordinal lists are rendered before the optional LLM sidecar
-in both endpoint and stream modes. Unknown text still follows the existing
-guarded model/raw fallback, and commands such as `open the browser` remain
+emoji requests and ordinal lists are rendered before the always-on local
+formatter. Unknown text still follows the guarded model/raw fallback, and
+commands such as `open the browser` remain
 dictated data rather than actions. `cargo test -p vaanid` passed with 12 tests
 passing and one ignored.
 

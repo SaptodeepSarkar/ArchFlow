@@ -2,7 +2,7 @@
 
 - Dictation only copies instead of typing → older configs may still contain
   `insertion.mode = "copy-only"`; restore typing with
-  `vaani config-set insertion.mode automatic` (terminals remain copy-only).
+  `vaani config-set insertion.mode automatic`.
 - `cannot reach vaanid` → `systemctl --user status vaanid` (user unit, not root).
 - `capture failed` → PipeWire running? `pw-record --help`; EasyEffects virtual
   source selectable via audio.device_selector (stable name).
@@ -11,9 +11,8 @@
   re-resolve the default source; never hot-swaps mid-utterance.
 - `Text ready — target changed` → focus moved; nothing forced back. Copy/review.
 - `Paste requested` ≠ confirmed inserted — delivery can't be confirmed; check.
-- Terminal got nothing auto-pasted → by design (copy-only; `vaani copy`).
-- Multiline shell-like text → copy-only to avoid accidental execution; Enter
-  is never synthesized.
+- Terminal got no typed text → check that it retained focus and that `wtype`
+  is available. Vaani never synthesizes Enter or executes the prompt.
 - Transcription failed → worker crash leaves controller up; audio kept briefly
   for retry with visible controls and bounded expiry.
 - Clipboard replaced → expected in automatic mode; restoration

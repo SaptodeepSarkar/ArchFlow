@@ -5,6 +5,10 @@
 use crate::clipboard;
 use crate::focus::{self, FocusTarget};
 
+/// A short per-keystroke delay makes final delivery visibly compose in the
+/// focused field instead of appearing as an indistinguishable paste.
+const DIRECT_TYPE_DELAY_MS: u64 = 14;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum InsertOutcome {
     /// Environment cannot insert (e.g. no hyprctl) — caller keeps copy-ready.
@@ -25,10 +29,31 @@ impl std::fmt::Display for InsertOutcome {
     }
 }
 
-/// Attempt automatic insertion for `target`. Policy inputs: configured mode,
-/// terminal copy-only rule, multiline-terminal refusal.
-/// When mode is "automatic", types via the virtual keyboard (wtype)
-/// so text goes directly into the focused window.
+impl InsertOutcome {
+    /// A non-sensitive route for status and logs. Never return the detailed
+    /// reason because it can carry compositor or application information.
+    pub fn diagnostic_code(&self) -> &'static str {
+        match self {
+            Self::DispatchAttempted(_) => "wtype_typed",
+            Self::CopyReady(reason) if reason.starts_with("copy-only mode") => {
+                "clipboard_only_configured_policy"
+            }
+            Self::CopyReady(reason) if reason.starts_with("review mode") => {
+                "clipboard_only_review_policy"
+            }
+            Self::CopyReady(reason) if reason.starts_with("target changed") => {
+                "clipboard_only_target_changed"
+            }
+            Self::CopyReady(_) => "clipboard_only_wtype_or_clipboard",
+            Self::Failed(_) => "clipboard_or_wtype_failed",
+            Self::Unsupported(_) => "clipboard_only_unsupported",
+        }
+    }
+}
+
+/// Attempt automatic insertion for `target`. In automatic mode the cleaned
+/// final text is emitted as virtual keyboard events, including for terminals.
+/// It never sends Enter; execution remains entirely with the user.
 pub fn insert_automatic(
     text: &str,
     start_target: &FocusTarget,
@@ -45,48 +70,41 @@ pub fn insert_automatic(
         Ok(t) => t,
         Err(reason) => return copy_ready(text, &format!("target changed ({reason})")),
     };
-    // Terminal policy: copy-only, and never auto-paste multiline shell-like
-    // content or append Enter.
-    if focus::is_terminal(&current.app_id) {
-        return copy_ready(text, "terminal target: copy-only policy");
-    }
-    if text.contains('\n') && looks_shell_like(text) {
-        return copy_ready(
-            text,
-            "multiline shell-like text: copy-only to avoid accidental execution",
-        );
-    }
-    // Automatic mode: type directly via the virtual keyboard (wtype).
-    // This sends text straight into the focused window without
-    // needing a paste chord.
+    // Keep a recoverable copy, but use direct virtual-keyboard text for the
+    // actual delivery. The active AGENTS.md exception permits only cleaned
+    // final LLM text as wtype input. wtype generates key events; it does not
+    // invoke a shell and this path never sends Enter.
     if configured_mode == "automatic" {
-        return match inject_stream(text) {
+        // Clipboard availability must not prevent direct typing. It remains
+        // a recovery channel if focus changes or the virtual keyboard fails.
+        let clipboard_ready = clipboard::offer_text(text).is_ok();
+        if let Err(reason) = focus::recheck_target(start_target) {
+            return if clipboard_ready {
+                InsertOutcome::CopyReady(format!("target changed before typing ({reason})"))
+            } else {
+                InsertOutcome::Failed(format!("target changed before typing ({reason})"))
+            };
+        }
+        return match type_text(text) {
             Ok(()) => InsertOutcome::DispatchAttempted(format!(
-                "typed via keyboard into {}",
+                "typed via virtual keyboard into {}",
                 current.app_id
             )),
-            Err(e) => {
-                // Some Wayland clients/compositor states reject literal
-                // virtual-keyboard text while still accepting a virtual
-                // Ctrl+V/Shift+Insert. Keep the automatic contract by
-                // retrying through the same virtual keyboard before giving
-                // up and leaving a copy-ready result.
-                if let Err(copy_err) = clipboard::offer_text(text) {
-                    return InsertOutcome::Failed(format!(
-                        "typing failed ({e}); clipboard fallback failed ({copy_err})"
-                    ));
+            Err(e) if clipboard_ready => {
+                // Some compositor/client combinations can accept a virtual
+                // paste chord when literal virtual keys are unavailable.
+                let chord = paste_chord_for(&current.app_id);
+                match dispatch_paste(&chord) {
+                    Ok(()) => InsertOutcome::DispatchAttempted(format!(
+                        "typed via virtual keyboard paste fallback ({chord}) into {}",
+                        current.app_id
+                    )),
+                    Err(_) => InsertOutcome::CopyReady(format!(
+                        "virtual keyboard typing failed ({e}); text on clipboard"
+                    )),
                 }
-                if clipboard::still_ours(text) {
-                    let chord = paste_chord_for(&current.app_id);
-                    if dispatch_paste(&chord).is_ok() {
-                        return InsertOutcome::DispatchAttempted(format!(
-                            "typed via keyboard paste fallback ({chord}) into {}",
-                            current.app_id
-                        ));
-                    }
-                }
-                copy_ready(text, &format!("typing failed ({e}); text on clipboard"))
             }
+            Err(e) => InsertOutcome::Failed(format!("virtual keyboard typing failed ({e})")),
         };
     }
     // Offer on clipboard, then dispatch the app's paste chord.
@@ -177,37 +195,45 @@ fn paste_chord_for(app_id: &str) -> String {
     }
 }
 
-/// Lock the real keyboard via wtype grab, type `text` through
-/// the virtual keyboard, then ungrab.
-///
-/// Note: `wtype` is a virtual keyboard only — it has no grab/ungrab
-/// subcommands. Physical keyboard events during the brief typing
-/// window are handled by the compositor keybind (SUPER+H recording
-/// session holds the compositor grab). This function types via
-/// the virtual keyboard and returns any error as a fallback.
+/// Explicit pending-text injection uses the same direct virtual-keyboard
+/// route as automatic delivery. It never sends Enter.
 pub fn inject_stream(text: &str) -> anyhow::Result<()> {
     if text.is_empty() {
         return Ok(());
     }
-    let wtype = find_wtype().ok_or_else(|| anyhow::anyhow!("wtype not found"))?;
-    let mut cmd = std::process::Command::new(&wtype);
-    cmd.arg(text);
-    // Never allow a virtual-keyboard helper to hold the daemon in INSERTING.
-    // The caller can then use the bounded clipboard/paste fallback.
-    let res = clipboard::run_timeout(cmd, None, 5, true);
-    match res {
-        Ok(out) if out.status.success() => Ok(()),
-        Ok(out) => anyhow::bail!(
-            "virtual keyboard type failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        ),
-        Err(e) => Err(anyhow::anyhow!("type failed: {e}")),
-    }
+    let _ = clipboard::offer_text(text);
+    type_text(text)
 }
-/// clients can ignore compositor-synthesized shortcuts even when Hyprland
-/// reports success. Dictated text remains in the clipboard (and the primary
-/// selection for terminals); only the paste chord itself is sent through
-/// wtype. Fall back to Hyprland for installations without it.
+
+/// Type cleaned final text as visibly progressive virtual keyboard events.
+/// `wtype` is called directly (never through a shell) and is given the text
+/// under the explicit repository exception for one-shot LLM output. It has no
+/// Enter action.
+fn type_text(text: &str) -> anyhow::Result<()> {
+    let wtype = find_wtype().ok_or_else(|| anyhow::anyhow!("wtype not found"))?;
+    let mut cmd = std::process::Command::new(wtype);
+    cmd.arg("-d").arg(DIRECT_TYPE_DELAY_MS.to_string());
+    // `--` keeps a cleaned prompt beginning with '-' from being interpreted
+    // as a wtype option. Verified against the installed wtype binary.
+    cmd.arg("--").arg(text);
+    let timeout_secs = type_timeout_secs(text);
+    let out = clipboard::run_timeout(cmd, None, timeout_secs, true)?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    anyhow::bail!("wtype exited unsuccessfully: {}", stderr.trim());
+}
+
+/// A long dictated prompt may take longer than the normal helper deadline.
+/// Keep a finite ceiling so a stuck virtual keyboard cannot wedge a session.
+fn type_timeout_secs(text: &str) -> u64 {
+    let typing_ms = (text.chars().count() as u64).saturating_mul(DIRECT_TYPE_DELAY_MS);
+    (5 + typing_ms.div_ceil(1_000)).min(60)
+}
+
+/// Fallback key dispatch for clients that reject direct virtual-keyboard text.
+/// The text remains on the clipboard; this helper sends only a fixed chord.
 fn dispatch_paste(chord: &str) -> anyhow::Result<()> {
     let (mods, key) = chord_parts(chord)?;
     if let Some(wtype) = find_wtype() {
@@ -316,19 +342,16 @@ mod tests {
 
     #[test]
     fn wtype_lookup_does_not_require_a_shell() {
-        // Lookup is direct and fixed-name; dictated text never enters argv.
+        // Lookup is direct and fixed-name; wtype is never launched through a shell.
         if let Some(path) = find_wtype() {
             assert_eq!(path.file_name().unwrap(), "wtype");
         }
     }
-}
 
-fn looks_shell_like(t: &str) -> bool {
-    let l = t.to_lowercase();
-    [
-        "rm -rf", "sudo ", "mkfs", ":(){", "chmod ", "curl ", "wget ", "dd if=", "shutdown",
-        "reboot",
-    ]
-    .iter()
-    .any(|p| l.contains(p))
+    #[test]
+    fn direct_typing_timeout_scales_but_is_bounded() {
+        assert_eq!(type_timeout_secs("short"), 6);
+        assert_eq!(type_timeout_secs(&"x".repeat(1_250)), 23);
+        assert_eq!(type_timeout_secs(&"x".repeat(100_000)), 60);
+    }
 }

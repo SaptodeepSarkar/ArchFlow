@@ -45,6 +45,13 @@ pub struct General {
     /// silence following speech (1..=10). 0 disables (manual stop only).
     #[serde(default = "default_auto_stop")]
     pub auto_stop_secs: u64,
+    /// First-run desktop onboarding has been completed.
+    #[serde(default)]
+    pub onboarding_complete: bool,
+    /// Human-readable compositor shortcut, generated into the app-owned
+    /// Hyprland include by the installer/user. The daemon never grabs keys.
+    #[serde(default = "default_shortcut")]
+    pub shortcut: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,26 +108,15 @@ pub struct Insertion {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cleanup {
-    /// raw | clean | stream
-    #[serde(default = "default_cleanup_mode")]
-    pub mode: String,
-    #[serde(default)]
-    pub endpoint: String,
-    #[serde(default = "default_cleanup_timeout")]
-    pub timeout_secs: u64,
     #[serde(default)]
     pub vocabulary: Vec<String>,
-    /// Path to the local LLM model dir (used when mode = "stream").
+    /// Path to the local formatter model directory.
     #[serde(default)]
     pub model_path: String,
     /// Path to the local LLM LoRA adapter dir. Empty keeps the legacy
     /// dpo-sft adapter next to model_path.
     #[serde(default)]
     pub adapter_path: String,
-    /// Word count threshold: skip LLM cleanup below this count. Zero runs it
-    /// for every non-empty transcript.
-    #[serde(default = "default_word_threshold")]
-    pub word_threshold: usize,
     /// Path to vaani_inject.py (optional: daemon falls back to builtin call).
     #[serde(default)]
     pub python_path: String,
@@ -145,6 +141,9 @@ fn default_live_chunk() -> u64 {
 }
 fn default_auto_stop() -> u64 {
     1
+}
+fn default_shortcut() -> String {
+    "SUPER+ALT+SPACE".into()
 }
 fn default_threads() -> u32 {
     4
@@ -178,16 +177,6 @@ fn default_clip_secs() -> u64 {
 fn default_pending_secs() -> u64 {
     300
 }
-fn default_cleanup_mode() -> String {
-    "raw".into()
-}
-fn default_cleanup_timeout() -> u64 {
-    8
-}
-fn default_word_threshold() -> usize {
-    0
-}
-
 impl Default for General {
     fn default() -> Self {
         Self {
@@ -196,6 +185,8 @@ impl Default for General {
             unicode_output: true,
             live_chunk_secs: default_live_chunk(),
             auto_stop_secs: default_auto_stop(),
+            onboarding_complete: false,
+            shortcut: default_shortcut(),
         }
     }
 }
@@ -233,13 +224,9 @@ impl Default for Insertion {
 impl Default for Cleanup {
     fn default() -> Self {
         Self {
-            mode: default_cleanup_mode(),
-            endpoint: String::new(),
-            timeout_secs: default_cleanup_timeout(),
             vocabulary: Vec::new(),
             model_path: String::new(),
             adapter_path: String::new(),
-            word_threshold: default_word_threshold(),
             python_path: String::new(),
         }
     }
@@ -305,6 +292,9 @@ impl Config {
         self.audio.worker_threads = self.audio.worker_threads.clamp(1, 16);
         self.audio.max_secs = self.audio.max_secs.clamp(5, crate::MAX_AUDIO_SECS);
         self.recognition.server_idle_secs = self.recognition.server_idle_secs.min(600);
+        if !valid_shortcut(&self.general.shortcut) {
+            self.general.shortcut = default_shortcut();
+        }
         // Bound vocabulary: max 200 terms, each max 80 chars.
         self.cleanup.vocabulary.truncate(200);
         for t in &mut self.cleanup.vocabulary {
@@ -325,10 +315,6 @@ impl Config {
                 && !pattern.contains(['=', '\r', '\n'])
                 && matches!(mode.as_str(), "automatic" | "review" | "copy-only")
         });
-        match self.cleanup.mode.as_str() {
-            "raw" | "clean" | "stream" => {}
-            _ => self.cleanup.mode = "raw".into(),
-        }
     }
 
     /// Effective insertion mode for an app id (override wins).
@@ -359,6 +345,20 @@ impl Config {
     pub fn set_key(&mut self, key: &str, value: &str) -> Result<String, String> {
         let v = value.trim();
         match key {
+            "general.onboarding_complete" => match v {
+                "true" | "false" => {
+                    self.general.onboarding_complete = v == "true";
+                    Ok(v.into())
+                }
+                _ => Err("must be true|false".into()),
+            },
+            "general.shortcut" => {
+                if !valid_shortcut(v) {
+                    return Err("use one key with optional CTRL+ALT+SHIFT+SUPER modifiers".into());
+                }
+                self.general.shortcut = v.to_ascii_uppercase();
+                Ok(self.general.shortcut.clone())
+            }
             "general.residency_profile" => match v {
                 "economy" | "balanced" | "ready" => {
                     self.general.residency_profile = v.into();
@@ -479,13 +479,6 @@ impl Config {
                     _ => Err("must be app pattern=automatic|review|copy-only|none".into()),
                 }
             }
-            "cleanup.mode" => match v {
-                "raw" | "clean" | "stream" => {
-                    self.cleanup.mode = v.into();
-                    Ok(v.into())
-                }
-                _ => Err("must be raw|clean|stream".into()),
-            },
             "cleanup.model_path" => {
                 if v.len() > 512 {
                     return Err("too long".into());
@@ -499,14 +492,6 @@ impl Config {
                 }
                 self.cleanup.adapter_path = v.into();
                 Ok(v.into())
-            }
-            "cleanup.word_threshold" => {
-                let n: usize = v.parse().map_err(|_| "must be 0..1000")?;
-                if n > 1000 {
-                    return Err("must be 0..1000".into());
-                }
-                self.cleanup.word_threshold = n;
-                Ok(n.to_string())
             }
             "cleanup.python_path" => {
                 if v.len() > 512 {
@@ -536,24 +521,6 @@ impl Config {
                 }
                 self.cleanup.vocabulary.truncate(200);
                 Ok(self.cleanup.vocabulary.join(", "))
-            }
-            "cleanup.endpoint" => {
-                if v.len() > 256 {
-                    return Err("too long".into());
-                }
-                if !v.is_empty() && !(v.starts_with("http://") || v.starts_with("https://")) {
-                    return Err("must be http(s) URL or empty".into());
-                }
-                self.cleanup.endpoint = v.into();
-                Ok(v.into())
-            }
-            "cleanup.timeout_secs" => {
-                let n: u64 = v.parse().map_err(|_| "must be 2..30")?;
-                if !(2..=30).contains(&n) {
-                    return Err("must be 2..30".into());
-                }
-                self.cleanup.timeout_secs = n;
-                Ok(n.to_string())
             }
             "privacy.save_history" | "privacy.hide_preview_on_sharing" => match v {
                 "true" | "false" => {
@@ -586,6 +553,28 @@ impl Config {
     }
 }
 
+fn valid_shortcut(value: &str) -> bool {
+    let parts: Vec<_> = value
+        .split('+')
+        .map(|part| part.trim().to_ascii_uppercase())
+        .filter(|part| !part.is_empty())
+        .collect();
+    if parts.is_empty() || parts.len() > 5 {
+        return false;
+    }
+    let mut keys = 0;
+    for part in parts {
+        if matches!(part.as_str(), "CTRL" | "ALT" | "SHIFT" | "SUPER" | "META") {
+            continue;
+        }
+        keys += 1;
+        if part.len() > 16 || !part.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return false;
+        }
+    }
+    keys == 1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,8 +583,6 @@ mod tests {
     fn defaults_are_safe() {
         let c = Config::default();
         assert_eq!(c.general.residency_profile, "economy");
-        assert_eq!(c.cleanup.mode, "raw");
-        assert_eq!(c.cleanup.word_threshold, 0);
         assert_eq!(c.effective_server_idle_secs(), 0);
         assert!(!c.privacy.save_history);
     }

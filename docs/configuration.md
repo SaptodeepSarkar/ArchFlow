@@ -22,10 +22,8 @@ saved `copy-only` keep that choice; restore the typing behavior with
 | recognition.device | cpu/cuda | CUDA only with user GPU build; failure falls back to CPU visibly |
 | insertion.mode | automatic/review/copy-only | automatic types after a final focus check; copy-only keeps text on the clipboard |
 | insertion.app_overrides | UI or `insertion.app_override` as `app-id=mode` (`none` removes) | Terminals default copy-only (multiline can execute!); overrides are substring matches |
-| cleanup.mode | raw/clean/stream | raw is the default; clean/stream are explicit opt-ins. |
-| cleanup.model_path/cleanup.adapter_path | paths | Base Qwen3-0.6B dir plus explicit LoRA adapter dir for stream mode |
-| cleanup.word_threshold | 0–1000 (0) | Minimum words sent to the formatter; 0 formats every non-empty transcript |
-| cleanup.endpoint/timeout | URL / 2–30 s | No default server; timeout falls back to raw |
+| cleanup.model_path/cleanup.adapter_path | paths | Base Qwen3-0.6B directory plus explicit LoRA adapter directory for the always-on local formatter |
+| cleanup.python_path | path | Optional one-shot formatter fallback; the daemon otherwise resolves its installed helper |
 | cleanup.vocabulary | comma list (append; empty clears) | Names/terms fed to the recognizer prompt; always-on local polish (fillers, false starts, duplicate phrases) needs no endpoint |
 
 The current trained Indian-English STT export is named `cozy_stt_public_indian_v2`.

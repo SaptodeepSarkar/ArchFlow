@@ -56,8 +56,9 @@ portable layer.
 The crate now contains target-specific adapter foundations and a desktop-local
 personalization repository: Linux has explicit Hyprland/Wayland and X11
 adapters. The Wayland path uses Hyprland focus metadata plus
-`wl-copy`/`wtype`, while the X11 path uses optional `xclip`/`xdotool`; both
-retain terminal and shell-like copy-only safeguards. Windows uses the User32
+`wl-copy`/`wtype`, while the X11 path uses optional `xclip`/`xdotool`; the
+Wayland path directly types cleaned final text without synthesizing Enter.
+Windows uses the User32
 `RegisterHotKey` message loop. `PersonalizationRepository` stores vocabulary, snippets, and
 replacements in the shared JSONL schema and applies the same deterministic
 canonicalization/rendering rules. Windows accessibility, tray, clipboard, and

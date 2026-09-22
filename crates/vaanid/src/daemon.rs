@@ -7,7 +7,7 @@
 
 use crate::capture::CaptureHandle;
 use crate::focus::FocusTarget;
-use crate::{cleanup, clipboard, focus, inserter, llm_sup, paths, worker_sup};
+use crate::{clipboard, focus, inserter, llm_sup, paths, worker_sup};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -37,6 +37,10 @@ struct Shared {
     target: FocusTarget,
     ui_level: Vec<f32>, // last waveform snapshot for subscribers
     last_lat: Latencies,
+    /// Non-sensitive formatter route for the most recently completed text.
+    last_formatter: String,
+    /// Non-sensitive delivery route for the most recently completed text.
+    last_delivery: String,
     residency_warm_until: Option<std::time::Instant>,
     /// Session ids for which automatic insertion is disabled (settings or
     /// review window was opened during the operation).
@@ -128,6 +132,8 @@ pub async fn run() -> anyhow::Result<()> {
         target: FocusTarget::default(),
         ui_level: Vec::new(),
         last_lat: Latencies::default(),
+        last_formatter: "not_run".into(),
+        last_delivery: "not_run".into(),
         residency_warm_until: None,
         no_auto: None,
         live: false,
@@ -354,10 +360,10 @@ fn resp_ok(
     }
 }
 
-/// Stream-mode cleanup entry: resident LLM sidecar first, one-shot
-/// fallback, raw text on any failure. See llm_sup::llm_cleanup.
+/// Formatter entry: resident LLM sidecar first, then one-shot fallback. Raw
+/// text survives only a failure or rejected unsafe formatter output.
 /// Blocking — always call from spawn_blocking.
-fn run_stream_cleanup(text: &str, cfg: &Config) -> String {
+fn run_stream_cleanup(text: &str, cfg: &Config) -> llm_sup::CleanupResult {
     llm_sup::llm_cleanup(text, cfg)
 }
 
@@ -482,6 +488,8 @@ async fn dispatch(
                     "pending": g.pending.is_some(),
                     "amplitude": g.amplitude,
                     "latencies": g.last_lat,
+                    "formatter": g.last_formatter,
+                    "delivery": g.last_delivery,
                 })),
             )
         }
@@ -507,13 +515,18 @@ async fn dispatch(
                 g.no_auto = Some(g.session.id.clone());
             }
             drop(g);
-            std::thread::spawn(|| {
+            let onboarding = {
+                let g = shared.lock().await;
+                !g.cfg.general.onboarding_complete
+            };
+            std::thread::spawn(move || {
                 // Reap the child so closed UI processes never linger as zombies.
                 let mut child = std::process::Command::new("quickshell")
                     .arg("-p")
                     .arg(paths::ui_path())
                     .env("VAANI_SOCKET", paths::control_sock())
                     .env("VAANI_OPEN_SETTINGS", "1")
+                    .env("VAANI_ONBOARDING", if onboarding { "1" } else { "0" })
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::inherit())
                     .spawn();
@@ -671,39 +684,42 @@ async fn dispatch(
                 }
             };
             let word_count = text.split_whitespace().count();
-            let threshold = cfg.cleanup.word_threshold;
             let fallback = text.clone();
             let cleaned = tokio::task::spawn_blocking(move || run_stream_cleanup(&text, &cfg))
                 .await
-                .unwrap_or(fallback);
-            // Non-stream modes (and short transcripts) fall through raw.
-            // Stream via virtual keyboard (keyboard locked only during typing).
-            let cleaned_for_inject = cleaned.clone();
+                .unwrap_or(llm_sup::CleanupResult {
+                    text: fallback,
+                    outcome: "formatter_task_failed",
+                });
+            // The formatter runs for every non-empty pending transcript. Stream
+            // via virtual keyboard (keyboard locked only during typing).
+            let cleaned_for_inject = cleaned.text.clone();
             let res = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
                 crate::inserter::inject_stream(&cleaned_for_inject)
             })
             .await;
             let mut g = shared.lock().await;
+            g.last_formatter = cleaned.outcome.into();
             match res {
                 Ok(Ok(())) => {
+                    g.last_delivery = "wtype_injected".into();
                     let s = g.session.clone();
                     g.pending = None;
                     resp_ok(
                         &rid,
                         &s,
                         Some("injected via keyboard".into()),
-                        Some(
-                            serde_json::json!({"text": cleaned, "words": word_count, "threshold": threshold}),
-                        ),
+                        Some(serde_json::json!({"text": cleaned.text, "words": word_count})),
                     )
                 }
                 _ => {
+                    g.last_delivery = "clipboard_only_inject_failed".into();
                     let s = g.session.clone();
                     resp_ok(
                         &rid,
                         &s,
                         Some("injection failed — text on clipboard".into()),
-                        Some(serde_json::json!({"text": cleaned, "words": word_count})),
+                        Some(serde_json::json!({"text": cleaned.text, "words": word_count})),
                     )
                 }
             }
@@ -747,6 +763,8 @@ async fn start_flow(
         g.live_audio_cursor = 0;
         g.target_lost = false;
         g.no_auto = None;
+        g.last_formatter = "not_completed".into();
+        g.last_delivery = "not_completed".into();
         g.session_started_at = None;
         emit(
             tx,
@@ -780,7 +798,7 @@ async fn start_flow(
     // Start loading the cleanup LLM model now,
     // in parallel with microphone capture.
     let cfg_prefill = shared.lock().await.cfg.clone();
-    if cfg_prefill.cleanup.mode == "stream" && cfg_prefill.effective_server_idle_secs() > 0 {
+    if cfg_prefill.effective_server_idle_secs() > 0 {
         let _ = tokio::task::spawn_blocking(move || llm_sup::prefill(&cfg_prefill));
     }
     let mut g = shared.lock().await;
@@ -936,12 +954,12 @@ async fn amplitude_loop(shared: Arc<Mutex<Shared>>, tx: broadcast::Sender<Event>
 }
 
 /// Tell the user UP FRONT where their words will go. Returns a note when
-/// the session will NOT type into the target (terminal, no focus, review).
+/// the session will NOT type into the target (no focus, copy-only, review).
 fn space_note_for(t: &FocusTarget, cfg: &vaani_core::config::Config) -> Option<String> {
     if t.address.is_empty() {
         return Some("No focused window — recording anyway, text kept for copy".into());
     }
-    if focus::is_terminal(&t.app_id) || cfg.insertion_mode_for(&t.app_id) == "copy-only" {
+    if cfg.insertion_mode_for(&t.app_id) == "copy-only" {
         return Some(format!(
             "{}: copy-only space — nothing auto-typed, finish then copy",
             if t.app_id.is_empty() {
@@ -1316,41 +1334,33 @@ async fn stop_flow(
                 let s = g.session.clone();
                 return resp_ok("", &s, Some("silence: no text".into()), None);
             }
-            // Optional cleanup on finish (non-live only): endpoint-based
-            // "clean" mode, or local-LLM "stream" mode for transcripts at or
-            // above the word threshold. Raw fallback on any failure.
+            // Every non-empty final STT transcript goes through the local
+            // formatter. Its source-grounded guard retains raw text only if
+            // the formatter fails or produces an unsafe rewrite.
             let mut final_text = vaani_core::personalization::render(&t.text, &g.personalization);
-            let stream_wanted = g.cfg.cleanup.mode == "stream";
-            if g.cfg.cleanup.mode == "clean" || stream_wanted {
-                let _ = g.session.transition(State::Cleaning);
-                emit(
-                    tx,
-                    &ev_state(Some(sid.clone()), State::Cleaning, Some("Cleaning up…")),
-                );
-                let cfg_snap = g.cfg.clone();
-                let vocab = g.cfg.cleanup.vocabulary.clone();
-                let ep = g.cfg.cleanup.endpoint.clone();
-                let to = g.cfg.cleanup.timeout_secs;
-                let use_stream = stream_wanted;
-                drop(g);
-                let raw = final_text.clone();
-                let cleaned = tokio::task::spawn_blocking(move || {
-                    if use_stream {
-                        run_stream_cleanup(&raw, &cfg_snap)
-                    } else {
-                        cleanup::clean(&raw, &ep, to, &vocab)
-                    }
-                })
+            let _ = g.session.transition(State::Cleaning);
+            emit(
+                tx,
+                &ev_state(Some(sid.clone()), State::Cleaning, Some("Formatting text…")),
+            );
+            let cfg_snap = g.cfg.clone();
+            drop(g);
+            let raw = final_text.clone();
+            let cleaned = tokio::task::spawn_blocking(move || run_stream_cleanup(&raw, &cfg_snap))
                 .await
-                .unwrap_or(final_text);
-                g = shared.lock().await;
-                if g.session.id != sid || !matches!(g.session.state, State::Cleaning) {
-                    let s = g.session.clone();
-                    return resp_ok("", &s, Some("stale cleanup discarded".into()), None);
-                }
-                final_text = cleaned;
+                .unwrap_or(llm_sup::CleanupResult {
+                    text: final_text,
+                    outcome: "formatter_task_failed",
+                });
+            g = shared.lock().await;
+            if g.session.id != sid || !matches!(g.session.state, State::Cleaning) {
+                let s = g.session.clone();
+                return resp_ok("", &s, Some("stale cleanup discarded".into()), None);
             }
+            g.last_formatter = cleaned.outcome.into();
+            final_text = cleaned.text;
             if manual {
+                g.last_delivery = "clipboard_only_manual_stop".into();
                 g.pending = Some(Pending {
                     text: final_text.clone(),
                     at: std::time::Instant::now(),
@@ -1373,6 +1383,7 @@ async fn stop_flow(
             // Focus must still be the original target after cleanup. If it
             // changed, preserve the result rather than typing into a new app.
             if let Err(reason) = focus::recheck_target(&target) {
+                g.last_delivery = "clipboard_only_target_changed".into();
                 let final_text_c = final_text.clone();
                 g.pending = Some(Pending {
                     text: final_text_c.clone(),
@@ -1395,8 +1406,8 @@ async fn stop_flow(
                 );
             }
             // There is one delivery implementation. It applies configured
-            // mode, app overrides, terminal policy, review/no-auto policy,
-            // focus checks, clipboard fallback and the final keyboard action.
+            // mode, app overrides, review/no-auto policy, focus checks,
+            // clipboard recovery and the final direct keyboard action.
             // Do not bypass it with a second wtype streaming path.
             let no_auto = g.no_auto.as_deref() == Some(sid.as_str());
             let configured_mode = if no_auto || !g.insertion_allowed {
@@ -1438,6 +1449,12 @@ async fn stop_flow(
                 inserter::InsertOutcome::CopyReady(format!("delivery task failed: {e}"))
             });
             let delivered = matches!(outcome, inserter::InsertOutcome::DispatchAttempted(_));
+            g.last_delivery = outcome.diagnostic_code().into();
+            tracing::info!(
+                formatter_outcome = g.last_formatter.as_str(),
+                delivery_outcome = g.last_delivery.as_str(),
+                "dictation completed"
+            );
             let message = outcome.to_string();
             let _ = g.session.transition(State::Idle);
             let s = g.session.clone();

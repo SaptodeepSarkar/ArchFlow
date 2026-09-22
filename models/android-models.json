@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "whisper-base-android-starter",
+      "kind": "stt",
+      "runtime": "whisper-ggml",
+      "android_compatible": true,
+      "url": "https://github.com/SaptodeepSarkar/ArchFlow/releases/download/v5.0.0-android-starter/ggml-base.bin",
+      "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+      "size_bytes": 147951465,
+      "license": "MIT",
+      "note": "Android baseline. The V5 CT2 STT model remains a desktop reference artifact."
+    },
+    {
+      "id": "vaani-v5-formatter-q8-android",
+      "kind": "formatter",
+      "runtime": "llama-gguf",
+      "android_compatible": true,
+      "url": "https://github.com/SaptodeepSarkar/ArchFlow/releases/download/v5.0.0-android-starter/vaani-v5-formatter-q8.gguf",
+      "sha256": "f82802a0a5dc5eb81b547aeb9113e16a565ed3d23910fae5a15ac1efcb5c666e",
+      "size_bytes": 386405344,
+      "license": "Apache-2.0",
+      "note": "V5 formatter exported from the released local checkpoint and quantized Q8_0."
+    }
+  ]
+}

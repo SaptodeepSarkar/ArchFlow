@@ -21,6 +21,7 @@ Scope {
     property real amplitude: 0
     property var ampHistory: []
     property bool showSettings: (Quickshell.env("VAANI_OPEN_SETTINGS") || "") === "1"
+    property bool showOnboarding: (Quickshell.env("VAANI_ONBOARDING") || "") === "1"
     property string pendingText: ""
     property var settingsApi: null
     property string provisional: ""
@@ -158,7 +159,13 @@ Scope {
                 root.ampHistory = [];
             }
         }
-        if (root.state !== "RECORDING") { root.provisional = ""; root.liveWords = ""; }
+        // Keep the last live STT phrase visible while final transcription
+        // completes. The overlay only renders daemon events; it never owns or
+        // synthesizes any text delivery.
+        if (root.state !== "RECORDING" && root.state !== "TRANSCRIBING") {
+            root.provisional = "";
+            root.liveWords = "";
+        }
         root.checkFinished();
     }
 
@@ -239,7 +246,7 @@ Scope {
         active: (root.state !== "IDLE" || closeTimer.running) && !root.showSettings
         PanelWindow {
             id: overlay
-            implicitWidth: 360
+            implicitWidth: 440
             implicitHeight: card.height + 48
             color: "transparent"
             // Anchor bottom-center, 24px above usable edge, no exclusive zone.
@@ -256,115 +263,108 @@ Scope {
             Rectangle {
                 id: card
                 anchors.centerIn: parent
-                width: 360
-                height: 112
-                radius: 18
-                color: theme.surface
-                border.color: theme.outline
-                border.width: 1
+                width: 440
+                height: 72
+                radius: 22
+                color: "#19161C"
+                border.color: "#19161C"
+                border.width: 2
                 opacity: root.dismissing ? 0 : 1
                 transform: Translate {
                     y: root.dismissing ? card.height + 32 : 0
                     Behavior on y { NumberAnimation { duration: 320; easing.type: Easing.InCubic } }
                 }
                 Behavior on opacity { NumberAnimation { duration: 240 } }
-                ColumnLayout {
+                RowLayout {
                     anchors.fill: parent
-                    anchors.margins: 16
-                    spacing: 7
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 18
-                        spacing: 7
-                        Rectangle {
-                            Layout.preferredWidth: 8
-                            Layout.preferredHeight: 8
-                            radius: 4
-                            color: root.state === "ERROR" ? theme.error : theme.accent
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: root.state === "INSERTING" ? "Typing cleaned text" : root.state === "CLEANING" ? "Cleaning transcript" : root.state === "TRANSCRIBING" ? "Transcribing" : "Listening"
-                            color: theme.text
-                            font.pixelSize: 13
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideRight
-                        }
-                        Text {
-                            text: root.state === "RECORDING" ? "SUPER+J copy" : ""
-                            color: theme.muted
-                            font.pixelSize: 10
-                            opacity: 0.8
-                        }
-                    }
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 25
-                        Row {
+                    anchors.margins: 12
+                    spacing: 13
+
+                    // Same 44 px lilac activity mark as the brand-kit voice box.
+                    Rectangle {
+                        Layout.preferredWidth: 44
+                        Layout.preferredHeight: 44
+                        radius: 13
+                        color: "#E8DCFF"
+                        Item {
                             anchors.centerIn: parent
-                            spacing: 5
-                            Repeater {
-                                model: 16
-                                Rectangle {
-                                    required property int index
-                                width: 3
-                                    height: root.state === "RECORDING" ? root.barH(index) : 3
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    radius: 2
-                                    color: root.state === "ERROR" ? theme.error : theme.accent
+                            width: 25
+                            height: 28
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 4
+                                Repeater {
+                                    model: 5
+                                    Rectangle {
+                                        required property int index
+                                        width: 3
+                                        height: root.state === "RECORDING" ? Math.max(7, root.barH(index * 3)) : [10, 18, 25, 18, 10][index]
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        radius: 2
+                                        color: "#54296C"
+                                        Behavior on height { NumberAnimation { duration: 90 } }
+                                    }
                                 }
                             }
                         }
                     }
-                    Row {
-                        visible: root.liveWords !== ""
-                        Layout.alignment: Qt.AlignHCenter
-                        spacing: 6
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 2
                         Text {
-                            text: root.ctxWords
-                            textFormat: Text.PlainText
-                            color: theme.text
-                            opacity: 0.55
-                            font.pixelSize: 16
-                            elide: Text.ElideLeft
-                            horizontalAlignment: Text.AlignRight
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Math.min(implicitWidth, 190)
+                            text: root.state === "INSERTING" ? "TYPING CLEAN TEXT" : root.state === "CLEANING" ? "CLEANING TRANSCRIPT" : root.state === "TRANSCRIBING" ? "TRANSCRIBING" : root.state === "ERROR" ? "NEEDS ATTENTION" : "LISTENING"
+                            color: "#CFC6D3"
+                            font.pixelSize: 10
+                            font.weight: Font.Bold
+                            font.letterSpacing: 1
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
                         }
                         Text {
-                            id: curWordText
-                            text: root.curWord
+                            id: voiceLine
+                            // Live words are supplied by daemon provisional events. This is
+                            // deliberately presentation-only: no QML prediction or typing.
+                            text: (root.state === "RECORDING" || root.state === "TRANSCRIBING") && root.liveWords !== "" ? root.liveWords : (root.statusText || "Speak naturally…")
                             textFormat: Text.PlainText
-                            color: theme.accent
-                            font.pixelSize: 18
-                            font.weight: Font.Bold
+                            color: root.state === "ERROR" ? "#FFB4AB" : "#FDFBF8"
+                            font.pixelSize: 14
+                            font.weight: Font.DemiBold
                             elide: Text.ElideRight
-                            horizontalAlignment: Text.AlignLeft
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Math.min(implicitWidth, 120)
-                            // The current word pops on arrival.
-                            onTextChanged: liveFadeAnim.restart()
+                            Layout.fillWidth: true
+                            onTextChanged: voiceLineFade.restart()
                         }
                     }
-                    Text {
-                        visible: root.liveWords === ""
-                        text: root.statusText || "Speak naturally…"
-                        textFormat: Text.PlainText
-                        color: root.state === "ERROR" ? theme.error : theme.text
-                        font.pixelSize: 12
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
+
+                    Rectangle {
+                        Layout.preferredWidth: 31
+                        Layout.preferredHeight: 31
+                        Layout.alignment: Qt.AlignVCenter
+                        radius: 10
+                        color: "#4A424E"
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 10
+                            height: 10
+                            radius: 2
+                            color: "#FFD4A3"
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: root.state === "RECORDING" || root.state === "STARTING"
+                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: root.sendOp("stop")
+                        }
                     }
                 }
-                // Word-transition animation (non-visual, never laid out).
                 PropertyAnimation {
-                    id: liveFadeAnim
-                    target: curWordText
+                    id: voiceLineFade
+                    target: voiceLine
                     property: "opacity"
-                    from: 0
+                    from: 0.35
                     to: 1
-                    duration: 160
+                    duration: 140
                 }
             }
         }
@@ -405,10 +405,26 @@ Scope {
                 if (!visible)
                     { root.showSettings = false; root.checkFinished(); }
             }
-            SettingsView {
-                bridge: root
-                colors: theme
+            Loader {
+                anchors.fill: parent
+                sourceComponent: root.showOnboarding ? onboardingComponent : settingsComponent
             }
         }
+    }
+
+    Component {
+        id: onboardingComponent
+        OnboardingView {
+            bridge: root
+            colors: theme
+            onFinished: {
+                root.showOnboarding = false;
+                root.showSettings = false;
+            }
+        }
+    }
+    Component {
+        id: settingsComponent
+        SettingsView { bridge: root; colors: theme }
     }
 }

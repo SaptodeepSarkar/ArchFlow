@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Resident cleanup-LLM sidecar for Vaani stream mode.
+"""Resident cleanup-LLM sidecar for Vaani’s always-on formatter.
 
 Loads Qwen3-0.6B + the LoRA adapter once (~8 s cold) and stays resident, so
 every finish/inject answers in ~1-2 s instead of paying a reload per call.
 The controller reaps this process after configured idle seconds (economy:
 no VRAM held while you are not dictating).
 
-Usage: llm-server.py <model_dir> <adapter_dir> [--threshold N]
+Usage: llm-server.py <model_dir> <adapter_dir>
 
 Protocol (pipes, newline JSON; transcripts never logged):
   stdin  {"id": N, "text": "..."}
@@ -47,22 +47,9 @@ SYSTEM = (
 def main() -> None:
     args = sys.argv[1:]
     if len(args) < 2:
-        sys.stderr.write("usage: llm-server.py <model_dir> <adapter_dir> [--threshold N]\n")
+        sys.stderr.write("usage: llm-server.py <model_dir> <adapter_dir>\n")
         raise SystemExit(2)
     model_dir, adapter_dir = args[0], args[1]
-    # Keep this aligned with config.example.toml: zero means every non-empty
-    # transcript is offered to the formatter.
-    threshold = 0
-    i = 2
-    while i < len(args):
-        if args[i] == "--threshold":
-            i += 1
-            try:
-                threshold = int(args[i]) if i < len(args) else 0
-            except ValueError:
-                threshold = 0
-        i += 1
-
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from peft import PeftModel
@@ -94,7 +81,7 @@ def main() -> None:
         jid = job.get("id")
         text = str(job.get("text", ""))
         try:
-            if not text.strip() or len(text.split()) < threshold:
+            if not text.strip():
                 sys.stdout.write(json.dumps({"id": jid, "text": text}) + "\n")
             else:
                 prompt = (

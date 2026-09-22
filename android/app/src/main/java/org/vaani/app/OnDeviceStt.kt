@@ -3,12 +3,14 @@ package org.vaani.app
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.content.pm.PackageManager
 import dev.ffmpegkit.whisper.Whisper
 import dev.ffmpegkit.whisper.WhisperConfig
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +38,10 @@ class OnDeviceStt(private val context: Context) : SttSession {
     private var recognizer: SpeechRecognizer? = null
 
     override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
+        if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            onError("Microphone permission is not granted")
+            return
+        }
         if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
             onError("On-device speech is unavailable. Install an offline speech service first.")
             return
@@ -74,6 +80,10 @@ class NativeWhisperStt(private val context: Context, private val modelFile: File
     private var job: Job? = null
 
     override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
+        if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            onError("Microphone permission is not granted")
+            return
+        }
         if (!modelFile.isFile) { onError("Embedded STT model is missing"); return }
         val minimum = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING)
         if (minimum <= 0) { onError("Audio input is unavailable"); return }
@@ -111,7 +121,11 @@ class NativeWhisperStt(private val context: Context, private val modelFile: File
                         withContext(Dispatchers.Main) { onResult(result.text.trim()) }
                     } finally { Whisper.releaseModel(model) }
                 } finally { wav.delete() }
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
+                // Keep logs diagnostic-only: never write audio or recognised
+                // text.  The exception class is enough to distinguish an
+                // AudioRecord/ABI/model failure on a physical device.
+                Log.w("VaaniStt", "Native STT session failed: ${error.javaClass.simpleName}")
                 withContext(Dispatchers.Main) { onError("Embedded STT failed") }
             }
         }
@@ -152,17 +166,30 @@ class NativeWhisperStt(private val context: Context, private val modelFile: File
         return (kotlin.math.sqrt(sum / samples) / Short.MAX_VALUE).toFloat().coerceIn(0f, 1f)
     }
 
-    private companion object {
+    companion object {
         const val SAMPLE_RATE = 16_000
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
         const val MAX_RECORDING_MS = 90_000L
         const val MIN_AUDIO_BYTES = SAMPLE_RATE / 2
+        /** The model alone is insufficient: the installed APK must carry the JNI library for this ABI. */
+        fun isAvailable(context: Context): Boolean =
+            File(context.applicationInfo.nativeLibraryDir, "libwhisper.so").isFile
     }
 }
 
 object SttFactory {
-    fun create(context: Context): SttSession = LocalModels(context).sttModelFile()
-        ?.let { NativeWhisperStt(context, it) }
-        ?: OnDeviceStt(context)
+    fun create(context: Context): SttSession {
+        val model = LocalModels(context).sttModelFile()
+        return if (model != null && NativeWhisperStt.isAvailable(context)) {
+            Log.i("VaaniStt", "Using packaged native STT")
+            NativeWhisperStt(context, model)
+        } else {
+            // The development x86_64 emulator has the model files but the
+            // shipped native binding is arm64-only. Its Android recognizer is
+            // still a useful test path instead of failing after every hold.
+            Log.i("VaaniStt", "Using Android on-device STT fallback")
+            OnDeviceStt(context)
+        }
+    }
 }

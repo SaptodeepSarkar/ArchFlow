@@ -16,30 +16,43 @@ adb shell am start -n org.vaani.keyboard/org.vaani.app.MainActivity
 
 The rebuilt app keeps the registered Firebase Android identity
 `org.vaani.keyboard` and uses the checked-in `google-services.json` client
-configuration. The setup flow creates a real anonymous Firebase Auth session;
-Google OAuth is not advertised until an Android OAuth client is added in the
-Firebase console.
+configuration. Account controls live behind the Home menu: email/password and
+Google identity are explicit opt-in choices shown immediately after the three
+opening splash screens. Choosing either account path—or **Continue without an
+account**—starts Vaani's verified model-release job on the available network.
+The job
+uses HTTPS, SHA-256 verification, a private temporary file, and an atomic move
+before a model can run. There is no manual model-picker or replacement action
+in the product.
 
 The release APK embeds native whisper.cpp and llama.cpp runtimes
-(`arm64-v8a`); model weights are still user-installed and never tracked in
-Git. Put a Whisper GGML model at `files/models/stt/ggml-base.bin` and a GGUF
-cleanup model at `files/models/formatter/model.gguf`. The IME records 16-kHz
-PCM into a private temporary WAV, transcribes locally with Whisper, and runs
-the conservative Llama editor before insertion. If either pack is absent or
-fails to load, Vaani falls back to Android's offline recognizer and the
-deterministic formatter. Model output is accepted only when it preserves the
-source words in order.
+(`arm64-v8a`). It cannot be used until both verified, Android-qualified model
+packages have arrived in the private model directory. At the end of onboarding,
+the model-preparation screen remains locked until that happens, then Android
+posts a “Vaani is ready” notification. The IME records 16-kHz PCM into a
+private temporary WAV, transcribes locally with Whisper, and runs the
+conservative Llama editor before insertion. Model output is accepted only when
+it preserves the source words in order.
 
-The Home screen also provides **Install Whisper model** and **Install Llama
-cleanup model** actions. They use Android's document picker and copy the
-selected file into Vaani's private `files/models/` directory; no broad storage
-permission is requested. The ADB commands below remain useful for development
-and repeatable test setup.
+The Firestore surface is deliberately limited to signed-in users' vocabulary,
+snippets, and replacements at `/users/{uid}/personalization/{recordId}`. The
+client cannot write raw dictation, recordings, clipboard text, tokens, or a
+free-form profile document; matching rules deny them. The ADB commands below
+remain useful for development and repeatable test setup.
 
-The onboarding first explains **text-box access** and opens Android's
-Accessibility settings. After approval, the **Enable floating button** action
-opens the overlay permission page. The always-on-top Vaani bubble can then be
-held to dictate from another app while the default keyboard remains active.
+After the three opening splash screens, Vaani offers sign-in or local-only use,
+then teaches its value, hold/speak/release interaction, in-field behavior, and
+language choice before asking for permissions. It then explains **text-box
+access** and opens Android's Accessibility settings. The optional **Enable
+Vaani control** action opens the overlay permission page. After the models
+verify, the Vaani control appears only while an editable, non-password field is
+focused; it disappears when focus leaves the field. Press and hold to dictate,
+then release to finish, while the default keyboard remains active. Google login
+requires the Firebase console's Google provider,
+an Android SHA-1 fingerprint, and refreshed `google-services.json`; email
+login requires the Email/Password provider. Firestore must be provisioned in
+the chosen region and have the checked-in rules deployed before live sync is
+available.
 The listening bars are driven by microphone RMS callbacks from the active STT
 session. When the focused node is editable and not a password field, Vaani
 pastes into that node; otherwise it copies the result for a normal paste. If
