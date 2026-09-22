@@ -13,6 +13,7 @@ pub mod sync;
 pub mod sync_crypto;
 pub mod transcript;
 pub mod vad;
+pub mod v6_tagger;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 /// Max control message bytes (1 MiB). Audio never goes through control socket.
