@@ -127,6 +127,18 @@ fn set_setting(key: &str, value: &str) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
+fn launch_app() -> Result<(), Box<dyn std::error::Error>> {
+    // The daemon remains the owner of the Quickshell socket and state. The
+    // launcher entry only asks the normal CLI to open the settings surface.
+    let status = std::process::Command::new("vaani")
+        .arg("settings")
+        .status()?;
+    if !status.success() {
+        return Err("could not open Vaani settings; start vaanid.service first".into());
+    }
+    Ok(())
+}
+
 fn command_available(name: &str) -> bool {
     let Some(path_value) = std::env::var_os("PATH") else {
         return false;
@@ -297,6 +309,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .unwrap_or_else(|| default_command.into());
     match command.as_str() {
+        "app" => launch_app()?,
         "run" => {
             #[cfg(windows)]
             run_windows_shell()?;
@@ -371,7 +384,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "personalize" => personalization_menu(&repository()?)?,
         _ => {
             return Err(
-                "usage: vaani-desktop [run|settings|config-get|config-set KEY VALUE|login|sync|sign-out|status|doctor|personalize]".into(),
+                "usage: vaani-desktop [app|run|settings|config-get|config-set KEY VALUE|login|sync|sign-out|status|doctor|personalize]".into(),
             )
         }
     }

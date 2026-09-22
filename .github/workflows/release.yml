@@ -26,19 +26,19 @@ jobs:
         run: |
           ./gradlew testDebugUnitTest assembleDebug --stacktrace
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/Vaani-Android-2.0.0-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/Vaani-Android-1.2.0-debug.apk"
       - name: Verify native runtimes
         run: |
-          unzip -l dist/Vaani-Android-2.0.0-debug.apk | grep -q 'lib/arm64-v8a/libwhisper.so'
-          unzip -l dist/Vaani-Android-2.0.0-debug.apk | grep -q 'lib/arm64-v8a/libllama.so'
+          unzip -l dist/Vaani-Android-1.2.0-debug.apk | grep -q 'lib/arm64-v8a/libwhisper.so'
+          unzip -l dist/Vaani-Android-1.2.0-debug.apk | grep -q 'lib/arm64-v8a/libllama.so'
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Vaani ${{ github.ref_name }}
           generate_release_notes: true
           prerelease: true
-          files: android/dist/Vaani-Android-2.0.0-debug.apk
+          files: android/dist/Vaani-Android-1.2.0-debug.apk
           body: |
-            Install `Vaani-Android-2.0.0-debug.apk` on an arm64 Android device.
+            Install `Vaani-Android-1.2.0-debug.apk` on an arm64 Android device.
 
-            This is an installable debug build for the current Vaani 2.0 desktop/mobile integration milestone. Model packages are downloaded and verified by the app; they are not bundled in the APK.
+            This is an installable debug build for the Vaani 1.2.0 desktop/mobile integration milestone. Model packages are downloaded and verified by the app; they are not bundled in the APK.

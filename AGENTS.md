@@ -21,6 +21,10 @@ Tag `v0.1.0` = slice 8. Future versions: bump `Cargo.toml` workspace crates +
 
 ## Version history
 
+- **v1.2.0** (2026-09-22): user-local uninstall/reinstall flow, visible Vaani
+  Desktop launcher with settings and service lifecycle actions, and a clean
+  install round-trip verified on the target laptop.
+
 - **v1.0.0** (2026-09-15): restored automatic typing as the default delivery
   mode, made cleanup run on short transcripts by default, aligned resident and
   one-shot formatter thresholds, and reorganized the documentation index.

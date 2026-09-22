@@ -1,9 +1,26 @@
 [Desktop Entry]
 Type=Application
-Name=Vaani Settings
-Comment=Local-first voice dictation settings
-Exec=vaani settings
+Name=Vaani Desktop
+Comment=Local-first voice dictation and settings
+Exec=vaani-desktop app
+TryExec=vaani-desktop
 Icon=audio-input-microphone
 Terminal=false
 Categories=Utility;Accessibility;
-NoDisplay=true
+Actions=OpenSettings;StartService;StopService;EnableOnBoot;
+
+[Desktop Action OpenSettings]
+Name=Open Vaani settings
+Exec=vaani-desktop app
+
+[Desktop Action StartService]
+Name=Start Vaani service
+Exec=systemctl --user start vaanid.service
+
+[Desktop Action StopService]
+Name=Stop Vaani service
+Exec=systemctl --user stop vaanid.service
+
+[Desktop Action EnableOnBoot]
+Name=Enable Vaani on login
+Exec=systemctl --user enable vaanid.service
