@@ -8,11 +8,39 @@
     {
       "client_info": {
         "mobilesdk_app_id": "1:555825788955:android:7735b6b8ab43a8f0c1a0be",
-        "android_client_info": { "package_name": "org.vaani.keyboard" }
+        "android_client_info": {
+          "package_name": "org.vaani.keyboard"
+        }
       },
-      "oauth_client": [],
-      "api_key": [{ "current_key": "AIzaSyDF1Btpfs4w6V5EJXKLRir9iR3hh22EVQA" }],
-      "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+      "oauth_client": [
+        {
+          "client_id": "555825788955-mn1v1f3jo0vcoje9gs82dbfb6319l1s1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "org.vaani.keyboard",
+            "certificate_hash": "1750b308f775fd424be0e95cc28926d61ee25b46"
+          }
+        },
+        {
+          "client_id": "555825788955-mmblmptvujfgvjsj7jc9alhn7ch0mcku.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDF1Btpfs4w6V5EJXKLRir9iR3hh22EVQA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "555825788955-mmblmptvujfgvjsj7jc9alhn7ch0mcku.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
     }
   ],
   "configuration_version": "1"

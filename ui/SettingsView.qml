@@ -180,6 +180,28 @@ ColumnLayout {
                     }
                 }
             }
+            Label { text: "Personal vocabulary"; font.bold: true }
+            Label {
+                text: "Names and technical terms are added to the recognizer prompt and never sent as dictation history."
+                wrapMode: Text.WordWrap; Layout.fillWidth: true; color: colors.muted
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                TextField { id: vocabularyField; Layout.fillWidth: true; placeholderText: "Add a word or name" }
+                Button {
+                    text: "Add"
+                    onClicked: {
+                        if (vocabularyField.text.trim().length > 0) {
+                            settingsRoot.setKey("cleanup.vocabulary", vocabularyField.text.trim())
+                            vocabularyField.text = ""
+                        }
+                    }
+                }
+            }
+            Label {
+                text: settingsRoot.cfg.cleanup ? (settingsRoot.cfg.cleanup.vocabulary || []).join(", ") : ""
+                color: colors.text; wrapMode: Text.WordWrap; Layout.fillWidth: true
+            }
         }
 
         // ---- Audio ----
@@ -295,13 +317,23 @@ ColumnLayout {
                 width: parent.width
                 spacing: 8
                 Label {
-                    text: "Defaults (Hyprland bindings invoke the CLI; no /dev/input listener)"
+                    text: "Primary shortcut (Hyprland invokes the CLI; Vaani never reads /dev/input)"
                     font.bold: true
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    TextField {
+                        id: shortcutField
+                        Layout.fillWidth: true
+                        text: settingsRoot.cfg.general ? settingsRoot.cfg.general.shortcut : "SUPER+ALT+SPACE"
+                        placeholderText: "SUPER+ALT+SPACE"
+                    }
+                    Button { text: "Save"; onClicked: settingsRoot.setKey("general.shortcut", shortcutField.text) }
+                }
                 Label {
-                        text: "Super+Alt+Space — toggle · Super+H — preview while speaking, clean then type · Super+J — clean and copy · Super+Alt+V — hold-to-talk · Super+Alt+Esc — cancel · Super+Alt+S — settings · Super+Alt+C — copy pending"
+                    text: (settingsRoot.cfg.general ? settingsRoot.cfg.general.shortcut : "SUPER+ALT+SPACE") + " — toggle · Super+H — live dictation · Super+Alt+V — hold-to-talk · Super+Alt+Esc — cancel · Super+Alt+S — settings"
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                     color: colors.text
@@ -330,19 +362,14 @@ ColumnLayout {
                 onToggled: settingsRoot.setKey("privacy.hide_preview_on_sharing", checked ? "true" : "false")
             }
             Label {
-                text: "Cleanup mode (raw is the dependable default)"
+                text: "Always format final transcripts"
                 font.bold: true
             }
-            ComboBox {
-                model: ["raw", "clean", "stream"]
-                currentIndex: (settingsRoot.cfg.cleanup && settingsRoot.cfg.cleanup.mode === "clean") ? 1 : (settingsRoot.cfg.cleanup && settingsRoot.cfg.cleanup.mode === "stream") ? 2 : 0
-                onActivated: settingsRoot.setKey("cleanup.mode", currentText)
-            }
-            TextField {
+            Label {
+                text: "Every non-empty result is sent to Vaani’s local, source-grounded formatter. The original text is kept only when formatting fails or its safety guard rejects an unsafe rewrite."
+                wrapMode: Text.WordWrap
                 Layout.fillWidth: true
-                placeholderText: "Local cleanup endpoint, e.g. http://localhost:11434 (empty = disabled)"
-                text: settingsRoot.cfg.cleanup ? settingsRoot.cfg.cleanup.endpoint : ""
-                onEditingFinished: settingsRoot.setKey("cleanup.endpoint", text)
+                color: colors.muted
             }
             Button {
                 text: "Run diagnostics"

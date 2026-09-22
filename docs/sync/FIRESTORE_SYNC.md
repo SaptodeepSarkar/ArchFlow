@@ -26,12 +26,21 @@ The rules in [`firestore.rules`](../../firestore.rules) enforce:
 
 The repository binds its Firebase CLI default to the existing `arch-flow-vanni`
 development project in `.firebaserc`; no credentials are committed. The
-Android client uses the user-local `google-services.json` configuration when
-present and does not make sign-in mandatory. Enable Email/Password in the
-Firebase console (or an approved equivalent provider) before using account
-creation. Cloud Firestore is not currently enabled in that project, so the
-repository deliberately does not create a database or enable billing. Validate
-the rules with the Firebase Emulator Suite before any operator-approved deploy:
+Android client uses the registered `google-services.json` configuration and
+does not make sign-in mandatory. Its Home-menu account surface supports
+email/password and Google identity. The Android debug SHA-1 is registered for
+emulator builds, but a refreshed configuration still needs a generated
+`default_web_client_id` before Google sign-in can complete.
+
+As checked on 2026-09-22, Firebase Authentication has not been initialized in
+this project and Google's management API reports `BILLING_NOT_ENABLED` for
+that initialization. Do not enable billing or choose a Cloud Firestore region
+from an automated repository task: both are an operator decision with cost and
+data-residency consequences. Once an operator has enabled billing, initialize
+Firebase Authentication, enable Email/Password and Google, refresh
+`android/app/google-services.json`, select the Firestore region, and deploy
+the rules. Validate the rules with the Firebase Emulator Suite before that
+operator-approved deploy:
 
 ```sh
 cd firebase

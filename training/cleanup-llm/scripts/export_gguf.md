@@ -40,10 +40,5 @@ printf 'FROM ./output/vaani-cleanup-q8.gguf\n' > output/Modelfile
 ollama create vaani-cleanup:0.6b -f output/Modelfile
 ```
 
-Then in Vaani:
-
-```
-cleanup.mode = "clean"
-cleanup.endpoint = "http://localhost:11434"
-VAANI_CLEAN_MODEL=vaani-cleanup:0.6b
-```
+The current daemon uses the source-grounded direct-torch formatter instead of
+an optional Ollama endpoint. Keep this export only for offline evaluation.

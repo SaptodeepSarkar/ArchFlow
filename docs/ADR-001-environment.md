@@ -34,8 +34,9 @@ Date: 2026-09-10. Machine: the target laptop itself (NOT a remote container).
    (verified in installed caelestia-shell sources), `Quickshell.Io.Socket` +
    `SplitParser` (verified in installed qmltypes). NOT the 0.2.0 doc URLs
    verbatim — adapted to the installed release.
-4. **Insertion = clipboard offer + `hyprctl dispatch sendkey`**; report
-   "Paste requested", never "Inserted successfully". Terminals copy-only.
+4. **Insertion = clipboard recovery offer + direct `wtype` text entry**;
+   never synthesize Enter and report "Typing requested", never "Inserted
+   successfully". The fixed key-dispatch paste chord is a fallback.
 5. **Economy first**: worker exits per operation; Balanced/Ready accepted in
    config but currently prefetch-only (documented roadmap, not disguised).
 

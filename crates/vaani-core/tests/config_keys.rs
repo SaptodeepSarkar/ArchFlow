@@ -18,7 +18,6 @@ fn whitelist_accepts_known_keys() {
         c.set_key("cleanup.adapter_path", "/models/llm-v1").unwrap(),
         "/models/llm-v1"
     );
-    assert_eq!(c.set_key("cleanup.word_threshold", "0").unwrap(), "0");
     assert_eq!(
         c.set_key("general.residency_profile", "balanced").unwrap(),
         "balanced"
@@ -42,7 +41,6 @@ fn rejects_unknown_and_bad_values() {
     assert!(c.set_key("audio.worker_threads", "64").is_err());
     assert!(c.set_key("audio.worker_threads", "abc").is_err());
     assert!(c.set_key("general.residency_profile", "always").is_err());
-    assert!(c.set_key("cleanup.endpoint", "ftp://x").is_err());
     assert!(c.set_key("hacker.key", "1").is_err());
     assert!(c.set_key("recognition.language", "auto").is_err());
     assert!(c.set_key("insertion.app_override", "=review").is_err());

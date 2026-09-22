@@ -29,4 +29,4 @@ copy_model() {
 copy_model base-model
 copy_model llm-v1
 
-echo "Cleanup models installed. Set cleanup.mode = \"stream\"; the daemon auto-detects these paths."
+echo "Cleanup models installed. Formatting is automatic; the daemon auto-detects these paths."

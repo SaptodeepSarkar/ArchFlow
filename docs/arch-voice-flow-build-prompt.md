@@ -44,7 +44,7 @@ Use this stack unless a measured compatibility blocker requires a documented cha
 | Local transport | Unix domain sockets; framed binary audio transport | No TCP server required |
 | Lifecycle | systemd user service | Per-user supervision, bounded restarts, clean process teardown |
 | Text insertion | Capability-tested Hyprland adapter plus Wayland clipboard | Practical first target with explicit fallback |
-| Optional cleanup | Existing explicitly configured local inference endpoint | No mandatory extra model or server |
+| Local formatting | Source-grounded local model sidecar plus deterministic guard | Every non-empty final transcript is formatted; no remote endpoint |
 
 Do not add Electron, Chromium, a web server, PyTorch, or an always-running Python runtime to the default path. Development scripts may use Python. Do not put recognition or model loading in QML or the daemon. Use native dependencies with pinned versions and reproducible build inputs. Verify the selected Rust bindings and Quickshell APIs instead of inventing methods.
 
@@ -165,20 +165,20 @@ Initial Hyprland adapter:
 1. Record target window identity and application identifier at dictation start using supported compositor IPC; avoid retaining window titles or document contents.
 2. At completion, check the target still exists and has focus. If focus changed, show “Text ready — target changed” and keep the result for explicit copy/review. Do not force focus back automatically.
 3. A window match cannot prove the cursor stayed in the same field. Expose “review before insertion” for users who need stricter control, and explain this remaining limitation.
-4. In configured automatic mode, offer the final UTF-8 plain text on the Wayland clipboard and use a verified compositor key-dispatch capability for the selected application's paste chord. Resolve held shortcut modifiers safely before dispatch; abort to copy-only if their state cannot be established reliably. Never guess with a blind sleep and hope it worked.
-5. Test `Ctrl+V` behavior in ordinary applications; configure terminal adapters separately. Clipboard insertion is not direct IME insertion.
-6. Recheck focus immediately before dispatch. Document the unavoidable race between the check and delivery where no atomic API exists. Report “Paste requested” rather than “Inserted successfully” when delivery cannot be confirmed.
+4. In configured automatic mode, retain the final UTF-8 plain text on the Wayland clipboard for recovery and use the verified `wtype` virtual keyboard to enter the cleaned final text into the selected application. The direct `wtype` exception is limited to this final cleaned text; never send Enter or invoke a shell. Fall back to the application's verified paste chord when direct entry is unavailable.
+5. Test direct virtual-keyboard entry and `Ctrl+V` fallback in ordinary applications and terminals. Direct virtual-keyboard entry is not an IME commit and delivery can still be rejected by a client.
+6. Recheck focus immediately before delivery. Document the unavoidable race between the check and delivery where no atomic API exists. Report “Typing requested” rather than “Inserted successfully” when delivery cannot be confirmed.
 
 Clipboard policy:
 
-- Use `wl-clipboard` or a tested native equivalent. Pass text through stdin/structured buffers, never shell interpolation or command-line text arguments.
+- Use `wl-clipboard` or a tested native equivalent. Pass text through stdin/structured buffers, never shell interpolation or command-line text arguments, except the explicitly permitted one-shot cleaned-final-text argument to `wtype`.
 - Default automatic clipboard mode requires a clear setup choice because it temporarily replaces clipboard contents and clipboard managers may retain dictated text.
 - Own only the plain-text selection created by this operation. Use a bounded serving period; keep text recoverable in memory when paste fails. Account for clipboard helper residency.
 - Do not claim arbitrary images, MIME formats, lazy clipboard providers, or clipboard history can be saved and restored losslessly.
 - Optional restoration is limited to a bounded plain-text snapshot and only if the clipboard still belongs to this operation. If ownership cannot be checked reliably, do not restore or clear it automatically. Never overwrite content the user copied meanwhile.
 - Do not use a fixed tiny timer or first clipboard read as proof that the target consumed the paste: managers may read the offer before the application does.
 
-Default terminal policy is copy-only/review. Multiline text can execute commands in terminals even without an explicit synthetic Enter. Do not automatically paste multiline shell-like content, or append Enter. Never execute dictated shell commands.
+Terminal delivery uses direct virtual-keyboard typing and never sends Enter. The terminal may display a complete prompt, but execution remains with the user. Never execute dictated shell commands or synthesize Enter.
 
 Optional later adapters: Fcitx5 through a properly implemented input-method integration, or portals where the compositor actually supports the required capability. Do not invent a universal D-Bus “commit text” call. `ydotool` is an explicit optional fallback: it uses uinput and needs a daemon/access configuration; it must not become a hidden root dependency. Do not grant broad passwordless sudo or make uinput world-writable.
 
@@ -186,15 +186,15 @@ Unsupported environments receive copy-only behavior with a reason. GNOME, KDE, S
 
 ## 11. Text cleanup and vocabulary
 
-Modes:
+Formatting:
 
-- Raw: preserve recognizer output; only normalize obvious outer whitespace. Default and mandatory.
-- Clean: optional correction of punctuation and obvious fillers through an explicitly configured local model.
+- Every non-empty final transcript is sent to the local source-grounded formatter.
+- The raw recognizer output is retained only when the formatter fails or its deterministic safety guard rejects an unsafe rewrite.
 - Vocabulary: user-maintained names and terms, used as bounded recognition hints where supported. Avoid unbounded prompts or indiscriminate search-and-replace.
 
 Cleanup must preserve meaning, negation, numbers, names, units, code, paths, and spoken language. No answer generation, added facts, or “helpful” rewrites of technical claims. The transcript is untrusted data, including statements that look like model instructions. Delimit it and direct the cleanup model to edit only.
 
-Keep the raw transcript available for comparison. Timeout or invalid cleanup output falls back to raw text. A short timeout should be configurable; do not silently discard recognition output. Semantic checks are heuristics, not proof of correctness. Never advertise guaranteed faithful LLM rewriting.
+Keep the raw transcript available for comparison. A failed or invalid formatter output falls back to raw text; it must not silently discard recognition output. Semantic checks are heuristics, not proof of correctness. Never advertise guaranteed faithful LLM rewriting.
 
 Do not start an additional local model server or preload a second model by default. Measure cleanup latency and memory separately. A future cloud provider needs explicit per-provider enablement, clear disclosure of what leaves the device, secure credential storage, and no silent fallback from local to cloud.
 
@@ -261,7 +261,7 @@ Test the behaviors that can lose text, record unexpectedly, or insert in the wro
 - Silence, low-volume speech, background noise, names, negation, numbers, English/Hindi/Bengali scripts, and 5/30/120-second utterances.
 - Microphone unplug, default-device change between sessions, PipeWire restart during capture, model failure, worker crash, UI crash, and model download interruption/checksum mismatch.
 - Original target closes; focus changes; cursor moves within the same window; settings opened during processing; screen locks; machine suspends; logout occurs.
-- Firefox/native Wayland text areas, a GTK or Qt editor, VS Code in its tested backend, and a terminal in copy-only mode. Record actual versions and XWayland/native status.
+- Firefox/native Wayland text areas, a GTK or Qt editor, VS Code in its tested backend, and a terminal with no synthetic Enter. Record actual versions and XWayland/native status.
 - Unicode, multiline content, clipboard manager interference, user clipboard change during processing, non-text prior clipboard, held modifiers, and insertion failure. Verify no accidental Enter and no repeated paste.
 - 20 successive dictations followed by idle: no orphaned workers, leaked audio streams, accumulating memory, or active GPU context in Economy.
 - Test malformed/oversized IPC, stale sockets, duplicate clients, and incompatible protocol versions.

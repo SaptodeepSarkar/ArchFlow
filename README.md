@@ -4,8 +4,9 @@
 
 Vaani records only after activation, transcribes locally, and types the final
 text into the original focused Wayland app by default. Delivery is rechecked
-against that window, and is never automatic for terminals, review sessions, or
-multiline shell-like text; those paths stay copy-only.
+against that window. Vaani uses visibly progressive virtual-keyboard text
+entry and never sends Enter, so terminal execution remains in the user's
+hands. Review and explicit copy-only sessions remain copy-only.
 
 No account, telemetry, cloud processing, persistent transcript history, or
 always-listening microphone is required. English, Hindi (`hi`), and Bengali
@@ -37,8 +38,9 @@ Run `vaani doctor` to inspect available capabilities. CUDA is optional; use
 1. `SUPER+H` starts a live-preview session; preview words remain in the overlay.
 2. Silence or `SUPER+J` stops capture. Final STT transcribes the complete
    utterance; long recordings use bounded overlapping segments.
-3. Raw transcription is the default. `cleanup.mode = "clean"` or `"stream"`
-   explicitly enables cleanup.
+3. Every non-empty final transcript goes through the local, source-grounded
+   formatter. If the model is unavailable or its output fails the safety
+   guard, Vaani retains the recognizer output rather than risking a rewrite.
 4. Automatic completions type into the original focused app after a final
    focus check. `SUPER+J` is the explicit “save to clipboard” action; terminal
    windows, review mode, and unsafe focus changes remain copy-only.
@@ -87,6 +89,11 @@ app. Android Accessibility text-box access lets the bubble paste into the
 focused editable field; password or unavailable fields fall back to the
 clipboard. The native `InputMethodService` remains an optional compatibility
 surface, not a requirement for using Vaani.
+
+On Linux, `vaani settings` opens the same guided setup shape: local-first or
+optional account sync, microphone check, personal vocabulary, model choice,
+residency/unload policy, and shortcut configuration. The setup is persisted in
+`~/.config/vaani/config.toml`; the full settings window remains available later.
 
 Open `android/` in Android Studio with JDK 17 and SDK 35 to build and install
 the debug APK. The onboarding uses the original Vaani editorial artwork and

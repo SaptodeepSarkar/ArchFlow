@@ -1,4 +1,5 @@
-//! Cleanup-LLM supervision: resident `llm-server.py` sidecar for stream mode.
+//! Cleanup-LLM supervision: resident `llm-server.py` sidecar for the
+//! always-on source-grounded formatter.
 //!
 //! The frozen Qwen3-0.6B base + LoRA adapter loads once (~8 s cold) and then
 //! answers cleanup jobs in ~1-2 s. Per-call reloads would make every finish
@@ -25,6 +26,13 @@ struct LlmServer {
 static LLM_SERVER: std::sync::OnceLock<std::sync::Mutex<Option<LlmServer>>> =
     std::sync::OnceLock::new();
 static LLM_JOB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// A formatter result with a non-sensitive route identifier. The identifier
+/// is safe to expose through diagnostics: it never includes dictated text.
+pub struct CleanupResult {
+    pub text: String,
+    pub outcome: &'static str,
+}
 
 fn llm_slot() -> &'static std::sync::Mutex<Option<LlmServer>> {
     LLM_SERVER.get_or_init(|| std::sync::Mutex::new(None))
@@ -132,7 +140,6 @@ fn llm_ensure_locked(
     slot: &mut Option<LlmServer>,
     model_dir: &str,
     adapter_dir: &str,
-    threshold: usize,
 ) -> anyhow::Result<()> {
     let alive = match slot.as_mut() {
         Some(srv) if srv.model_dir == model_dir && srv.adapter_dir == adapter_dir => {
@@ -149,8 +156,6 @@ fn llm_ensure_locked(
         .arg(&script)
         .arg(model_dir)
         .arg(adapter_dir)
-        .arg("--threshold")
-        .arg(threshold.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -225,12 +230,7 @@ fn llm_server_cleanup(text: &str, cfg: &Config) -> anyhow::Result<String> {
     }
     let id = LLM_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut slot = llm_slot().lock().unwrap_or_else(|e| e.into_inner());
-    llm_ensure_locked(
-        &mut slot,
-        &model_dir,
-        &adapter_dir,
-        cfg.cleanup.word_threshold,
-    )?;
+    llm_ensure_locked(&mut slot, &model_dir, &adapter_dir)?;
     let job = serde_json::json!({"id": id, "text": text}).to_string() + "\n";
     if let Some(srv) = slot.as_mut() {
         srv.writer.write_all(job.as_bytes())?;
@@ -262,7 +262,6 @@ fn llm_oneshot(text: &str, cfg: &Config) -> String {
         Some(std::path::PathBuf::from(&cfg.cleanup.python_path))
     };
     let (model_dir, adapter_dir) = llm_paths(cfg);
-    let threshold = cfg.cleanup.word_threshold;
     let text_llm = text.to_string();
     let python = match python_path {
         Some(p) if p.exists() => p,
@@ -272,8 +271,6 @@ fn llm_oneshot(text: &str, cfg: &Config) -> String {
         .arg(&python)
         .arg("--adapter")
         .arg(&adapter_dir)
-        .arg("--threshold")
-        .arg(threshold.to_string())
         .arg("--model-dir")
         .arg(&model_dir)
         .stdin(Stdio::piped())
@@ -316,36 +313,60 @@ pub fn prefill(cfg: &Config) -> anyhow::Result<()> {
     if model_dir.is_empty() || !std::path::Path::new(&model_dir).exists() {
         anyhow::bail!("no cleanup model dir");
     }
-    let threshold = cfg.cleanup.word_threshold;
     let mut slot = LLM_SERVER
         .get_or_init(|| std::sync::Mutex::new(None))
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    llm_ensure_locked(&mut slot, &model_dir, &adapter_dir, threshold)?;
+    llm_ensure_locked(&mut slot, &model_dir, &adapter_dir)?;
     Ok(())
 }
 
-/// Stream-mode cleanup entry: resident server first, one-shot fallback,
-/// raw text when disabled or everything fails. Blocking — call from
-/// spawn_blocking.
-pub fn llm_cleanup(text: &str, cfg: &Config) -> String {
-    if cfg.cleanup.mode != "stream" {
-        return text.to_string();
+/// Format every non-empty final transcript: resident server first, then the
+/// one-shot formatter after a server failure. A rejected generative rewrite
+/// receives a deterministic, source-preserving punctuation/casing fallback.
+/// Blocking — call from `spawn_blocking`.
+pub fn llm_cleanup(text: &str, cfg: &Config) -> CleanupResult {
+    let formatted = match crate::cleanup::closed_special(text) {
+        Some(special) => CleanupResult {
+            text: special,
+            outcome: "deterministic_structure",
+        },
+        None => match llm_server_cleanup(text, cfg) {
+            Ok(s) if !s.is_empty() && crate::cleanup::semantic_ok(text, &s) => CleanupResult {
+                text: s,
+                outcome: "sidecar_accepted",
+            },
+            Ok(_) => CleanupResult {
+                text: crate::cleanup::conservative_format(text),
+                outcome: "sidecar_rejected_deterministic_fallback",
+            },
+            Err(_) => one_shot_result(text, cfg, "sidecar_failed"),
+        },
+    };
+    // Economy means no formatter model stays resident between dictations.
+    // Unlike the periodic reaper, this runs immediately after the request.
+    if cfg.effective_server_idle_secs() == 0 {
+        reap_idle_llm(0);
     }
-    // Explicit lists and emoji are handled deterministically before invoking
-    // the generative sidecar; dictated commands remain plain text.
-    if let Some(special) = crate::cleanup::closed_special(text) {
-        return special;
-    }
-    match llm_server_cleanup(text, cfg) {
-        Ok(s) if !s.is_empty() && crate::cleanup::semantic_ok(text, &s) => s,
-        _ => {
-            let fallback = llm_oneshot(text, cfg);
-            if crate::cleanup::semantic_ok(text, &fallback) {
-                fallback
+    tracing::info!(formatter_outcome = formatted.outcome, "formatter completed");
+    formatted
+}
+
+fn one_shot_result(text: &str, cfg: &Config, prefix: &'static str) -> CleanupResult {
+    let fallback = llm_oneshot(text, cfg);
+    if crate::cleanup::semantic_ok(text, &fallback) {
+        CleanupResult {
+            text: fallback,
+            outcome: if prefix == "sidecar_rejected" {
+                "sidecar_rejected_oneshot_accepted"
             } else {
-                text.to_string()
-            }
+                "sidecar_failed_oneshot_accepted"
+            },
+        }
+    } else {
+        CleanupResult {
+            text: crate::cleanup::conservative_format(text),
+            outcome: "sidecar_failed_oneshot_rejected_deterministic_fallback",
         }
     }
 }

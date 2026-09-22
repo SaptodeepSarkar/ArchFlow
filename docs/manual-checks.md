@@ -13,7 +13,8 @@ Run after `tools/model-setup.py --model base` + service start. Tick honestly.
   application receives text until final transcription and delivery policy run
 - [ ] Live focus change mid-session: preview continues, recording continues,
   full text recoverable via copy (no duplicates on finish)
-- [ ] Live in terminal / review / copy-only mode: preview only, copy at finish
+- [ ] Final terminal delivery: cleaned text appears, no synthetic Enter or
+  command execution; review and copy-only remain clipboard-only
 - [ ] Live worker hiccup: session survives, next tick retries
 - [ ] Cancel during STARTING / RECORDING / TRANSCRIBING / CLEANING / INSERT-prep
 - [ ] Silence → no text; low-volume; background noise

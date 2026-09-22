@@ -89,15 +89,16 @@ raw transcript if model startup or validation fails.
    into final text.
 7. In opt-in `stream` mode the local LLM cleans the final text.
 8. Focus is checked again. If it changed, the result is copied and not typed.
-9. Automatic mode types after one final focus check. Copy-only and review
-   sessions offer final text on the clipboard; terminals remain copy-only.
+9. Automatic mode enters the cleaned final text through the virtual keyboard
+   after one final focus check. It never sends Enter. Copy-only and review
+   sessions offer final text on the clipboard.
 10. The overlay closes and the daemon returns to `IDLE`.
 11. Economy exits helpers after each operation. Balanced/Ready may reap
    supported sidecars after `server_idle_secs`.
 
 `SUPER+J` performs steps 1–8, copies the final result, closes the overlay,
-and skips automatic delivery. Terminals and multiline shell-like text remain
-clipboard-only for safety.
+and skips automatic delivery. Terminal delivery types text but never sends
+Enter, so execution remains a user action.
 
 ## Input-freeze boundary
 

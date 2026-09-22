@@ -1,90 +1,6 @@
-//! Optional conservative text cleanup through an explicitly configured
-//! local inference endpoint (e.g. Ollama). Raw is the dependable default.
-//! Timeout/invalid output falls back to raw. The transcript is untrusted data:
-//! delimited and the model is directed to edit only (no instruction following).
-
-use std::io::Write;
-
-pub fn clean(text: &str, endpoint: &str, timeout_secs: u64, vocabulary: &[String]) -> String {
-    if endpoint.is_empty() || text.is_empty() {
-        return closed_special(text).unwrap_or_else(|| text.to_string());
-    }
-    if let Some(special) = closed_special(text) {
-        return special;
-    }
-    match try_clean(text, endpoint, timeout_secs, vocabulary) {
-        Ok(c) => {
-            if semantic_ok(text, &c) {
-                c
-            } else {
-                text.to_string()
-            }
-        }
-        Err(_) => text.to_string(), // fall back to raw, never discard
-    }
-}
-
-fn try_clean(
-    text: &str,
-    endpoint: &str,
-    timeout_secs: u64,
-    vocab: &[String],
-) -> anyhow::Result<String> {
-    let vocab_hint = if vocab.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\nDomain terms (do not alter their spelling): {}",
-            vocab.join(", ")
-        )
-    };
-    let prompt = format!(
-        "You are a conservative transcription editor. Fix ONLY punctuation, capitalization, and obvious filler words (um, uh). Preserve meaning, negation, numbers, names, units, code, paths, and the original language. Do not add facts, do not rephrase claims, do not translate. If unsure, return the input unchanged.\n{vocab_hint}\n<transcript>\n{text}\n</transcript>\nReturn ONLY the edited transcript, no commentary."
-    );
-    // The request body travels only through curl's stdin. Do not materialize
-    // dictated text in /tmp: a failed request must not leave a transcript on
-    // disk.
-    // Endpoint expected: http://host:port (Ollama-compatible /api/generate).
-    let body = serde_json::json!({
-        "model": std::env::var("VAANI_CLEAN_MODEL").unwrap_or("qwen2.5:3b".into()),
-        "prompt": prompt,
-        "stream": false,
-    });
-    let request = serde_json::to_vec(&body)?;
-    let mut child = std::process::Command::new("curl")
-        .arg("-sS")
-        .arg("--max-time")
-        .arg(timeout_secs.clamp(2, 30).to_string())
-        .arg(format!("{endpoint}/api/generate"))
-        .arg("--data-binary")
-        .arg("@-")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(&request)?;
-    }
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
-        anyhow::bail!("cleanup endpoint unreachable");
-    }
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout)?;
-    let resp = v
-        .get("response")
-        .and_then(|r| r.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    if resp.is_empty() {
-        anyhow::bail!("empty cleanup output");
-    }
-    // Bound output: reject absurd expansion (>2x input chars).
-    if resp.len() > text.len().max(1) * 2 + 64 {
-        anyhow::bail!("cleanup output too long");
-    }
-    Ok(resp)
-}
+//! Deterministic guardrails for the always-on local transcript formatter.
+//! The formatter may alter only permitted fillers, punctuation, and casing;
+//! rejected output retains the raw text.
 
 /// Heuristic semantic guard: negation words, numbers, and length must survive.
 /// This is a heuristic, not proof of correctness.
@@ -130,6 +46,34 @@ pub(crate) fn semantic_ok(raw: &str, cleaned: &str) -> bool {
     // or inserted hallucinated words; punctuation and casing are already
     // discarded by `words`.
     actual == expected
+}
+
+/// A source-preserving fallback for when a generative rewrite is rejected.
+/// It changes only whitespace, the initial letter's casing, and a final
+/// sentence mark on ordinary prose. URLs, paths, code-like text, and
+/// multi-line content are left without a synthetic terminal mark.
+pub(crate) fn conservative_format(text: &str) -> String {
+    let technical_or_multiline = text.contains('\n')
+        || text.contains("://")
+        || text.trim_start().starts_with('/')
+        || text.trim_start().starts_with('~')
+        || text.contains('=')
+        || text.contains("::");
+    if technical_or_multiline {
+        return text.trim().to_string();
+    }
+    let mut out = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if out.is_empty() {
+        return out;
+    }
+    if let Some((index, ch)) = out.char_indices().find(|(_, ch)| ch.is_alphabetic()) {
+        let upper = ch.to_uppercase().to_string();
+        out.replace_range(index..index + ch.len_utf8(), &upper);
+    }
+    if !matches!(out.chars().last(), Some('.' | '!' | '?' | '…' | '।')) {
+        out.push('.');
+    }
+    out
 }
 
 /// Handle only explicit, source-grounded structures that do not need a
@@ -214,8 +158,24 @@ pub(crate) fn closed_special(text: &str) -> Option<String> {
 mod tests {
     use super::*;
     #[test]
-    fn empty_endpoint_is_identity() {
-        assert_eq!(clean("hello", "", 8, &[]), "hello");
+    fn safety_guard_allows_punctuation_only() {
+        assert!(semantic_ok("hello", "Hello."));
+    }
+
+    #[test]
+    fn conservative_fallback_formats_prose_without_rewriting_words() {
+        assert_eq!(
+            conservative_format("hello this is a test"),
+            "Hello this is a test."
+        );
+        assert_eq!(
+            conservative_format("https://example.test/path"),
+            "https://example.test/path"
+        );
+        assert_eq!(
+            conservative_format("first item\nsecond item"),
+            "first item\nsecond item"
+        );
     }
     #[test]
     fn negation_guard() {
