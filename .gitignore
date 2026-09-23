@@ -12,6 +12,9 @@ firebase/firestore-debug.log
 docs/screenshots/
 .vaani/
 .hf_cache
+data/v6-foundation/
+data/v6-provenance/
+data/v6-ami-pilot/
 android/.gradle/
 android/**/build/
 dist/
