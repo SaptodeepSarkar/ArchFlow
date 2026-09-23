@@ -24,6 +24,16 @@ so benchmark notes do not get confused with user-facing setup instructions.
 
 - [V5 benchmark](v5-benchmark.md) — frozen STT and formatter evaluation.
 - [V6 baseline](V6_BASELINE.md) — source-grounded formatter control and gates.
+- [V6 dataset audit](V6_DATASET_AUDIT.md) — license/access decisions before
+  corpus ingestion.
+- [V6 dataset status](V6_DATASET_STATUS.md) — actual data counts and next
+  evidence gate; not a model-completion claim.
+- [V6 data experiment log](V6_EXPERIMENT_LOG.md) — bounded real-derived pilot
+  configuration and results.
+- [V6 review protocol](V6_REVIEW_PROTOCOL.md) — required approval criteria for
+  real-derived and synthetic candidate targets.
+- [V6 Android V5 portability](V6_ANDROID_V5_PORTABILITY.md) — bounded export
+  investigation; no Android replacement claim.
 - [V6 formatter benchmark](v6-formatter-benchmark.html) — case-level report.
 - [Model training status](model-training-status.html) — evidence dashboard.
 - [Model efficiency roadmap](model-efficiency-and-quality-roadmap.md) — open
