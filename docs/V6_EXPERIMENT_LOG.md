@@ -91,3 +91,57 @@ training runs or promotion claims.
   host conversion/load/decode compatibility. It does not compare WER or
   timestamps, quantize the model, install Android assets, or measure Android
   memory, latency, or accuracy.
+
+## Licensed real-derived pilot 003 (blocked before execution, 2026-09-24)
+
+- **Hypothesis:** a deterministic non-overlapping third AMI batch (offset 50)
+  broadens real disfluency coverage without contaminating pilots 001/002.
+- **Changed variable:** candidate offset only; source release, model, decoder,
+  schema, and 25-clip cap unchanged.
+- **Dataset/split (planned):** AMI ES2002a ranked candidate offset 50, at most
+  25 clips / 300 s; `needs_human_review`, `split=null` only.
+- **Resource estimate:** same 300 s / 1 GiB disk / 10-minute CPU budget as
+  pilots 001/002. CPU `int8` preselected (CUDA failed before decoding before).
+- **Abort condition (triggered):** the authorized precondition — already-cached
+  AMI manual-annotation v1.6.2 package plus ES2002a Mix-Headset audio under
+  `/tmp/vaani-v6-ami-pilot/` — is not met. `/tmp` no longer contains the pilot
+  directory, the combined review queue, or the challenge file, and a
+  repository-wide search found no surviving AMI annotation/audio artifact
+  (`dialogueActs`, `ES2002a`, `ami-*` all absent outside `node_modules`/`.git`).
+  Re-acquiring the pinned AMI files would be a fresh download, which the
+  bounded authorization forbids, so no STT ran and no manifest was produced.
+- **Safe verifications completed instead (no downloads, no training):**
+  deterministic 18-case challenge regenerated to `/tmp` (hard-coded cases,
+  eval-only); surviving 48-row synthetic seed re-validated with challenge
+  exclusion — 0 errors, 48 `needs_human_review`, 0 collisions; splitter still
+  yields train 0 / dev 0 / test 0. Frozen CT2 model and faster-whisper 1.2.1
+  (Cozy venvs) confirmed present, so the only missing input is the AMI source
+  package. Wall time and peak RSS: not captured, none claimed.
+- **Decision:** pilot 003 retained as planned-but-unexecuted; approved counts
+  unchanged at 0/0/0. Next step needs an explicit re-acquisition authorization
+  for the pinned AMI annotation/audio files (or a decision to source offset-50
+  equivalents elsewhere) before any STT ingest is attempted.
+
+## Synthetic control-candidate scale check (2026-09-25)
+
+- **Status:** completed as a review-queue and schema-scale check only; no
+  formatter training or promotion was run.
+- **Hypothesis:** the deterministic source-grounded control generator can
+  populate a 50,000-row synthetic queue without challenge contamination or
+  cross-group template leakage.
+- **Changed variable:** corpus size only: 50,001 control edit-plan rows were
+  generated with seed `20260925`; one phrase colliding with the frozen
+  18-case challenge was excluded before v2 conversion.
+- **Actual result:** `tools/import_v6_control_candidates.py` produced 50,000
+  `synthetic` rows in `/tmp/v6-foundation-synthetic-50000.jsonl`. The
+  foundation validator reported 50,000 rows, 0 errors, 0 train/dev/test rows,
+  and 50,000 `needs_human_review` rows. The source edit-plan input separately
+  passed its validator with 50,001 rows and 0 errors.
+- **Leakage control:** conversion derives `group_id` from the same token
+  bucket used by the foundation validator, so source pairs that the validator
+  compares for near-duplication cannot be assigned to distinct later splits.
+  The importer accepts a frozen evaluation manifest and excludes matching raw
+  sources before writing output.
+- **Decision:** retain the queue outside Git as deterministic synthetic review
+  proposals. It counts toward neither the 50,000 approved synthetic target
+  nor any training split until risk-stratified human review accepts rows.
