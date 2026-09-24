@@ -145,3 +145,23 @@ training runs or promotion claims.
 - **Decision:** retain the queue outside Git as deterministic synthetic review
   proposals. It counts toward neither the 50,000 approved synthetic target
   nor any training split until risk-stratified human review accepts rows.
+
+## AMI 50k source acquisition (started 2026-09-25)
+
+- **Status:** source acquisition running; no real-derived formatter row is
+  approved or eligible for training.
+- **Source and terms:** fresh AMI public manual annotation v1.6.2 from the
+  University of Edinburgh source, SHA-256
+  `b56e5babb2496b8795deeeda7e71178d7fbc9963f94276cf2a3f4b56ebbc9f9d`.
+  The official download page states CC BY 4.0 for the signals and
+  transcription.
+- **Inventory:** the locally extracted annotations have 139 meetings, 687
+  word-transcript files, and 66,533 eligible dialogue-act spans after the
+  existing 3--30 lexical-token / <=15-second source filter. A deterministic
+  round-robin selector wrote a 50,000-slice source-only plan spanning all 139
+  meetings, plus 139 official Mix-Headset WAV URLs.
+- **Current boundary:** the plan is stored only under the non-Git V6 data
+  workspace. Each planned row still needs source-audio slicing, frozen V5
+  final-STT inference with real metadata, semantic target review, and
+  leakage-safe splitting. Source transcript text is not formatter ground
+  truth, and no training was started.

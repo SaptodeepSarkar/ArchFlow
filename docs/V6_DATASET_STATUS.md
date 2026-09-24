@@ -8,8 +8,8 @@ admitted example, and a generated candidate is not an approved training row.
 | Measure | Actual count | Evidence |
 | --- | ---: | --- |
 | Legacy real clips discovered locally | 4,037 | Cozy manifests: 3,987 `cv_indian_full` + 50 `santhosh_indian`; neither is admitted |
-| Official real audio acquired for V6 | 1 recording / 50 utterance slices | AMI ES2002a Mix-Headset plus bounded, timestamped dialogue-act slices in `/tmp/vaani-v6-ami-pilot/` |
-| Real audio legally usable for V6 | 50 review candidates | AMI CC BY 4.0 pilot with manual annotations v1.6.2 and recorded source checksums |
+| Official real audio acquired for V6 | 0 completed audio files; annotation archive acquired | The old `/tmp` pilot is absent. A fresh official AMI v1.6.2 CC BY 4.0 annotation archive is retained in the non-Git V6 workspace; resumable audio acquisition is running separately. |
+| Real source slices legally usable for V6 | 50,000 selected / 66,533 eligible | Fresh AMI v1.6.2 source-only plan, with time-bounded dialogue-act spans; audio, target STT, and review remain required. |
 | Real audio processed with target STT | 50 slices / 199.450 seconds | Frozen V5 CT2 through faster-whisper CPU `int8`; combined manifest is schema-valid |
 | Real-derived review candidates | 50 | Source reference, raw STT, portable audio checksum, 476 word-confidence values, and actual segment metadata |
 | Real-derived formatter pairs approved | 0 | Reference-derived targets are still unreviewed proposals |
