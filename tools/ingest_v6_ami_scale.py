@@ -70,7 +70,12 @@ def main() -> None:
     existing = []
     if args.out.exists():
         existing = [json.loads(line) for line in args.out.read_text(encoding="utf-8").splitlines() if line.strip()]
-    seen = {row["source"]["record_id"] for row in existing}
+    invalid_existing = [row for row in existing if not row.get("utterance", {}).get("raw_stt", "").strip()]
+    existing = [row for row in existing if row.get("utterance", {}).get("raw_stt", "").strip()]
+    # Do not repeatedly spend target-STT work on a no-speech source span.  It
+    # remains excluded from the formatter manifest rather than being relabelled
+    # as a formatter example.
+    seen = {row["source"]["record_id"] for row in existing + invalid_existing}
     selected, seconds = [], 0.0
     for line in args.plan.read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -87,7 +92,10 @@ def main() -> None:
         if len(selected) >= args.max_rows:
             break
     if not selected:
-        print(json.dumps({"selected_rows": 0, "reason": "no complete unprocessed planned audio"}))
+        if invalid_existing:
+            args.out.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in existing), encoding="utf-8")
+        print(json.dumps({"selected_rows": 0, "dropped_empty_existing": len(invalid_existing),
+                          "reason": "no complete unprocessed planned audio"}))
         return
 
     from faster_whisper import WhisperModel
@@ -95,12 +103,19 @@ def main() -> None:
                       "device": args.device, "compute_type": args.compute_type}))
     model = WhisperModel(str(args.model), device=args.device, compute_type=args.compute_type)
     clip_dir = args.out.parent / "audio"; clip_dir.mkdir(parents=True, exist_ok=True)
+    skipped_empty = 0
     for row, source in selected:
         record = row["source_record_id"]
         filename = f"{record}.wav".replace("/", "_")
         clip = clip_dir / filename
         slice_wav(source, clip, row["source_timestamps"]["start_ms"], row["source_timestamps"]["end_ms"])
         raw, words, segments = transcribe(model, clip, row["language"])
+        if not raw.strip():
+            # A no-speech / empty decoding result has no formatter input.  It
+            # is an STT-quality observation, not a valid formatter example.
+            clip.unlink(missing_ok=True)
+            skipped_empty += 1
+            continue
         existing.append({
             "schema_version": "vaani.v6.formatter-example/2",
             "example_id": f"v6-real-{record}",
@@ -121,7 +136,8 @@ def main() -> None:
         })
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in existing), encoding="utf-8")
-    print(json.dumps({"new_rows": len(selected), "total_rows": len(existing),
+    print(json.dumps({"new_rows": len(selected) - skipped_empty, "skipped_empty": skipped_empty,
+                      "dropped_empty_existing": len(invalid_existing), "total_rows": len(existing),
                       "review_status": "needs_human_review", "out": str(args.out)}))
 
 
