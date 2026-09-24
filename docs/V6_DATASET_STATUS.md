@@ -8,10 +8,10 @@ admitted example, and a generated candidate is not an approved training row.
 | Measure | Actual count | Evidence |
 | --- | ---: | --- |
 | Legacy real clips discovered locally | 4,037 | Cozy manifests: 3,987 `cv_indian_full` + 50 `santhosh_indian`; neither is admitted |
-| Official real audio acquired for V6 | 13 Mix-Headset WAVs; annotation archive acquired | A fresh official AMI v1.6.2 CC BY 4.0 annotation archive and 13 downloaded source WAVs are retained in the non-Git V6 workspace; only target-STT outputs that pass validation enter the review queue. |
-| Real source slices legally usable for V6 | 50,000 selected / 66,533 eligible | Fresh AMI v1.6.2 source-only plan, with time-bounded dialogue-act spans; audio, target STT, and review remain required. |
-| Real audio processed with target STT | 2,324 slices (current resumable scale manifest) | Fresh AMI source audio through deployed Cozy CT2 / faster-whisper CPU `int8`; schema-valid, genuine word/segment metadata |
-| Real-derived review candidates | 2,324 | Fresh source reference, raw STT, portable audio checksum, 24,697 word records, and 2,589 actual segment metadata records; all remain review-required |
+| Official real audio acquired for V6 | 1 Mix-Headset WAV verified + annotation archive | Fresh official AMI v1.6.2 CC BY 4.0 annotation archive (22 MiB zip retained) and 1 verified source WAV `ES2002a.Mix-Headset.wav` (39 MiB, SHA-256 `9c7686…21ee7`) retained in the non-Git V6 workspace; only target-STT outputs that pass validation enter the review queue. Prior scale-acquisition claims of 6–13 WAVs and 494–2,364 candidates from Codex session `01a0d4ac` are not verifiable after workspace loss — no scale manifest survives. |
+| Real source slices legally usable for V6 | 50,000-slice source-only plan was built but plan files did not survive; 66,533 eligible spans inventoried from annotations | AMI v1.6.2 source-only plan spanned 139 meetings in the prior session; the plan JSONL itself is absent now and must be rebuilt from retained annotations before further ingestion. Audio, target STT, and review remain required. |
+| Real audio processed with target STT | 50 slices (surviving pilot manifest) | Fresh AMI ES2002a source audio through deployed Cozy CT2 / faster-whisper CPU `int8`; schema-valid, genuine word/segment metadata. The 2,364-row scale manifest claimed in uncommitted working-tree edits did not survive — no file with >50 rows exists. |
+| Real-derived review candidates | 50 | Surviving pilot `pilot-es2002a-50/real-derived.jsonl`: 50 rows, genuine word records, all `needs_human_review`. Prior 2,364-row claim reverted as unverifiable. |
 | Real-derived formatter pairs approved | 0 | Reference-derived targets are still unreviewed proposals |
 | Synthetic candidates generated | 50,048 | 48 hand-authored semantic seeds plus 50,000 deterministic control candidates; all remain unapproved |
 | Synthetic approved | 0 | All 50,048 candidates have `needs_human_review` |

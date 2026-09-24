@@ -186,17 +186,46 @@ training runs or promotion claims.
 
 ## AMI scale-ingestion continuation (2026-09-25)
 
-- **Status:** active, resumable source/STT acquisition; no row has entered a
-  training split or received automated approval.
-- **Current verified output:** 2,324 schema-valid `real_derived` candidates
-  from the resumable official Mix-Headset source set, with 24,697 genuine word
-  records and 2,589 segment metadata records. The manifest contains only
-  non-empty target-STT hypotheses.
-- **Quality gate exercised:** one no-speech result was initially observed as
-  empty raw STT. The scale ingester was changed to exclude empty hypotheses
-  from formatter candidates and to remove any prior invalid row on resume.
-  Revalidation after the fix reported zero errors.
-- **Review triage:** 1,333/2,324 currently meet the lexical
-  `reference_content_mismatch` risk flag and remain critical human-review
-  priority; the other 991 are normal priority. This is not a quality score or
-  a permission to copy reference text.
+- **Status at session close:** resumable source/STT acquisition was reported
+  active with 2,364 claimed candidates, but the scale manifest did not survive
+  into the next session — see reconciliation entry below. No row ever entered
+  a training split or received automated approval.
+- **Claimed (now unverifiable):** 2,364 schema-valid `real_derived` candidates
+  with 25,095 word records and 2,634 segment records; 1,358/2,364 flagged
+  `reference_content_mismatch`. No file with these counts exists anymore.
+- **Quality gate exercised (retained in code):** empty/no-speech hypotheses
+  are excluded by `tools/ingest_v6_ami_scale.py`; duplicate raw-STT hypotheses
+  keep only the first source instance. Both gates remain committed.
+
+## Codex session 01a0d4ac continuation and reconciliation (2026-09-25)
+
+- **Prior session:** Codex session `01a0d4ac-56d9-7e21-b411-8f461cbd228f`
+  (`Train V6 LLM: 50k real + 50k synth`) ran 2026-09-24/25, ending at run 19/20
+  of a serial decoder loop with a claimed 2,324 committed + 2,364 uncommitted
+  rows. No training, approval, split, or push occurred — correctly, per the V6
+  human-review gate.
+- **Surviving evidence (revalidated 2026-09-25):** 48-row foundation seed (0
+  errors, 48 `needs_human_review`); 50,000-row synthetic control queue (0
+  errors, 50,000 `needs_human_review`, challenge-disjoint); 50-row AMI pilot
+  `pilot-es2002a-50/real-derived.jsonl` (0 errors, 50 `needs_human_review`);
+  1 verified WAV `ES2002a.Mix-Headset.wav` (SHA-256
+  `9c76866990fcc8b84006dc32d273ad99df439090b748ebe72103bb78c3216ee7`); AMI
+  v1.6.2 annotation zip + CC BY 4.0 provenance retained. No scale manifest
+  with >50 rows and no 6–13 WAV set survives; the 50k source-slice plan JSONL
+  is also absent and must be rebuilt from retained annotations.
+- **Durability fix:** the volatile `/tmp/v6-foundation-synthetic-50000.jsonl`,
+  control corpus, challenge, and seed-verified files were copied to
+  `~/.cache/vaani-v6-training/synthetic/` (non-Git). The synthetic queue is
+  also deterministically regenerable via
+  `tools/build_v6_formatter_dataset.py --count 50000 --seed 20260925` plus
+  `tools/import_v6_control_candidates.py`.
+- **Status correction:** `docs/V6_DATASET_STATUS.md` reverted from unverifiable
+  2,364-row / 13-WAV claims to the surviving 50-row / 1-WAV truth. Approved
+  counts remain 0/0/0; train/dev/test remain 0/0/0. The serial 1,009-run plan
+  to 50k is retained as code but not presented as progress.
+- **Decision:** no model trained or pushed; training stays blocked on blinded
+  human review (`V6_REVIEW_PROTOCOL.md` + `tools/apply_v6_reviews.py`). Next
+  operations need explicit authorization: (a) rebuild 50k source plan from
+  retained annotations, (b) resume bounded CPU `int8` ingestion, (c) human
+  review before any split/training, (d) MDC credential for Common Voice and
+  legal decision for SLR104 before those sources are touched.
