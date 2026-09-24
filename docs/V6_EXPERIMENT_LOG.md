@@ -183,3 +183,20 @@ training runs or promotion claims.
 - **Decision:** retain the review queue in the non-Git V6 workspace. The next
   audio batches must follow this same source → final-STT → triage → human
   review path; a source reference must not be copied into a formatter target.
+
+## AMI scale-ingestion continuation (2026-09-25)
+
+- **Status:** active, resumable source/STT acquisition; no row has entered a
+  training split or received automated approval.
+- **Current verified output:** 354 schema-valid `real_derived` candidates
+  from four completed official Mix-Headset WAVs, with 3,793 genuine word
+  records and 400 segment metadata records. The manifest contains only
+  non-empty target-STT hypotheses.
+- **Quality gate exercised:** one no-speech result was initially observed as
+  empty raw STT. The scale ingester was changed to exclude empty hypotheses
+  from formatter candidates and to remove any prior invalid row on resume.
+  Revalidation after the fix reported zero errors.
+- **Review triage:** 190/354 currently meet the lexical
+  `reference_content_mismatch` risk flag and remain critical human-review
+  priority; the other 164 are normal priority. This is not a quality score or
+  a permission to copy reference text.
