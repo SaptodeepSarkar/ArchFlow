@@ -188,15 +188,15 @@ training runs or promotion claims.
 
 - **Status:** active, resumable source/STT acquisition; no row has entered a
   training split or received automated approval.
-- **Current verified output:** 2,231 schema-valid `real_derived` candidates
-  from the resumable official Mix-Headset source set, with 23,860 genuine word
-  records and 2,491 segment metadata records. The manifest contains only
+- **Current verified output:** 2,280 schema-valid `real_derived` candidates
+  from the resumable official Mix-Headset source set, with 24,271 genuine word
+  records and 2,542 segment metadata records. The manifest contains only
   non-empty target-STT hypotheses.
 - **Quality gate exercised:** one no-speech result was initially observed as
   empty raw STT. The scale ingester was changed to exclude empty hypotheses
   from formatter candidates and to remove any prior invalid row on resume.
   Revalidation after the fix reported zero errors.
-- **Review triage:** 1,286/2,231 currently meet the lexical
+- **Review triage:** 1,310/2,280 currently meet the lexical
   `reference_content_mismatch` risk flag and remain critical human-review
-  priority; the other 945 are normal priority. This is not a quality score or
+  priority; the other 970 are normal priority. This is not a quality score or
   a permission to copy reference text.
