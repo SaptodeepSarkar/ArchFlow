@@ -71,7 +71,16 @@ def main() -> None:
     if args.out.exists():
         existing = [json.loads(line) for line in args.out.read_text(encoding="utf-8").splitlines() if line.strip()]
     invalid_existing = [row for row in existing if not row.get("utterance", {}).get("raw_stt", "").strip()]
-    existing = [row for row in existing if row.get("utterance", {}).get("raw_stt", "").strip()]
+    retained, seen_raw, duplicate_existing = [], set(), []
+    for row in existing:
+        raw = row.get("utterance", {}).get("raw_stt", "").strip().casefold()
+        if not raw:
+            continue
+        if raw in seen_raw:
+            duplicate_existing.append(row)
+            continue
+        seen_raw.add(raw); retained.append(row)
+    existing = retained
     # Do not repeatedly spend target-STT work on a no-speech source span.  It
     # remains excluded from the formatter manifest rather than being relabelled
     # as a formatter example.
@@ -92,9 +101,10 @@ def main() -> None:
         if len(selected) >= args.max_rows:
             break
     if not selected:
-        if invalid_existing:
+        if invalid_existing or duplicate_existing:
             args.out.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in existing), encoding="utf-8")
         print(json.dumps({"selected_rows": 0, "dropped_empty_existing": len(invalid_existing),
+                          "dropped_duplicate_existing": len(duplicate_existing),
                           "reason": "no complete unprocessed planned audio"}))
         return
 
@@ -116,6 +126,10 @@ def main() -> None:
             clip.unlink(missing_ok=True)
             skipped_empty += 1
             continue
+        if raw.strip().casefold() in seen_raw:
+            clip.unlink(missing_ok=True)
+            continue
+        seen_raw.add(raw.strip().casefold())
         existing.append({
             "schema_version": "vaani.v6.formatter-example/2",
             "example_id": f"v6-real-{record}",
@@ -137,7 +151,8 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in existing), encoding="utf-8")
     print(json.dumps({"new_rows": len(selected) - skipped_empty, "skipped_empty": skipped_empty,
-                      "dropped_empty_existing": len(invalid_existing), "total_rows": len(existing),
+                      "dropped_empty_existing": len(invalid_existing),
+                      "dropped_duplicate_existing": len(duplicate_existing), "total_rows": len(existing),
                       "review_status": "needs_human_review", "out": str(args.out)}))
 
 
