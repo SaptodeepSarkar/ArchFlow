@@ -10,11 +10,11 @@ admitted example, and a generated candidate is not an approved training row.
 | Legacy real clips discovered locally | 4,037 | Cozy manifests: 3,987 `cv_indian_full` + 50 `santhosh_indian`; neither is admitted |
 | Official real audio acquired for V6 | 0 completed audio files; annotation archive acquired | The old `/tmp` pilot is absent. A fresh official AMI v1.6.2 CC BY 4.0 annotation archive is retained in the non-Git V6 workspace; resumable audio acquisition is running separately. |
 | Real source slices legally usable for V6 | 50,000 selected / 66,533 eligible | Fresh AMI v1.6.2 source-only plan, with time-bounded dialogue-act spans; audio, target STT, and review remain required. |
-| Real audio processed with target STT | 50 slices / 199.450 seconds | Frozen V5 CT2 through faster-whisper CPU `int8`; combined manifest is schema-valid |
-| Real-derived review candidates | 50 | Source reference, raw STT, portable audio checksum, 476 word-confidence values, and actual segment metadata |
+| Real audio processed with target STT | 25 slices / 80.320 seconds | Fresh AMI ES2002a source audio through deployed Cozy CT2 / faster-whisper CPU `int8`; schema-valid, genuine word/segment metadata |
+| Real-derived review candidates | 25 | Fresh source reference, raw STT, portable audio checksum, 229 word records, and 27 actual segment metadata records |
 | Real-derived formatter pairs approved | 0 | Reference-derived targets are still unreviewed proposals |
 | Synthetic candidates generated | 50,048 | 48 hand-authored semantic seeds plus 50,000 deterministic control candidates; all remain unapproved |
-| Synthetic approved | 0 | All 48 have `needs_human_review` |
+| Synthetic approved | 0 | All 50,048 candidates have `needs_human_review` |
 | Synthetic rejected | 0 | No review rejection has occurred |
 | Duplicates removed | 0 | No multi-source merge or review rejection has run |
 | Train / dev / test approved rows | 0 / 0 / 0 | Splitter intentionally excludes unapproved candidates |

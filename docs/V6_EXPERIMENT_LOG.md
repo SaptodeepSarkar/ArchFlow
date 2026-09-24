@@ -165,3 +165,21 @@ training runs or promotion claims.
   final-STT inference with real metadata, semantic target review, and
   leakage-safe splitting. Source transcript text is not formatter ground
   truth, and no training was started.
+
+## Fresh AMI target-STT pilot (2026-09-25)
+
+- **Status:** completed as a 25-row source/STT/review-pipeline verification;
+  all rows remain `needs_human_review`, unsplit, and untrained.
+- **Input:** fresh ES2002a Mix-Headset WAV from the new official acquisition,
+  SHA-256 `9c76866990fcc8b84006dc32d273ad99df439090b748ebe72103bb78c3216ee7`.
+  The bounded dialogue-act selector chose 25 priority-cue source spans.
+- **Target STT:** deployed Cozy CT2 via faster-whisper 1.2.1 on CPU `int8`.
+  The output has 25 schema-valid rows, 80.320 seconds of selected source
+  audio, 229 genuine word records, and 27 actual segment metadata records.
+- **Review triage:** 13/25 rows are `reference_content_mismatch` at the 0.85
+  LCS risk threshold and are critical review priority; the remaining 12 are
+  normal priority. This flags risk only and did not alter targets or approve
+  any row.
+- **Decision:** retain the review queue in the non-Git V6 workspace. The next
+  audio batches must follow this same source → final-STT → triage → human
+  review path; a source reference must not be copied into a formatter target.
