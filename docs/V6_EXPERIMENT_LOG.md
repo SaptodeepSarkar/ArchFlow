@@ -186,14 +186,14 @@ training runs or promotion claims.
 
 ## AMI scale-ingestion continuation (2026-09-25)
 
-- **Current revalidated output:** 11,706 schema-valid `real_derived`
-  candidates, with 129,894 genuine word records and 13,371 segment metadata
+- **Current revalidated output:** 13,164 schema-valid `real_derived`
+  candidates, with 143,943 genuine word records and 14,958 segment metadata
   records. The non-Git scale manifest, plan, and 139 complete WAVs are present.
 - **Validation:** the restored deterministic 18-case evaluation artifact and
-  the 11,706-row manifest validate with zero structural or challenge-collision
+  the 13,164-row manifest validate with zero structural or challenge-collision
   errors. No row entered a training split or received automated approval.
-- **Review triage:** 7,299/11,706 rows meet the lexical
-  `reference_content_mismatch` risk flag; the other 4,407 remain normal
+- **Review triage:** 8,155/13,164 rows meet the lexical
+  `reference_content_mismatch` risk flag; the other 5,009 remain normal
   priority. This is a review priority, not a quality score.
 - **Quality gate:** empty/no-speech hypotheses are excluded by
   `tools/ingest_v6_ami_scale.py`; duplicate raw-STT hypotheses keep only the
@@ -213,7 +213,8 @@ training runs or promotion claims.
   five near duplicates), and 569/884 (151 empty, 159 exact, five near
   duplicates). The newest two-hour batch added 1,445 candidates from 1,844
   selected slices (187 empty, 207 exact duplicates, and five near duplicates
-  filtered).
+  filtered), followed by 1,458 candidates from 1,946 selected slices (226
+  empty, 254 exact duplicates, and eight near duplicates filtered).
 - **Offline guard:** the ingester now sets `HF_HUB_OFFLINE=1` and passes
   `local_files_only=True` to faster-whisper. A real CUDA batch passed under
   that guard, preventing remote revision substitution or Hub traffic.
@@ -239,7 +240,7 @@ training runs or promotion claims.
   also deterministically regenerable via
   `tools/build_v6_formatter_dataset.py --count 50000 --seed 20260925` plus
   `tools/import_v6_control_candidates.py`.
-- **Later state refresh:** the scale plan, 139 complete WAVs, and an 11,706-row
+- **Later state refresh:** the scale plan, 139 complete WAVs, and a 13,164-row
   real-derived manifest became visible again and validate against the restored
   challenge artifact with zero errors. The current dataset-status record uses
   that stronger evidence. Approved counts and train/dev/test counts remain
