@@ -8,15 +8,41 @@ once per invocation, and never assigns a split or approval status.
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
+import re
 import wave
 from pathlib import Path
 
 # The model directory is an explicit local artifact.  Never turn a batch into
 # an implicit Hub request (or silently substitute a remote revision).
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
+NEAR_DUPLICATE_THRESHOLD = 0.90
+
+
+def tokens(text: str) -> list[str]:
+    return re.findall(r"[\w']+", text.casefold())
+
+
+def near_bucket(words: list[str]):
+    if len(words) < 4:
+        return None
+    return len(words) // 4, tuple(words[:2] + words[-2:])
+
+
+def cross_group_near_duplicate(text: str, group: str, buckets: dict) -> bool:
+    words = tokens(text)
+    key = near_bucket(words)
+    if key is None:
+        return False
+    for other_group, other_words in buckets.get(key, []):
+        if other_group != group and difflib.SequenceMatcher(
+                a=words, b=other_words, autojunk=False).ratio() >= NEAR_DUPLICATE_THRESHOLD:
+            return True
+    buckets.setdefault(key, []).append((group, words))
+    return False
 
 
 def complete_wav(path: Path) -> bool:
@@ -76,13 +102,17 @@ def main() -> None:
     if args.out.exists():
         existing = [json.loads(line) for line in args.out.read_text(encoding="utf-8").splitlines() if line.strip()]
     invalid_existing = [row for row in existing if not row.get("utterance", {}).get("raw_stt", "").strip()]
-    retained, seen_raw, duplicate_existing = [], set(), []
+    retained, seen_raw, duplicate_existing, near_duplicate_existing = [], set(), [], []
+    near_buckets = {}
     for row in existing:
         raw = row.get("utterance", {}).get("raw_stt", "").strip().casefold()
         if not raw:
             continue
         if raw in seen_raw:
             duplicate_existing.append(row)
+            continue
+        if cross_group_near_duplicate(raw, row.get("group_id", ""), near_buckets):
+            near_duplicate_existing.append(row)
             continue
         seen_raw.add(raw); retained.append(row)
     existing = retained
@@ -106,10 +136,11 @@ def main() -> None:
         if len(selected) >= args.max_rows:
             break
     if not selected:
-        if invalid_existing or duplicate_existing:
+        if invalid_existing or duplicate_existing or near_duplicate_existing:
             args.out.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in existing), encoding="utf-8")
         print(json.dumps({"selected_rows": 0, "dropped_empty_existing": len(invalid_existing),
                           "dropped_duplicate_existing": len(duplicate_existing),
+                          "dropped_near_duplicate_existing": len(near_duplicate_existing),
                           "reason": "no complete unprocessed planned audio"}))
         return
 
@@ -119,7 +150,7 @@ def main() -> None:
     model = WhisperModel(str(args.model), device=args.device, compute_type=args.compute_type,
                          local_files_only=True)
     clip_dir = args.out.parent / "audio"; clip_dir.mkdir(parents=True, exist_ok=True)
-    skipped_empty = 0
+    skipped_empty = skipped_duplicate = skipped_near_duplicate = 0
     for row, source in selected:
         record = row["source_record_id"]
         filename = f"{record}.wav".replace("/", "_")
@@ -134,6 +165,11 @@ def main() -> None:
             continue
         if raw.strip().casefold() in seen_raw:
             clip.unlink(missing_ok=True)
+            skipped_duplicate += 1
+            continue
+        if cross_group_near_duplicate(raw, row["speaker_id"], near_buckets):
+            clip.unlink(missing_ok=True)
+            skipped_near_duplicate += 1
             continue
         seen_raw.add(raw.strip().casefold())
         existing.append({
@@ -157,9 +193,13 @@ def main() -> None:
         })
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in existing), encoding="utf-8")
-    print(json.dumps({"new_rows": len(selected) - skipped_empty, "skipped_empty": skipped_empty,
+    print(json.dumps({"new_rows": len(selected) - skipped_empty - skipped_duplicate - skipped_near_duplicate,
+                      "skipped_empty": skipped_empty, "skipped_duplicate": skipped_duplicate,
+                      "skipped_near_duplicate": skipped_near_duplicate,
                       "dropped_empty_existing": len(invalid_existing),
-                      "dropped_duplicate_existing": len(duplicate_existing), "total_rows": len(existing),
+                      "dropped_duplicate_existing": len(duplicate_existing),
+                      "dropped_near_duplicate_existing": len(near_duplicate_existing),
+                      "total_rows": len(existing),
                       "review_status": "needs_human_review", "out": str(args.out)}))
 
 
