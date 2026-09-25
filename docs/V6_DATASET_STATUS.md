@@ -8,10 +8,10 @@ admitted example, and a generated candidate is not an approved training row.
 | Measure | Actual count | Evidence |
 | --- | ---: | --- |
 | Legacy real clips discovered locally | 4,037 | Cozy manifests: 3,987 `cv_indian_full` + 50 `santhosh_indian`; neither is admitted |
-| Official real audio acquired for V6 | 124 complete Mix-Headset WAVs + 1 partial WAV | Fresh official AMI v1.6.2 CC BY 4.0 annotation archive and 124 verified-complete Mix-Headset WAVs are present in the non-Git V6 workspace; one partial WAV is currently downloading. |
+| Official real audio acquired for V6 | 133 complete Mix-Headset WAVs + 1 partial WAV | Fresh official AMI v1.6.2 CC BY 4.0 annotation archive and 133 verified-complete Mix-Headset WAVs are present in the non-Git V6 workspace; one partial WAV is currently downloading. |
 | Real source slices legally usable for V6 | 50,000 selected / 66,533 eligible | The deterministic AMI v1.6.2 source-only plan spanning 139 meetings is present in the non-Git V6 workspace. |
-| Real audio processed with target STT | 8,655 slices | Frozen Cozy CT2 / faster-whisper; 4,740 rows use offline GPU `float16`, and 3,915 earlier rows used CPU `int8`. Every retained row has word and segment metadata. |
-| Real-derived review candidates | 8,655 | Fresh source reference, raw STT, portable audio checksum, 97,429 word records, and 9,933 segment metadata records; all remain `needs_human_review`. |
+| Real audio processed with target STT | 9,214 slices | Frozen Cozy CT2 / faster-whisper; 5,299 rows use offline GPU `float16`, and 3,915 earlier rows used CPU `int8`. Every retained row has word and segment metadata. |
+| Real-derived review candidates | 9,214 | Fresh source reference, raw STT, portable audio checksum, 103,776 word records, and 10,570 segment metadata records; all remain `needs_human_review`. |
 | Real-derived formatter pairs approved | 0 | Reference-derived targets are still unreviewed proposals |
 | Synthetic candidates generated | 50,048 | 48 hand-authored semantic seeds plus 50,000 deterministic control candidates; all remain unapproved |
 | Synthetic approved | 0 | All 50,048 candidates have `needs_human_review` |
@@ -33,13 +33,13 @@ correct/ambiguous/do-not-edit 1 each; prose-not-list, list request,
 continuation, termination, bullets, numbered list, heading, table, and
 paragraph request 1 each. Every candidate carries `meaning_preservation`.
 
-The AMI scale manifest contains 8,655 `real_derived` /
+The AMI scale manifest contains 9,214 `real_derived` /
 `formatter_target_unreviewed` candidates. Its target-STT metadata is genuine;
 its formatter targets have not received semantic review.
 
-Lexical-risk triage flags 5,267 of the 8,655 rows as
+Lexical-risk triage flags 5,653 of the 9,214 rows as
 `reference_content_mismatch` at a 0.85 LCS threshold. Those rows must not be
-copy-approved from reference text; the remaining 3,388 also remain unapproved.
+copy-approved from reference text; the remaining 3,561 also remain unapproved.
 
 ## Rejection and review ledger
 
@@ -49,7 +49,7 @@ or discarded—because its exact upstream license/revision was not retained.
 The audit rejects Switchboard, NXT annotations, and FluencyBank for license or
 access incompatibility; it defers IndicVoices and People’s Speech until exact
 terms are verified. Schema validation rejected 0 of 48 synthetic and 0 of
-8,655 AMI candidates; this proves structure, not semantic quality.
+9,214 AMI candidates; this proves structure, not semantic quality.
 
 ## Validation evidence
 
@@ -74,7 +74,7 @@ the source-grounded edit-plan control corpus and converted with
 `tools/import_v6_control_candidates.py`. It is deliberately counted as zero
 approved synthetic rows: deterministic templates are not independent,
 human-reviewed formatter ground truth. The next operation is blinded human
-review of the 8,655 AMI candidates and a representative, risk-stratified synthetic
+review of the 9,214 AMI candidates and a representative, risk-stratified synthetic
 queue to accept, correct, or reject formatter targets before assigning any
 split.
 
