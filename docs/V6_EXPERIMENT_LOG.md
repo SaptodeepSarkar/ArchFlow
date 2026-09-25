@@ -186,14 +186,14 @@ training runs or promotion claims.
 
 ## AMI scale-ingestion continuation (updated 2026-09-26)
 
-- **Current revalidated output:** 19,656 schema-valid `real_derived`
-  candidates, with 204,375 genuine word records and 22,016 segment metadata
+- **Current revalidated output:** 21,548 schema-valid `real_derived`
+  candidates, with 220,997 genuine word records and 24,060 segment metadata
   records. The non-Git scale manifest, plan, and 139 complete WAVs are present.
 - **Validation:** the restored deterministic 18-case evaluation artifact and
-  the 19,656-row manifest validate with zero structural or challenge-collision
+  the 21,548-row manifest validate with zero structural or challenge-collision
   errors. No row entered a training split or received automated approval.
-- **Review triage:** 11,895/19,656 rows meet the lexical
-  `reference_content_mismatch` risk flag; the other 7,761 remain normal
+- **Review triage:** 12,972/21,548 rows meet the lexical
+  `reference_content_mismatch` risk flag; the other 8,576 remain normal
   priority. This is a review priority, not a quality score.
 - **Quality gate:** empty/no-speech hypotheses are excluded by
   `tools/ingest_v6_ami_scale.py`; duplicate raw-STT hypotheses keep only the
@@ -247,6 +247,11 @@ training runs or promotion claims.
   the new transcript-free skip ledger and persisted 836 skipped source IDs.
   The 19,656-row manifest validates with zero errors; all candidates remain
   unreviewed.
+- **Sixth GPU pass:** with the skip ledger loaded, selected 2,000 later slices
+  (6,308.149 audio seconds) using CUDA `float16`; retained 1,892 candidates
+  while excluding 35 empty hypotheses, 69 exact duplicates, and four near
+  duplicates. The ledger now contains 944 source-ID outcomes. The resulting
+  21,548-row manifest validates with zero errors; all rows remain unreviewed.
 
 ## Codex session 01a0d4ac continuation and reconciliation (2026-09-25)
 
@@ -265,7 +270,7 @@ training runs or promotion claims.
   also deterministically regenerable via
   `tools/build_v6_formatter_dataset.py --count 50000 --seed 20260925` plus
   `tools/import_v6_control_candidates.py`.
-- **Later state refresh:** the scale plan, 139 complete WAVs, and a 19,656-row
+- **Later state refresh:** the scale plan, 139 complete WAVs, and a 21,548-row
   real-derived manifest became visible again and validate against the restored
   challenge artifact with zero errors. The current dataset-status record uses
   that stronger evidence. Approved counts and train/dev/test counts remain
