@@ -10,8 +10,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import wave
 from pathlib import Path
+
+# The model directory is an explicit local artifact.  Never turn a batch into
+# an implicit Hub request (or silently substitute a remote revision).
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 
 def complete_wav(path: Path) -> bool:
@@ -111,7 +116,8 @@ def main() -> None:
     from faster_whisper import WhisperModel
     print(json.dumps({"selected_rows": len(selected), "audio_seconds": seconds,
                       "device": args.device, "compute_type": args.compute_type}))
-    model = WhisperModel(str(args.model), device=args.device, compute_type=args.compute_type)
+    model = WhisperModel(str(args.model), device=args.device, compute_type=args.compute_type,
+                         local_files_only=True)
     clip_dir = args.out.parent / "audio"; clip_dir.mkdir(parents=True, exist_ok=True)
     skipped_empty = 0
     for row, source in selected:
