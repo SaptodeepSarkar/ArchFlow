@@ -184,16 +184,16 @@ training runs or promotion claims.
   audio batches must follow this same source → final-STT → triage → human
   review path; a source reference must not be copied into a formatter target.
 
-## AMI scale-ingestion continuation (2026-09-25)
+## AMI scale-ingestion continuation (updated 2026-09-26)
 
-- **Current revalidated output:** 13,164 schema-valid `real_derived`
-  candidates, with 143,943 genuine word records and 14,958 segment metadata
+- **Current revalidated output:** 14,606 schema-valid `real_derived`
+  candidates, with 157,635 genuine word records and 16,523 segment metadata
   records. The non-Git scale manifest, plan, and 139 complete WAVs are present.
 - **Validation:** the restored deterministic 18-case evaluation artifact and
-  the 13,164-row manifest validate with zero structural or challenge-collision
+  the 14,606-row manifest validate with zero structural or challenge-collision
   errors. No row entered a training split or received automated approval.
-- **Review triage:** 8,155/13,164 rows meet the lexical
-  `reference_content_mismatch` risk flag; the other 5,009 remain normal
+- **Review triage:** 8,984/14,606 rows meet the lexical
+  `reference_content_mismatch` risk flag; the other 5,622 remain normal
   priority. This is a review priority, not a quality score.
 - **Quality gate:** empty/no-speech hypotheses are excluded by
   `tools/ingest_v6_ami_scale.py`; duplicate raw-STT hypotheses keep only the
@@ -222,6 +222,12 @@ training runs or promotion claims.
   speakers. The later instance was removed from the non-Git review manifest;
   the ingester now filters cross-group raw-STT near-duplicates at the same
   0.90 token-similarity threshold before writing each subsequent manifest.
+- **Latest GPU pass (2026-09-26):** selected 2,000 slices (7,199.821 audio
+  seconds) using CUDA `float16`; retained 1,442 additional candidates while
+  excluding 254 empty hypotheses, 292 exact duplicates, and 12 cross-group
+  near duplicates. Total GPU/float16 rows: 10,691; prior CPU/int8 rows: 3,915.
+  The resulting 14,606-row manifest passed schema/challenge validation with
+  zero errors. All candidates remain `needs_human_review`; none was trained.
 
 ## Codex session 01a0d4ac continuation and reconciliation (2026-09-25)
 
@@ -240,7 +246,7 @@ training runs or promotion claims.
   also deterministically regenerable via
   `tools/build_v6_formatter_dataset.py --count 50000 --seed 20260925` plus
   `tools/import_v6_control_candidates.py`.
-- **Later state refresh:** the scale plan, 139 complete WAVs, and a 13,164-row
+- **Later state refresh:** the scale plan, 139 complete WAVs, and a 14,606-row
   real-derived manifest became visible again and validate against the restored
   challenge artifact with zero errors. The current dataset-status record uses
   that stronger evidence. Approved counts and train/dev/test counts remain
