@@ -186,15 +186,15 @@ training runs or promotion claims.
 
 ## AMI scale-ingestion continuation (2026-09-25)
 
-- **Current revalidated output:** 2,769 schema-valid `real_derived`
-  candidates, with 28,502 genuine word records and 3,065 segment metadata
+- **Current revalidated output:** 2,812 schema-valid `real_derived`
+  candidates, with 28,855 genuine word records and 3,110 segment metadata
   records. The non-Git scale manifest, plan, and 15 complete WAVs are present
   after the workspace-state refresh.
 - **Validation:** the restored deterministic 18-case evaluation artifact and
-  the 2,769-row manifest validate with zero structural or challenge-collision
+  the 2,812-row manifest validate with zero structural or challenge-collision
   errors. No row entered a training split or received automated approval.
-- **Review triage:** 1,597/2,769 rows meet the lexical
-  `reference_content_mismatch` risk flag; the other 1,172 remain normal
+- **Review triage:** 1,622/2,812 rows meet the lexical
+  `reference_content_mismatch` risk flag; the other 1,190 remain normal
   priority. This is a review priority, not a quality score.
 - **Quality gate:** empty/no-speech hypotheses are excluded by
   `tools/ingest_v6_ami_scale.py`; duplicate raw-STT hypotheses keep only the
@@ -217,7 +217,7 @@ training runs or promotion claims.
   also deterministically regenerable via
   `tools/build_v6_formatter_dataset.py --count 50000 --seed 20260925` plus
   `tools/import_v6_control_candidates.py`.
-- **Later state refresh:** the scale plan, 15 complete WAVs, and a 2,769-row
+- **Later state refresh:** the scale plan, 15 complete WAVs, and a 2,812-row
   real-derived manifest became visible again and validate against the restored
   challenge artifact with zero errors. The current dataset-status record uses
   that stronger evidence. Approved counts and train/dev/test counts remain
