@@ -45,6 +45,34 @@ def cross_group_near_duplicate(text: str, group: str, buckets: dict) -> bool:
     return False
 
 
+def load_skipped_record_ids(path: Path) -> set[str]:
+    """Load transcript-free skip IDs so known unusable spans are not rerun."""
+    if not path.exists():
+        return set()
+    skipped = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("status") not in {"empty", "duplicate", "near_duplicate"}:
+            raise ValueError(f"invalid skip-ledger status in {path}")
+        identifier = record.get("source_record_id")
+        if not isinstance(identifier, str) or not identifier:
+            raise ValueError(f"missing source_record_id in {path}")
+        skipped.add(identifier)
+    return skipped
+
+
+def append_skip(path: Path, source_record_id: str, status: str) -> None:
+    """Persist only source identity and outcome; never write transcript text."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"source_record_id": source_record_id,
+                                 "status": status}) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
 def complete_wav(path: Path) -> bool:
     try:
         with wave.open(str(path), "rb") as stream:
@@ -94,9 +122,12 @@ def main() -> None:
     parser.add_argument("--max-audio-seconds", type=float, default=300.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--compute-type", default="int8")
+    parser.add_argument("--skip-ledger", type=Path)
     args = parser.parse_args()
     if args.max_rows < 1 or args.max_audio_seconds <= 0:
         raise SystemExit("max limits must be positive")
+    if args.skip_ledger is None:
+        args.skip_ledger = args.out.with_suffix(".skips.jsonl")
 
     existing = []
     if args.out.exists():
@@ -120,12 +151,13 @@ def main() -> None:
     # remains excluded from the formatter manifest rather than being relabelled
     # as a formatter example.
     seen = {row["source"]["record_id"] for row in existing + invalid_existing}
+    skipped_records = load_skipped_record_ids(args.skip_ledger)
     selected, seconds = [], 0.0
     for line in args.plan.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         row = json.loads(line)
-        if row["source_record_id"] in seen:
+        if row["source_record_id"] in seen or row["source_record_id"] in skipped_records:
             continue
         source = args.audio_dir / f"{row['meeting']}.Mix-Headset.wav"
         start, end = row["source_timestamps"]["start_ms"], row["source_timestamps"]["end_ms"]
@@ -161,14 +193,20 @@ def main() -> None:
             # A no-speech / empty decoding result has no formatter input.  It
             # is an STT-quality observation, not a valid formatter example.
             clip.unlink(missing_ok=True)
+            append_skip(args.skip_ledger, record, "empty")
+            skipped_records.add(record)
             skipped_empty += 1
             continue
         if raw.strip().casefold() in seen_raw:
             clip.unlink(missing_ok=True)
+            append_skip(args.skip_ledger, record, "duplicate")
+            skipped_records.add(record)
             skipped_duplicate += 1
             continue
         if cross_group_near_duplicate(raw, row["speaker_id"], near_buckets):
             clip.unlink(missing_ok=True)
+            append_skip(args.skip_ledger, record, "near_duplicate")
+            skipped_records.add(record)
             skipped_near_duplicate += 1
             continue
         seen_raw.add(raw.strip().casefold())
