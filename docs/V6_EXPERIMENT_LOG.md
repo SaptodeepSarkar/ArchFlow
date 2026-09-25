@@ -186,19 +186,26 @@ training runs or promotion claims.
 
 ## AMI scale-ingestion continuation (2026-09-25)
 
-- **Current revalidated output:** 3,811 schema-valid `real_derived`
-  candidates, with 39,741 genuine word records and 4,256 segment metadata
-  records. The non-Git scale manifest, plan, 29 complete WAVs, and two
+- **Current revalidated output:** 3,915 schema-valid `real_derived`
+  candidates, with 40,866 genuine word records and 4,368 segment metadata
+  records. The non-Git scale manifest, plan, 31 complete WAVs, and two
   resumable partial WAVs are present after the workspace-state refresh.
 - **Validation:** the restored deterministic 18-case evaluation artifact and
-  the 3,811-row manifest validate with zero structural or challenge-collision
+  the 3,915-row manifest validate with zero structural or challenge-collision
   errors. No row entered a training split or received automated approval.
-- **Review triage:** 2,176/3,811 rows meet the lexical
-  `reference_content_mismatch` risk flag; the other 1,635 remain normal
+- **Review triage:** 2,226/3,915 rows meet the lexical
+  `reference_content_mismatch` risk flag; the other 1,689 remain normal
   priority. This is a review priority, not a quality score.
 - **Quality gate:** empty/no-speech hypotheses are excluded by
   `tools/ingest_v6_ami_scale.py`; duplicate raw-STT hypotheses keep only the
   first source instance.
+- **GPU transition:** CUDA probing reported one RTX 3050 device, but the
+  CTranslate2 wheel required CUDA 12's `libcublas.so.12`, while the default
+  toolkit exposed CUDA 13. Using the local CUDA-12 compatibility runtime at
+  `/usr/local/lib/ollama/cuda_v12` plus system cuDNN 9 passed a real Cozy
+  smoke transcription. The first full `cuda` / `float16` batch retained 65
+  rows (10 empty hypotheses excluded). Future rows record `device` and
+  `compute_type` in STT metadata.
 
 ## Codex session 01a0d4ac continuation and reconciliation (2026-09-25)
 
@@ -217,7 +224,7 @@ training runs or promotion claims.
   also deterministically regenerable via
   `tools/build_v6_formatter_dataset.py --count 50000 --seed 20260925` plus
   `tools/import_v6_control_candidates.py`.
-- **Later state refresh:** the scale plan, 29 complete WAVs, and a 3,811-row
+- **Later state refresh:** the scale plan, 31 complete WAVs, and a 3,915-row
   real-derived manifest became visible again and validate against the restored
   challenge artifact with zero errors. The current dataset-status record uses
   that stronger evidence. Approved counts and train/dev/test counts remain
