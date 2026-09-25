@@ -10,8 +10,8 @@ admitted example, and a generated candidate is not an approved training row.
 | Legacy real clips discovered locally | 4,037 | Cozy manifests: 3,987 `cv_indian_full` + 50 `santhosh_indian`; neither is admitted |
 | Official real audio acquired for V6 | 37 complete Mix-Headset WAVs + 2 resumable partial WAVs | Fresh official AMI v1.6.2 CC BY 4.0 annotation archive and 37 verified-complete Mix-Headset WAVs are present in the non-Git V6 workspace; two partial WAVs remain in the official continuation queue. |
 | Real source slices legally usable for V6 | 50,000 selected / 66,533 eligible | The deterministic AMI v1.6.2 source-only plan spanning 139 meetings is present in the non-Git V6 workspace. |
-| Real audio processed with target STT | 4,194 slices | Fresh AMI source audio through deployed Cozy CT2 / faster-whisper (offline GPU `float16`); every retained row has genuine word and segment metadata. |
-| Real-derived review candidates | 4,194 | Fresh source reference, raw STT, portable audio checksum, 44,231 word records, and 4,691 segment metadata records; all remain `needs_human_review`. |
+| Real audio processed with target STT | 4,234 slices | Fresh AMI source audio through deployed Cozy CT2 / faster-whisper (offline GPU `float16`); every retained row has genuine word and segment metadata. |
+| Real-derived review candidates | 4,234 | Fresh source reference, raw STT, portable audio checksum, 44,695 word records, and 4,733 segment metadata records; all remain `needs_human_review`. |
 | Real-derived formatter pairs approved | 0 | Reference-derived targets are still unreviewed proposals |
 | Synthetic candidates generated | 50,048 | 48 hand-authored semantic seeds plus 50,000 deterministic control candidates; all remain unapproved |
 | Synthetic approved | 0 | All 50,048 candidates have `needs_human_review` |
@@ -33,13 +33,13 @@ correct/ambiguous/do-not-edit 1 each; prose-not-list, list request,
 continuation, termination, bullets, numbered list, heading, table, and
 paragraph request 1 each. Every candidate carries `meaning_preservation`.
 
-The AMI scale manifest contains 4,194 `real_derived` /
+The AMI scale manifest contains 4,234 `real_derived` /
 `formatter_target_unreviewed` candidates. Its target-STT metadata is genuine;
 its formatter targets have not received semantic review.
 
-Lexical-risk triage flags 2,343 of the 4,194 rows as
+Lexical-risk triage flags 2,360 of the 4,234 rows as
 `reference_content_mismatch` at a 0.85 LCS threshold. Those rows must not be
-copy-approved from reference text; the remaining 1,851 also remain unapproved.
+copy-approved from reference text; the remaining 1,874 also remain unapproved.
 
 ## Rejection and review ledger
 
@@ -49,7 +49,7 @@ or discarded—because its exact upstream license/revision was not retained.
 The audit rejects Switchboard, NXT annotations, and FluencyBank for license or
 access incompatibility; it defers IndicVoices and People’s Speech until exact
 terms are verified. Schema validation rejected 0 of 48 synthetic and 0 of
-4,194 AMI candidates; this proves structure, not semantic quality.
+4,234 AMI candidates; this proves structure, not semantic quality.
 
 ## Validation evidence
 
@@ -74,7 +74,7 @@ the source-grounded edit-plan control corpus and converted with
 `tools/import_v6_control_candidates.py`. It is deliberately counted as zero
 approved synthetic rows: deterministic templates are not independent,
 human-reviewed formatter ground truth. The next operation is blinded human
-review of the 4,194 AMI candidates and a representative, risk-stratified synthetic
+review of the 4,234 AMI candidates and a representative, risk-stratified synthetic
 queue to accept, correct, or reject formatter targets before assigning any
 split.
 
