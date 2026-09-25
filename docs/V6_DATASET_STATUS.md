@@ -8,10 +8,10 @@ admitted example, and a generated candidate is not an approved training row.
 | Measure | Actual count | Evidence |
 | --- | ---: | --- |
 | Legacy real clips discovered locally | 4,037 | Cozy manifests: 3,987 `cv_indian_full` + 50 `santhosh_indian`; neither is admitted |
-| Official real audio acquired for V6 | 1 Mix-Headset WAV verified + annotation archive | Fresh official AMI v1.6.2 CC BY 4.0 annotation archive (22 MiB zip retained) and 1 verified source WAV `ES2002a.Mix-Headset.wav` (39 MiB, SHA-256 `9c7686…21ee7`) retained in the non-Git V6 workspace; only target-STT outputs that pass validation enter the review queue. Prior scale-acquisition claims of 6–13 WAVs and 494–2,364 candidates from Codex session `01a0d4ac` are not verifiable after workspace loss — no scale manifest survives. |
-| Real source slices legally usable for V6 | 50,000-slice source-only plan was built but plan files did not survive; 66,533 eligible spans inventoried from annotations | AMI v1.6.2 source-only plan spanned 139 meetings in the prior session; the plan JSONL itself is absent now and must be rebuilt from retained annotations before further ingestion. Audio, target STT, and review remain required. |
-| Real audio processed with target STT | 50 slices (surviving pilot manifest) | Fresh AMI ES2002a source audio through deployed Cozy CT2 / faster-whisper CPU `int8`; schema-valid, genuine word/segment metadata. The 2,364-row scale manifest claimed in uncommitted working-tree edits did not survive — no file with >50 rows exists. |
-| Real-derived review candidates | 50 | Surviving pilot `pilot-es2002a-50/real-derived.jsonl`: 50 rows, genuine word records, all `needs_human_review`. Prior 2,364-row claim reverted as unverifiable. |
+| Official real audio acquired for V6 | 15 Mix-Headset WAVs + annotation archive | Fresh official AMI v1.6.2 CC BY 4.0 annotation archive and 15 complete Mix-Headset WAVs are present in the non-Git V6 workspace. |
+| Real source slices legally usable for V6 | 50,000 selected / 66,533 eligible | The deterministic AMI v1.6.2 source-only plan spanning 139 meetings is present in the non-Git V6 workspace. |
+| Real audio processed with target STT | 2,769 slices | Fresh AMI source audio through deployed Cozy CT2 / faster-whisper CPU `int8`; every retained row has genuine word and segment metadata. |
+| Real-derived review candidates | 2,769 | Fresh source reference, raw STT, portable audio checksum, 28,502 word records, and 3,065 segment metadata records; all remain `needs_human_review`. |
 | Real-derived formatter pairs approved | 0 | Reference-derived targets are still unreviewed proposals |
 | Synthetic candidates generated | 50,048 | 48 hand-authored semantic seeds plus 50,000 deterministic control candidates; all remain unapproved |
 | Synthetic approved | 0 | All 50,048 candidates have `needs_human_review` |
@@ -33,13 +33,13 @@ correct/ambiguous/do-not-edit 1 each; prose-not-list, list request,
 continuation, termination, bullets, numbered list, heading, table, and
 paragraph request 1 each. Every candidate carries `meaning_preservation`.
 
-The AMI pilot contributes 50 `real_derived` / `formatter_target_unreviewed`
-candidates across four speaker groups. Its target STT metadata is genuine; its
-formatter targets have not received semantic review.
+The AMI scale manifest contains 2,769 `real_derived` /
+`formatter_target_unreviewed` candidates. Its target-STT metadata is genuine;
+its formatter targets have not received semantic review.
 
-Lexical-risk triage flags 25 of those 50 as
-`reference_content_mismatch` at a 0.85 LCS threshold. Those 25 must not be
-copy-approved from reference text; the remaining 25 also remain unapproved.
+Lexical-risk triage flags 1,597 of the 2,769 rows as
+`reference_content_mismatch` at a 0.85 LCS threshold. Those rows must not be
+copy-approved from reference text; the remaining 1,172 also remain unapproved.
 
 ## Rejection and review ledger
 
@@ -48,8 +48,8 @@ training. The local Indian-English audio is rejected for admission—not deleted
 or discarded—because its exact upstream license/revision was not retained.
 The audit rejects Switchboard, NXT annotations, and FluencyBank for license or
 access incompatibility; it defers IndicVoices and People’s Speech until exact
-terms are verified. Schema validation rejected 0 of 48 synthetic and 0 of 50
-AMI candidates; this proves structure, not semantic quality.
+terms are verified. Schema validation rejected 0 of 48 synthetic and 0 of
+2,769 AMI candidates; this proves structure, not semantic quality.
 
 ## Validation evidence
 
@@ -74,13 +74,13 @@ the source-grounded edit-plan control corpus and converted with
 `tools/import_v6_control_candidates.py`. It is deliberately counted as zero
 approved synthetic rows: deterministic templates are not independent,
 human-reviewed formatter ground truth. The next operation is blinded human
-review of the 50 AMI candidates and a representative, risk-stratified synthetic
+review of the 2,769 AMI candidates and a representative, risk-stratified synthetic
 queue to accept, correct, or reject formatter targets before assigning any
 split.
 
-The combined review queue is
-`/tmp/vaani-v6-ami-pilot/combined-review-queue-triaged.jsonl`, emitted by
-`tools/export_v6_review_queue.py`. A reviewer must set an explicit named
+The current AMI review queue is
+`~/.local/share/vaani/v6-data/ami-v1.6.2/scale-50000/review-queue-triaged.jsonl`,
+emitted by `tools/triage_v6_review_candidates.py`. A reviewer must set an explicit named
 `ACCEPT`, `CORRECT`, or `REJECT` decision; `tools/apply_v6_reviews.py` is the
 only provided path that changes review status. It does not infer approval.
 Use the risk-prioritized combined queue and the checks in
