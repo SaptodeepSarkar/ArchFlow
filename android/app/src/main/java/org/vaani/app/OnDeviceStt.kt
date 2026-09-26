@@ -27,8 +27,29 @@ import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+/**
+ * Final STT evidence supplied by the Android backend.
+ *
+ * The platform recognizer does not expose word timing or confidence. The
+ * bundled whisper.cpp binding exposes segment timings only. Those absences are
+ * represented as empty collections rather than invented values, so V6 can use
+ * available timing evidence without treating it as universal.
+ */
+data class SttSegmentEvidence(
+    val segmentId: Int,
+    val startMs: Long,
+    val endMs: Long,
+    val text: String,
+)
+
+data class SttFinalEvidence(
+    val text: String,
+    val backend: String,
+    val segments: List<SttSegmentEvidence> = emptyList(),
+)
+
 interface SttSession {
-    fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit = {})
+    fun start(onReady: () -> Unit, onResult: (SttFinalEvidence) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit = {})
     fun stop()
     fun cancel()
 }
@@ -37,7 +58,7 @@ interface SttSession {
 class OnDeviceStt(private val context: Context) : SttSession {
     private var recognizer: SpeechRecognizer? = null
 
-    override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
+    override fun start(onReady: () -> Unit, onResult: (SttFinalEvidence) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
         if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             onError("Microphone permission is not granted")
             return
@@ -50,7 +71,10 @@ class OnDeviceStt(private val context: Context) : SttSession {
             speech.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) = onReady()
                 override fun onResults(results: Bundle) {
-                    onResult(results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
+                    onResult(SttFinalEvidence(
+                        text = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty(),
+                        backend = "android-on-device",
+                    ))
                 }
                 override fun onError(error: Int) = onError("Speech recognition error ($error)")
                 override fun onBeginningOfSpeech() = Unit
@@ -79,7 +103,7 @@ class NativeWhisperStt(private val context: Context, private val modelFile: File
     private var recording = false
     private var job: Job? = null
 
-    override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
+    override fun start(onReady: () -> Unit, onResult: (SttFinalEvidence) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
         if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             onError("Microphone permission is not granted")
             return
@@ -118,7 +142,16 @@ class NativeWhisperStt(private val context: Context, private val modelFile: File
                     val model = Whisper.loadModel(context, modelFile.absolutePath)
                     try {
                         val result = Whisper.transcribe(model, wav.absolutePath, WhisperConfig(language = "en", threads = 2))
-                        withContext(Dispatchers.Main) { onResult(result.text.trim()) }
+                        val segments = result.segments.mapIndexed { index, segment ->
+                            SttSegmentEvidence(index, segment.startMs, segment.endMs, segment.text)
+                        }
+                        withContext(Dispatchers.Main) {
+                            onResult(SttFinalEvidence(
+                                text = result.text.trim(),
+                                backend = "whisper.cpp",
+                                segments = segments,
+                            ))
+                        }
                     } finally { Whisper.releaseModel(model) }
                 } finally { wav.delete() }
             } catch (error: Throwable) {

@@ -79,8 +79,8 @@ class VaaniImeService : InputMethodService() {
         stt = SttFactory.create(this).also { engine ->
             engine.start(
                 onReady = { status.post { status.text = "Listening… release to finish" } },
-                onResult = { raw -> formatScope.launch {
-                    deliver(PersonalizationStore(this@VaaniImeService).render(LocalInference.format(this@VaaniImeService, raw)))
+                onResult = { final -> formatScope.launch {
+                    deliver(PersonalizationStore(this@VaaniImeService).render(LocalInference.format(this@VaaniImeService, final.text)))
                 } },
                 onError = { message -> status.post { status.text = message; active = false } },
             )
