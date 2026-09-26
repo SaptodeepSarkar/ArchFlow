@@ -5,6 +5,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SttEvidenceTest {
+    @Test fun `session fence rejects a result from a cancelled attempt`() {
+        val fence = SttSessionFence()
+        val first = fence.begin()
+        fence.invalidate()
+        val second = fence.begin()
+
+        assertTrue(!fence.isCurrent(first))
+        assertTrue(fence.isCurrent(second))
+    }
+
     @Test fun `segment evidence preserves actual backend timing without word confidence`() {
         val final = SttFinalEvidence(
             text = "hello vaani",

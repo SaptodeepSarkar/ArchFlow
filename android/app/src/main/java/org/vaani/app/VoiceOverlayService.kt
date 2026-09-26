@@ -33,6 +33,7 @@ class VoiceOverlayService : Service() {
     private lateinit var bubble: VoiceBubbleView
     private var attached = false
     private var stt: SttSession? = null
+    private val sttFence = SttSessionFence()
     private var touchStartedAt = 0L
     private var tapRecording = false
     private var overlayWidth = IDLE_WIDTH_DP
@@ -86,7 +87,7 @@ class VoiceOverlayService : Service() {
 
     private fun setFieldActive(active: Boolean) {
         if (!active || !AccessibilityBridge.hasEditableFocus() || !ModelRelease.isReady(this)) {
-            stt?.cancel()
+            endSttSession()
             tapRecording = false
             bubble.state = VoiceBubbleView.State.IDLE
             detach()
@@ -168,57 +169,89 @@ class VoiceOverlayService : Service() {
         tapRecording = false
         touchStartedAt = 0L
         bubble.tapMode = false
-        stt?.cancel()
+        endSttSession()
         bubble.state = VoiceBubbleView.State.IDLE
         resizeOverlay(IDLE_WIDTH_DP)
     }
 
     private fun begin() {
+        stt?.cancel()
+        val session = sttFence.begin()
         stt = SttFactory.create(this).also { engine ->
             engine.start(
-                onReady = { bubble.post { bubble.state = VoiceBubbleView.State.LISTENING } },
-                onRms = { level -> bubble.post { bubble.level = level } },
-                onResult = { final -> formatScope.launch {
-                    bubble.post { bubble.state = VoiceBubbleView.State.PROCESSING }
-                    val text = PersonalizationStore(this@VoiceOverlayService)
-                        .render(LocalInference.format(this@VoiceOverlayService, final.text))
-                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                    val result = TextDelivery.deliver(
-                        text = text,
-                        delivery = Delivery.INSERT,
-                        commit = { value -> AccessibilityBridge.paste(this@VoiceOverlayService, value) },
-                        copy = { value -> clipboard.setPrimaryClip(ClipData.newPlainText("Vaani dictation", value)) },
-                    )
+                onReady = {
                     bubble.post {
+                        if (sttFence.isCurrent(session)) bubble.state = VoiceBubbleView.State.LISTENING
+                    }
+                },
+                onRms = { level ->
+                    bubble.post {
+                        if (sttFence.isCurrent(session)) bubble.level = level
+                    }
+                },
+                onResult = result@{ final ->
+                    if (!sttFence.isCurrent(session)) return@result
+                    formatScope.launch {
+                        if (!sttFence.isCurrent(session)) return@launch
+                        bubble.post { bubble.state = VoiceBubbleView.State.PROCESSING }
+                        val text = PersonalizationStore(this@VoiceOverlayService)
+                            .render(LocalInference.format(this@VoiceOverlayService, final.text))
+                        if (!sttFence.isCurrent(session)) return@launch
+                        val completed = endSttSession()
+                        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                        val result = TextDelivery.deliver(
+                            text = text,
+                            delivery = Delivery.INSERT,
+                            commit = { value -> AccessibilityBridge.paste(this@VoiceOverlayService, value) },
+                            copy = { value -> clipboard.setPrimaryClip(ClipData.newPlainText("Vaani dictation", value)) },
+                        )
+                        bubble.post {
+                            if (sttFence.isCurrent(completed)) {
+                                tapRecording = false
+                                bubble.tapMode = false
+                                bubble.state = if (result == DeliveryResult.INSERTED) VoiceBubbleView.State.SENT else VoiceBubbleView.State.COPIED
+                                bubble.contentDescription = if (result == DeliveryResult.INSERTED) "Vaani sent the text to the focused field." else "Vaani copied the text to the clipboard."
+                                bubble.postDelayed({
+                                    if (sttFence.isCurrent(completed)) {
+                                        bubble.state = VoiceBubbleView.State.IDLE
+                                        resizeOverlay(IDLE_WIDTH_DP)
+                                        bubble.contentDescription = "Vaani bubble. Hold to speak; your result is pasted or copied."
+                                    }
+                                }, 1500L)
+                            }
+                        }
+                    }
+                },
+                onError = error@{
+                    if (!sttFence.isCurrent(session)) return@error
+                    bubble.post {
+                        val completed = endSttSession()
                         tapRecording = false
                         bubble.tapMode = false
-                        bubble.state = if (result == DeliveryResult.INSERTED) VoiceBubbleView.State.SENT else VoiceBubbleView.State.COPIED
-                        bubble.contentDescription = if (result == DeliveryResult.INSERTED) "Vaani sent the text to the focused field." else "Vaani copied the text to the clipboard."
+                        bubble.state = VoiceBubbleView.State.ERROR
+                        bubble.contentDescription = "Vaani could not finish that phrase. Hold to try again."
                         bubble.postDelayed({
-                            bubble.state = VoiceBubbleView.State.IDLE
-                            resizeOverlay(IDLE_WIDTH_DP)
-                            bubble.contentDescription = "Vaani bubble. Hold to speak; your result is pasted or copied."
+                            if (sttFence.isCurrent(completed)) {
+                                bubble.state = VoiceBubbleView.State.IDLE
+                                resizeOverlay(IDLE_WIDTH_DP)
+                                bubble.contentDescription = "Vaani bubble. Hold to speak; your result is pasted or copied."
+                            }
                         }, 1500L)
                     }
-                }
                 },
-                onError = { bubble.post {
-                    tapRecording = false
-                    bubble.tapMode = false
-                    bubble.state = VoiceBubbleView.State.ERROR
-                    bubble.contentDescription = "Vaani could not finish that phrase. Hold to try again."
-                    bubble.postDelayed({
-                        bubble.state = VoiceBubbleView.State.IDLE
-                        resizeOverlay(IDLE_WIDTH_DP)
-                        bubble.contentDescription = "Vaani bubble. Hold to speak; your result is pasted or copied."
-                    }, 1500L)
-                } },
             )
         }
     }
 
-    override fun onDestroy() {
+    private fun endSttSession(): Long {
+        val completed = sttFence.invalidate()
         stt?.cancel()
+        stt = null
+        return completed
+    }
+
+    override fun onDestroy() {
+        endSttSession()
         formatScope.cancel()
         AccessibilityBridge.removeFocusListener(focusListener)
         AccessibilityBridge.removeKeyboardListener(keyboardListener)

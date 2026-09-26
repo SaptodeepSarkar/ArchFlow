@@ -186,14 +186,14 @@ training runs or promotion claims.
 
 ## AMI scale-ingestion continuation (updated 2026-09-26)
 
-- **Current revalidated output:** 25,368 schema-valid `real_derived`
-  candidates, with 253,841 genuine word records and 28,121 segment metadata
+- **Current revalidated output:** 27,240 schema-valid `real_derived`
+  candidates, with 269,778 genuine word records and 30,110 segment metadata
   records. The non-Git scale manifest, plan, and 139 complete WAVs are present.
 - **Validation:** the restored deterministic 18-case evaluation artifact and
-  the 25,368-row manifest validate with zero structural or challenge-collision
+  the 27,240-row manifest validate with zero structural or challenge-collision
   errors. No row entered a training split or received automated approval.
-- **Review triage:** 15,123/25,368 rows meet the lexical
-  `reference_content_mismatch` risk flag; the other 10,245 remain normal
+- **Review triage:** 16,206/27,240 rows meet the lexical
+  `reference_content_mismatch` risk flag; the other 11,034 remain normal
   priority. This is a review priority, not a quality score.
 - **Quality gate:** empty/no-speech hypotheses are excluded by
   `tools/ingest_v6_ami_scale.py`; duplicate raw-STT hypotheses keep only the
@@ -261,6 +261,12 @@ training runs or promotion claims.
   advanced the ID-only skip ledger to 1,202 entries. The resulting 25,368-row
   manifest validates with zero structural or challenge-collision errors; all
   candidates remain `needs_human_review`.
+- **Ninth GPU pass:** selected 2,000 further source slices on CUDA `float16`;
+  1,872 retained candidates advanced the manifest to 27,240 rows and the
+  ID-only skip ledger to 1,330 entries. The manifest revalidates with zero
+  structural or challenge-collision errors; 23,325 rows carry explicit
+  CUDA/float16 metadata and the preceding 3,915 rows lack that legacy field.
+  All candidates remain `needs_human_review`; none entered a split or training.
 
 ## Codex session 01a0d4ac continuation and reconciliation (2026-09-25)
 

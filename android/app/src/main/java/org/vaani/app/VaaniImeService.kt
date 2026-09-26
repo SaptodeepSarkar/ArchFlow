@@ -25,6 +25,7 @@ class VaaniImeService : InputMethodService() {
     private var stt: SttSession? = null
     private lateinit var status: TextView
     private var active = false
+    private val sttFence = SttSessionFence()
     private val formatScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -70,28 +71,49 @@ class VaaniImeService : InputMethodService() {
     }
 
     private fun startDictation() {
+        if (active) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             status.text = "Microphone permission is required in Vaani"
             return
         }
+        stt?.cancel()
+        val session = sttFence.begin()
         active = true
         status.text = "Listening… release to finish"
         stt = SttFactory.create(this).also { engine ->
             engine.start(
-                onReady = { status.post { status.text = "Listening… release to finish" } },
-                onResult = { final -> formatScope.launch {
-                    deliver(PersonalizationStore(this@VaaniImeService).render(LocalInference.format(this@VaaniImeService, final.text)))
-                } },
-                onError = { message -> status.post { status.text = message; active = false } },
+                onReady = {
+                    status.post {
+                        if (active && sttFence.isCurrent(session)) {
+                            status.text = "Listening… release to finish"
+                        }
+                    }
+                },
+                onResult = result@{ final ->
+                    if (!active || !sttFence.isCurrent(session)) return@result
+                    formatScope.launch {
+                        val text = PersonalizationStore(this@VaaniImeService)
+                            .render(LocalInference.format(this@VaaniImeService, final.text))
+                        if (active && sttFence.isCurrent(session)) deliver(text)
+                    }
+                },
+                onError = error@{ message ->
+                    status.post {
+                        if (sttFence.isCurrent(session)) {
+                            endSttSession()
+                            status.text = message
+                        }
+                    }
+                },
             )
         }
     }
 
     private fun stopDictation() { if (active) stt?.stop() }
-    private fun cancelDictation() { stt?.cancel(); active = false; status.text = "Cancelled" }
+    private fun cancelDictation() { endSttSession(); status.text = "Cancelled" }
 
     private fun deliver(text: String) {
-        stt?.cancel(); active = false
+        val completed = endSttSession()
         val delivery = FieldPolicy.deliveryFor(currentInputEditorInfo)
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         val result = TextDelivery.deliver(
@@ -101,22 +123,32 @@ class VaaniImeService : InputMethodService() {
             copy = { value -> clipboard.setPrimaryClip(ClipData.newPlainText("Vaani dictation", value)) },
         )
         status.post {
-            status.text = when (result) {
-                DeliveryResult.INSERTED -> "Inserted"
-                DeliveryResult.COPIED -> "Copied — paste into this field"
-                DeliveryResult.EMPTY -> "No speech detected"
+            if (sttFence.isCurrent(completed)) {
+                status.text = when (result) {
+                    DeliveryResult.INSERTED -> "Inserted"
+                    DeliveryResult.COPIED -> "Copied — paste into this field"
+                    DeliveryResult.EMPTY -> "No speech detected"
+                }
             }
         }
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
-        stt?.cancel(); active = false
+        endSttSession()
     }
 
     override fun onDestroy() {
-        stt?.cancel()
+        endSttSession()
         formatScope.cancel()
         super.onDestroy()
+    }
+
+    private fun endSttSession(): Long {
+        val completed = sttFence.invalidate()
+        stt?.cancel()
+        stt = null
+        active = false
+        return completed
     }
 }

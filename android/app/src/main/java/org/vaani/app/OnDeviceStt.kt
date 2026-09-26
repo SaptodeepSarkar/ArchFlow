@@ -17,7 +17,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -52,6 +51,21 @@ interface SttSession {
     fun start(onReady: () -> Unit, onResult: (SttFinalEvidence) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit = {})
     fun stop()
     fun cancel()
+}
+
+/**
+ * Reject callbacks from an STT attempt that has been cancelled or superseded.
+ *
+ * Native cancellation is cooperative: an audio or decode callback can already
+ * be queued when the UI begins another attempt.  The receiving service owns a
+ * fence and must check it before formatting or inserting anything.
+ */
+internal class SttSessionFence {
+    private var generation = 0L
+
+    @Synchronized fun begin(): Long = ++generation
+    @Synchronized fun invalidate(): Long = ++generation
+    @Synchronized fun isCurrent(candidate: Long): Boolean = candidate == generation
 }
 
 /** Android's installed on-device recognizer is the usable no-network STT baseline. */
@@ -172,7 +186,6 @@ class NativeWhisperStt(private val context: Context, private val modelFile: File
         recorder?.release()
         recorder = null
         job?.cancel()
-        scope.cancel()
     }
 
     private fun writeWav(file: File, pcm: ByteArray) {

@@ -72,6 +72,10 @@ As of this record, Vaani now carries final backend identity and genuine segment
 timings in `SttFinalEvidence` / `SttSegmentEvidence`. The app's formatter still
 receives plain final text: enriching formatter input with timing must be a
 separate, evaluated protocol change, not an invisible behavioral change.
+Android service boundaries also fence each STT generation: a queued completion,
+error, RMS, or delayed UI update from a cancelled attempt is ignored once a
+newer attempt has begun. This protects insertion from stale final text while
+keeping native cancellation cooperative.
 
 The underlying runtime is viable on Android: upstream `whisper.cpp` lists
 Android support, maintains an Android sample, and supports integer quantized
