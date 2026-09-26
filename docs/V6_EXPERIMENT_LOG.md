@@ -92,6 +92,22 @@ training runs or promotion claims.
   timestamps, quantize the model, install Android assets, or measure Android
   memory, latency, or accuracy.
 
+### Reproduced f16 export follow-up (2026-09-26)
+
+- **Changed variable:** artifact reproduction only; the fused source
+  Safetensors/checkpoint and the pinned whisper.cpp converter path remain the
+  authority. CT2 input remains excluded.
+- **Actual result:** the checkpoint-derived tokenizer vocabulary matched the
+  retained compatible Whisper vocabulary exactly (50,258 ordinary tokens). A
+  f16 GGML export was produced at 487,601,984 bytes, SHA-256
+  `0300fec7628fed6c86e5a6cb1f500af0983a733dca55fff8437bdd34452b7f91`.
+  The CPU CLI built from whisper.cpp `a44e078` loaded and decoded a short
+  licensed AMI probe with output suppressed.
+- **Decision:** retain as host compatibility evidence only. The frozen
+  100-clip HF-versus-export WER/timing comparison, quantization comparison,
+  Android ABI installation, and physical-device memory/latency measurements
+  remain required before any Android STT replacement.
+
 ## Licensed real-derived pilot 003 (blocked before execution, 2026-09-24)
 
 - **Hypothesis:** a deterministic non-overlapping third AMI batch (offset 50)
