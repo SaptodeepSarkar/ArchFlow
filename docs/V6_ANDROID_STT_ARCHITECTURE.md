@@ -112,7 +112,7 @@ performance claim for Vaani.
 | Decoder metadata | Android now exposes final segment timestamps | Add a V6 protocol boundary for optional timing; retain `None` for unavailable word confidence/alternatives. |
 | Streaming | Android records a final private WAV then transcribes | Keep preview STT-only; evaluate chunked native decoding only after the final path is accurate. |
 | Lifecycle | Model is loaded/released per final utterance | Benchmark per-utterance versus safely reusable native context before adopting residency. |
-| Model selection | File presence selects native STT | Add a verified package manifest with artifact version, tokenizer hash, and capability flags before V6 promotion. |
+| Model selection | Base and an unpromoted V6 candidate have separate verified package slots | Require artifact version, tokenizer hash, language/metadata capability flags, and explicit qualification before selection changes. |
 | Safety | Raw STT is formatter input | Never use an STT vocabulary prompt or formatter to guess unsupported content. |
 
 ## Known issues and non-goals
@@ -123,6 +123,11 @@ performance claim for Vaani.
 - The binding's `WhisperConfig` surface does not expose the complete
   whisper.cpp decode/metadata control set. A V6 metadata upgrade may require a
   maintained JNI fork or an upstream API extension.
+- Android model delivery now stages a qualified future V6 candidate as
+  `ggml-v6.bin`, independently of the `ggml-base.bin` fallback. The downloader
+  rejects a model whose manifest runtime does not match that slot and rejects
+  duplicate slots. It deliberately does not auto-select the candidate; its
+  tokenizer, WER, timing, memory, and latency gates still decide promotion.
 - The existing 923 MiB float export is a format/load/decode sanity result only.
   It is not a mobile artifact and must not be installed or benchmarked as one.
 - Fine-tuning, quantization, or a different Whisper architecture is not

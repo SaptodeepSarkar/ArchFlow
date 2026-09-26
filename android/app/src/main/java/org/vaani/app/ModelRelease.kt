@@ -83,13 +83,24 @@ class ModelReleaseWorker(appContext: Context, params: WorkerParameters) : Corout
                 if (!item.optBoolean("android_compatible", false)) continue
                 val kind = when (item.getString("kind")) {
                     "stt" -> ModelKind.STT
+                    "stt_v6" -> ModelKind.STT_V6
                     "formatter" -> ModelKind.FORMATTER
                     "formatter_v6" -> ModelKind.FORMATTER_V6
                     else -> continue
                 }
+                check(item.optString("runtime") == kind.runtime) {
+                    "Model runtime does not match its declared Android slot."
+                }
+                check(none { asset -> asset.kind == kind }) {
+                    "The model release declares more than one asset for an Android slot."
+                }
                 add(ModelAsset(
                     kind = kind,
-                    label = if (kind == ModelKind.STT) "Speech model" else "Cleanup model",
+                    label = when (kind) {
+                        ModelKind.STT -> "Speech model"
+                        ModelKind.STT_V6 -> "V6 speech candidate"
+                        else -> "Cleanup model"
+                    },
                     url = item.getString("url"),
                     sha256 = item.getString("sha256"),
                     expectedBytes = item.optLong("size_bytes", -1L),
