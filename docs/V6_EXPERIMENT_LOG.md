@@ -202,14 +202,14 @@ training runs or promotion claims.
 
 ## AMI scale-ingestion continuation (updated 2026-09-26)
 
-- **Current revalidated output:** 27,240 schema-valid `real_derived`
-  candidates, with 269,778 genuine word records and 30,110 segment metadata
+- **Current revalidated output:** 29,092 schema-valid `real_derived`
+  candidates, with 285,536 genuine word records and 32,077 segment metadata
   records. The non-Git scale manifest, plan, and 139 complete WAVs are present.
 - **Validation:** the restored deterministic 18-case evaluation artifact and
-  the 27,240-row manifest validate with zero structural or challenge-collision
+  the 29,092-row manifest validate with zero structural or challenge-collision
   errors. No row entered a training split or received automated approval.
-- **Review triage:** 16,206/27,240 rows meet the lexical
-  `reference_content_mismatch` risk flag; the other 11,034 remain normal
+- **Review triage:** 17,267/29,092 rows meet the lexical
+  `reference_content_mismatch` risk flag; the other 11,825 remain normal
   priority. This is a review priority, not a quality score.
 - **Quality gate:** empty/no-speech hypotheses are excluded by
   `tools/ingest_v6_ami_scale.py`; duplicate raw-STT hypotheses keep only the
@@ -283,6 +283,12 @@ training runs or promotion claims.
   structural or challenge-collision errors; 23,325 rows carry explicit
   CUDA/float16 metadata and the preceding 3,915 rows lack that legacy field.
   All candidates remain `needs_human_review`; none entered a split or training.
+- **Tenth GPU pass:** selected 2,000 further source slices on CUDA `float16`;
+  1,852 retained candidates advanced the manifest to 29,092 rows and the
+  ID-only skip ledger to 1,478 entries. The manifest revalidates with zero
+  structural or challenge-collision errors; 25,177 rows carry explicit
+  CUDA/float16 metadata and 3,915 legacy rows lack device/compute fields. All
+  candidates remain `needs_human_review`; none entered a split or training.
 
 ## Codex session 01a0d4ac continuation and reconciliation (2026-09-25)
 

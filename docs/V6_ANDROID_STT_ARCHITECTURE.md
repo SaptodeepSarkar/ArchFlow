@@ -139,3 +139,7 @@ Run the frozen fused-checkpoint export through the existing 100-clip
 license-cleared suite on host first, capturing text plus segment timing. Only
 if the exported float artifact is numerically sane should a Q8/Q5 Android
 candidate be made and measured on physical hardware.
+
+`tools/eval_v6_android_stt_export.py` is the aggregate-only host evaluator for
+that step. It holds reference/hypothesis text in memory, reports only WER,
+runtime, duration, and aggregate edit counts, and refuses a short frozen slice.
