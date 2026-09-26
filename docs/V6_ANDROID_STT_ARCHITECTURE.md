@@ -32,12 +32,13 @@ release manifest.
 
 ## Vocabulary is not a file-size switch
 
-The Android baseline is an English Whisper Base artifact. Replacing it with a
-multilingual Whisper checkpoint gives the model its original multilingual BPE
-tokenizer, which is the correct starting point for Indian English, Hindi, and
-Hinglish. It does **not** safely permit adding arbitrary vocabulary tokens at
-conversion time: the encoder/decoder embedding rows and tokenizer IDs must
-remain aligned.
+The Android baseline is an English Whisper Base artifact. The locally retained
+fused V5/Cozy checkpoint is standard Whisper-small and has a 51,865-token
+Whisper tokenizer; replacing Base with that checkpoint would retain its
+multilingual BPE vocabulary, which is the correct starting point for Indian
+English, Hindi, and Hinglish. It does **not** safely permit adding arbitrary
+vocabulary tokens at conversion time: the encoder/decoder embedding rows and
+tokenizer IDs must remain aligned.
 
 The practical V6 vocabulary plan is therefore:
 
