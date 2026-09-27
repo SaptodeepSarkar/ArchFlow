@@ -47,11 +47,15 @@ Rectangle {
             cfg = data;
     }
     function finishSetup() {
-        // Do not close over a failed IPC write: a fresh install can open the
-        // UI before its user service has started.
-        if (bridge.sendOp("config_set", {key: "general.onboarding_complete", value: "true"}))
-            finished();
-        else
+        finishError = "";
+        // Completion is durable only after the daemon has acknowledged the
+        // saved setting; closing optimistically repeats first-run next time.
+        if (!bridge.sendOp("config_set", {key: "general.onboarding_complete", value: "true"}, function(reply) {
+            if (reply.ok)
+                finished();
+            else
+                finishError = reply.message || "Vaani could not save setup. Try again.";
+        }))
             finishError = "Start Vaani’s service, then try again."
     }
     function playEntrance() {
@@ -123,7 +127,7 @@ Rectangle {
 
         Column {
             Layout.fillWidth: true
-            Layout.preferredHeight: 100
+            Layout.preferredHeight: implicitHeight
             Text {
                 width: parent.width
                 text: page.titleTop[page.step]
@@ -131,6 +135,7 @@ Rectangle {
                 font.family: "Georgia"
                 font.pixelSize: 42
                 font.weight: Font.Normal
+                wrapMode: Text.WordWrap
             }
             Text {
                 width: parent.width
@@ -139,12 +144,13 @@ Rectangle {
                 font.family: "Georgia"
                 font.pixelSize: 42
                 font.weight: Font.Normal
+                wrapMode: Text.WordWrap
             }
         }
         Item { Layout.preferredHeight: 16 }
         Column {
             Layout.fillWidth: true
-            Layout.preferredHeight: 48
+            Layout.preferredHeight: implicitHeight
             spacing: 2
             Text {
                 width: parent.width
@@ -152,6 +158,7 @@ Rectangle {
                 color: page.isIntro ? "#FFFDFB" : "#57505C"
                 opacity: page.isIntro ? 0.9 : 1
                 font.pixelSize: 16
+                wrapMode: Text.WordWrap
             }
             Text {
                 width: parent.width
@@ -159,6 +166,7 @@ Rectangle {
                 color: page.isIntro ? "#FFFDFB" : "#57505C"
                 opacity: page.isIntro ? 0.9 : 1
                 font.pixelSize: 16
+                wrapMode: Text.WordWrap
             }
         }
 

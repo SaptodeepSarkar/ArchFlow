@@ -95,6 +95,8 @@ Rectangle {
             app.serviceMessage = exitCode === 0
                 ? (verb === "start" ? "Vaani started." : verb === "stop" ? "Vaani stopped." : verb === "enable" ? "Vaani will start when you log in." : "Vaani will not start automatically.")
                 : "That service change failed. Check the systemd user session.";
+            if (exitCode === 0 && verb === "start")
+                bridge.reconnectNow();
             serviceRefreshTimer.restart();
         }
     }
@@ -156,6 +158,7 @@ Rectangle {
 
                 Flickable {
                     contentWidth: width; contentHeight: homeColumn.implicitHeight; clip: true
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn }
                     ColumnLayout { id: homeColumn; width: parent.width; spacing: 18
                         Rectangle { Layout.fillWidth: true; implicitHeight: 252; radius: 28; color: "#FFD4A3"
                             ColumnLayout { anchors.fill: parent; anchors.margins: 28; spacing: 10
@@ -188,6 +191,7 @@ Rectangle {
 
                 Flickable {
                     contentWidth: width; contentHeight: personalizeColumn.implicitHeight; clip: true
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn }
                     ColumnLayout { id: personalizeColumn; width: parent.width; spacing: 18
                         Label { text: "Your words, recognised properly."; color: "#19161C"; font.pixelSize: 30; font.bold: true; Layout.fillWidth: true }
                         Label { text: "Names, places, products, and technical terms guide recognition and preserve your chosen spelling. These local rules never become dictation history."; color: "#827B87"; font.pixelSize: 14; wrapMode: Text.WordWrap; Layout.fillWidth: true }
@@ -251,6 +255,7 @@ Rectangle {
 
                 Flickable {
                     contentWidth: width; contentHeight: settingsColumn.implicitHeight; clip: true
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn }
                     ColumnLayout { id: settingsColumn; width: parent.width; spacing: 15
                         Label { text: "Settings"; color: "#19161C"; font.pixelSize: 30; font.bold: true }
                         Label { text: "Make the tradeoffs visible. Vaani never changes these silently."; color: "#827B87"; font.pixelSize: 14 }
@@ -301,6 +306,7 @@ Rectangle {
 
                 Flickable {
                     contentWidth: width; contentHeight: accountColumn.implicitHeight; clip: true
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn }
                     ColumnLayout { id: accountColumn; width: parent.width; spacing: 18
                         Label { text: "Your Vaani account"; color: "#19161C"; font.pixelSize: 30; font.bold: true }
                         Rectangle { Layout.fillWidth: true; implicitHeight: 142; radius: 24; color: "#FFD4A3"

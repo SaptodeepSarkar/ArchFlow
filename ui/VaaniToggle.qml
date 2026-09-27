@@ -25,6 +25,9 @@ Item {
         }
         Button {
             id: switchButton
+            Accessible.name: control.title
+            Accessible.description: control.description
+            Accessible.checked: control.checked
             enabled: !control.busy
             implicitWidth: 52
             implicitHeight: 32

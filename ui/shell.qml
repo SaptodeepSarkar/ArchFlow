@@ -30,6 +30,7 @@ Scope {
     property string curWord: ""
     property bool firstLine: true
     property string sessionId: ""
+    property var responseHandlers: ({})
     property bool dismissing: false
     // Set when the finished session copied its transcript to the clipboard:
     // the "Copied to clipboard" popup lingers long enough to be read.
@@ -51,11 +52,12 @@ Scope {
 
     // Daemon wire format: {protocol_version, request_id, session_id, kind}
     // where kind = {op, args?}. Anything else is rejected as malformed.
-    function sendOp(op, args) {
+    function sendOp(op, args, onResponse) {
         if (!sock.connected) { root.statusText = "Daemon unavailable — start vaanid.service"; return false; }
+        var requestId = "qml-" + Math.floor(Math.random() * 1e9);
         var msg = {
             protocol_version: 1,
-            request_id: "qml-" + Math.floor(Math.random() * 1e9),
+            request_id: requestId,
             session_id: null,
             kind: {
                 op: op
@@ -63,9 +65,16 @@ Scope {
         };
         if (args !== undefined)
             msg.kind.args = args;
+        if (onResponse !== undefined)
+            root.responseHandlers[requestId] = onResponse;
         sock.write(JSON.stringify(msg) + "\n");
         sock.flush();
         return true;
+    }
+
+    function reconnectNow() {
+        if (!sock.connected)
+            sock.connected = true;
     }
 
     function handleLine(line) {
@@ -117,6 +126,11 @@ Scope {
         // briefly so the outcome is visible, then the overlay exits.
         // A clipboard confirmation lingers longer so it can be read.
         if (msg.ok !== undefined) {
+            var handler = root.responseHandlers[msg.request_id];
+            if (handler !== undefined) {
+                delete root.responseHandlers[msg.request_id];
+                handler(msg);
+            }
             if (msg.state)
                 root.state = msg.state;
             if (msg.message)
@@ -199,20 +213,6 @@ Scope {
         }
     }
 
-    // Reconnect with bounded backoff; exit when daemon is gone and no
-    // settings window is open (on-demand UI residency).
-    Timer {
-        id: reconnectTimer
-        interval: 1500
-        repeat: false
-        onTriggered: {
-            if (!sock.connected && !root.showSettings)
-                Qt.quit();
-            else if (!sock.connected)
-                sock.connected = true;
-        }
-    }
-
     Socket {
         id: sock
         path: root.sockPath
@@ -226,9 +226,7 @@ Scope {
                 root.firstLine = true;
                 if (root.settingsApi) root.settingsApi.requestConfig();
             } else {
-                if (root.showSettings)
-                    reconnectTimer.start();
-                else
+                if (!root.showSettings)
                     Qt.quit();
             }
         }
@@ -315,7 +313,7 @@ Scope {
                         Layout.alignment: Qt.AlignVCenter
                         spacing: 2
                         Text {
-                            text: root.state === "INSERTING" ? "TYPING CLEAN TEXT" : root.state === "CLEANING" ? "CLEANING TRANSCRIPT" : root.state === "TRANSCRIBING" ? "TRANSCRIBING" : root.state === "ERROR" ? "NEEDS ATTENTION" : "LISTENING"
+                            text: root.state === "STARTING" ? "STARTING MICROPHONE" : root.state === "INSERTING" ? "TYPING CLEAN TEXT" : root.state === "CLEANING" ? "CLEANING TRANSCRIPT" : root.state === "TRANSCRIBING" ? "TRANSCRIBING" : root.state === "ERROR" ? "NEEDS ATTENTION" : "LISTENING"
                             color: "#CFC6D3"
                             font.pixelSize: 10
                             font.weight: Font.Bold
@@ -338,26 +336,22 @@ Scope {
                         }
                     }
 
-                    Rectangle {
+                    Button {
+                        Accessible.name: "Stop dictation"
+                        Accessible.description: "Stop the current dictation"
+                        text: "Stop"
+                        enabled: root.state === "RECORDING" || root.state === "STARTING"
                         Layout.preferredWidth: 31
                         Layout.preferredHeight: 31
                         Layout.alignment: Qt.AlignVCenter
-                        radius: 10
-                        color: "#4A424E"
-                        Rectangle {
-                            anchors.centerIn: parent
-                            width: 10
-                            height: 10
-                            radius: 2
+                        onClicked: root.sendOp("stop")
+                        contentItem: Rectangle {
+                            implicitWidth: 10; implicitHeight: 10; radius: 2
                             color: "#FFD4A3"
+                            anchors.centerIn: parent
                         }
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: root.state === "RECORDING" || root.state === "STARTING"
-                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                            onClicked: root.sendOp("stop")
+                        background: Rectangle { radius: 10; color: "#4A424E" }
                         }
-                    }
                 }
                 PropertyAnimation {
                     id: voiceLineFade
