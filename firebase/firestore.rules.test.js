@@ -56,4 +56,13 @@ describe('Vaani Firestore privacy boundary', () => {
     await assertFails(setDoc(doc(aliceDb(), 'users/alice/personalization/bad'), { ...encryptedRecord, unexpected: true }));
     await assertFails(setDoc(doc(aliceDb(), 'users/alice/personalization/other'), { ...encryptedRecord, record_id: 'other' }));
   });
+
+  it('rejects malformed encryption envelopes and stale writes', async () => {
+    const ref = doc(aliceDb(), 'users/alice/personalization/hyprland');
+    await assertFails(setDoc(ref, { ...encryptedRecord, nonce: 'short' }));
+    await assertFails(setDoc(ref, { ...encryptedRecord, compression: 'none' }));
+    await assertFails(setDoc(ref, { ...encryptedRecord, ciphertext: '' }));
+    await assertSucceeds(setDoc(ref, encryptedRecord));
+    await assertFails(setDoc(ref, { ...encryptedRecord, updated_at_ms: 999 }));
+  });
 });

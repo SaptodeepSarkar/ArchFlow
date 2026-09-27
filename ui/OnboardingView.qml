@@ -10,6 +10,7 @@ Rectangle {
     anchors.fill: parent
     property int step: 0
     property var cfg: ({})
+    property string finishError: ""
     readonly property bool isIntro: step < 3
     readonly property bool animationEnabled: Quickshell.env("VAANI_REDUCE_MOTION") !== "1"
     property real contentOpacity: animationEnabled ? 0 : 1
@@ -46,8 +47,12 @@ Rectangle {
             cfg = data;
     }
     function finishSetup() {
-        bridge.sendOp("config_set", {key: "general.onboarding_complete", value: "true"});
-        finished();
+        // Do not close over a failed IPC write: a fresh install can open the
+        // UI before its user service has started.
+        if (bridge.sendOp("config_set", {key: "general.onboarding_complete", value: "true"}))
+            finished();
+        else
+            finishError = "Start Vaani’s service, then try again."
     }
     function playEntrance() {
         if (!animationEnabled) {
@@ -253,6 +258,7 @@ Rectangle {
                 }
             }
             Label { text: "Vaani’s menu includes a start-at-login switch and a full service start/stop control."; color: "#827B87"; font.pixelSize: 13; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            Label { visible: page.finishError.length > 0; text: page.finishError; color: "#9D2540"; font.pixelSize: 13; wrapMode: Text.WordWrap; Layout.fillWidth: true }
         }
 
         Item { Layout.fillHeight: true }

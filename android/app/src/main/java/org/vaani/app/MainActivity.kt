@@ -151,7 +151,10 @@ private fun VaaniApp() {
         4 -> ClearWordsScreen(onNext = { page = 5 })
         5 -> HowVaaniWorksScreen(onNext = { page = 6 })
         6 -> InFieldLessonScreen(onNext = { page = 7 })
-        7 -> WritingLanguageScreen(onNext = { page = 8 })
+        7 -> WritingLanguageScreen(onNext = { language ->
+            OnboardingState.setWritingLanguage(context, language)
+            page = 8
+        })
         8 -> HoldToSpeakScreen(onNext = {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 micPermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -806,13 +809,18 @@ private fun ModelPreparationScreen(onReady: () -> Unit) {
         step = 11,
         title = title,
         body = body,
-        action = if (status == ModelRelease.Status.READY && !textBoxAccessEnabled) "Enable text-box access" else "Start using Vaani",
+        action = when {
+            status == ModelRelease.Status.READY && !textBoxAccessEnabled -> "Enable text-box access"
+            status == ModelRelease.Status.READY -> "Start using Vaani"
+            else -> "Try model download again"
+        },
         onAction = {
             if (status == ModelRelease.Status.READY && !textBoxAccessEnabled) {
                 context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            } else onReady()
+            } else if (status == ModelRelease.Status.READY) onReady()
+            else ModelRelease.enqueue(context)
         },
-        actionEnabled = status == ModelRelease.Status.READY,
+        actionEnabled = true,
         secondary = null,
     ) {
         Box(Modifier.fillMaxWidth().height(224.dp).background(if (status == ModelRelease.Status.READY) VaaniColor.Lilac else VaaniColor.Apricot, RoundedCornerShape(26.dp)).padding(22.dp)) {
@@ -954,18 +962,19 @@ private fun InFieldLessonScreen(onNext: () -> Unit) = VaaniFlowScaffold(
 }
 
 @Composable
-private fun WritingLanguageScreen(onNext: () -> Unit) {
-    var selected by remember { mutableStateOf("English") }
+private fun WritingLanguageScreen(onNext: (String) -> Unit) {
+    val languages = listOf("English" to "en", "Hindi" to "hi", "Bengali" to "bn")
+    var selected by remember { mutableStateOf("en") }
     VaaniFlowScaffold(
         step = 3,
         title = "Choose your\nwriting language.",
         body = "This helps Vaani prepare the right local recognition model. You can change it later.",
         action = "Continue",
-        onAction = onNext,
+        onAction = { onNext(selected) },
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            listOf("English", "Hindi", "Bengali").forEach { language ->
-                VaaniChoiceRow(language, selected == language) { selected = language }
+            languages.forEach { (label, code) ->
+                VaaniChoiceRow(label, selected == code) { selected = code }
             }
         }
     }

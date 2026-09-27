@@ -29,7 +29,12 @@ unit = pathlib.Path('packaging/vaanid.service').read_text().replace('/usr/bin/va
 pathlib.Path(sys.argv[2]).write_text(unit)
 PY
 install -m644 packaging/hyprland/vaani.conf packaging/hyprland/vaani.lua "$config_root/hypr/"
-install -m644 packaging/vaani.desktop "$data_root/applications/vaani.desktop"
+python3 - "$bin_root/vaani-desktop" "$data_root/applications/vaani.desktop" <<'PY'
+import pathlib, sys
+binary = sys.argv[1].replace('\\', '\\\\').replace('"', '\\"')
+entry = pathlib.Path('packaging/vaani.desktop').read_text().replace('vaani-desktop', '"' + binary + '"')
+pathlib.Path(sys.argv[2]).write_text(entry)
+PY
 install -m644 ui/*.qml "$config_root/quickshell/vaani/"
 install -m644 ui/assets/*.png "$config_root/quickshell/vaani/assets/"
 install -m644 config.example.toml "$data_root/vaani/"
