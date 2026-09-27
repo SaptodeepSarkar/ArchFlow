@@ -25,16 +25,18 @@ class VaaniSyncMessagingService : FirebaseMessagingService() {
     companion object {
         /** Registers the existing FCM token immediately after account sign-in. */
         fun registerCurrentDevice(context: Context) {
+            if (FirebaseRuntime.app(context) == null) return
             FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
                 registerDevice(context.applicationContext, token)
             }
         }
 
         private fun registerDevice(context: Context, token: String) {
-            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+            val app = FirebaseRuntime.app(context) ?: return
+            val uid = FirebaseAuth.getInstance(app).currentUser?.uid ?: return
             val prefs = context.getSharedPreferences("vaani_sync_device", Context.MODE_PRIVATE)
             val id = prefs.getString("id", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("id", it).apply() }
-            FirebaseFirestore.getInstance().collection("users").document(uid).collection("devices").document(id)
+            FirebaseFirestore.getInstance(app).collection("users").document(uid).collection("devices").document(id)
                 .set(mapOf("schema_version" to 1L, "device_id" to id, "platform" to "android", "push_token" to token, "updated_at_ms" to System.currentTimeMillis()))
         }
     }
