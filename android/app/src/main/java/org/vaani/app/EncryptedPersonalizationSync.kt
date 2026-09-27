@@ -30,7 +30,10 @@ class EncryptedPersonalizationSync(private val context: Context) {
         val firestore = FirebaseRuntime.app(context)?.let(FirebaseFirestore::getInstance)
             ?: error(FirebaseRuntime.unavailableMessage())
         val uid = auth.currentUser?.uid ?: error("Sign in before encrypted sync.")
-        val key = keyStore.load() ?: error("Set up encrypted sync on this device first.")
+        // Recovery keys are account-bound on a shared device.  A sign-out
+        // followed by a different sign-in must not silently reuse the first
+        // account's sync domain.
+        val key = keyStore.load(uid) ?: error("Set up encrypted sync on this device first.")
         val store = PersonalizationStore(context)
         val deviceId = deviceId()
         val remote = firestore.collection("users").document(uid).collection("personalization").get().await()
@@ -50,17 +53,25 @@ class EncryptedPersonalizationSync(private val context: Context) {
     }
 
     fun createRecoveryCode(): String {
+        val uid = signedInUid()
         val key = ByteArray(32).also(SecureRandom()::nextBytes)
-        keyStore.save(key)
+        keyStore.save(uid, key)
         return "VSK1-" + Base64.encodeToString(key, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     }
 
     fun importRecoveryCode(code: String) {
+        val uid = signedInUid()
         val encoded = code.trim().removePrefix("VSK1-")
         val key = Base64.decode(encoded, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         require(key.size == 32) { "Invalid recovery code" }
-        keyStore.save(key)
+        keyStore.save(uid, key)
     }
+
+    fun isConfiguredForCurrentAccount(): Boolean = FirebaseRuntime.auth(context)?.currentUser?.uid
+        ?.let(keyStore::load) != null
+
+    private fun signedInUid(): String = FirebaseRuntime.auth(context)?.currentUser?.uid
+        ?: error("Sign in before setting up encrypted sync.")
 
     private fun encrypt(key: ByteArray, recordId: String, updatedAt: Long, clear: String): Map<String, Any> {
         val nonce = ByteArray(12).also(SecureRandom()::nextBytes)
@@ -94,14 +105,31 @@ class EncryptedPersonalizationSync(private val context: Context) {
 }
 
 /** Encrypts the recovery key at rest with a non-exportable Android Keystore key. */
-private class AndroidSyncKeyStore(context: Context) {
-    private val preferences = context.getSharedPreferences("vaani_sync_key", Context.MODE_PRIVATE)
-    fun save(value: ByteArray) {
+private class AndroidSyncKeyStore(private val context: Context) {
+    fun save(uid: String, value: ByteArray) {
+        val preferences = preferences(uid)
         val cipher = cipher(Cipher.ENCRYPT_MODE)
         preferences.edit().putString("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
             .putString("value", Base64.encodeToString(cipher.doFinal(value), Base64.NO_WRAP)).apply()
     }
-    fun load(): ByteArray? {
+    fun load(uid: String): ByteArray? {
+        val preferences = preferences(uid)
+        load(preferences)?.let { return it }
+        // v1 stored one device-wide key. Bind it to the first account that
+        // explicitly uses sync after upgrade, then erase the unscoped copy.
+        // This preserves existing enrollment without leaving a reusable key
+        // behind for a later account on the same device.
+        val legacy = context.getSharedPreferences("vaani_sync_key", Context.MODE_PRIVATE)
+        val value = load(legacy) ?: return null
+        save(uid, value)
+        legacy.edit().clear().apply()
+        return value
+    }
+    private fun preferences(uid: String) = context.getSharedPreferences(
+        "vaani_sync_key_${Base64.encodeToString(uid.toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)}",
+        Context.MODE_PRIVATE,
+    )
+    private fun load(preferences: android.content.SharedPreferences): ByteArray? {
         val iv = preferences.getString("iv", null) ?: return null
         val value = preferences.getString("value", null) ?: return null
         return cipher(Cipher.DECRYPT_MODE, Base64.decode(iv, Base64.NO_WRAP)).doFinal(Base64.decode(value, Base64.NO_WRAP))

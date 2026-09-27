@@ -1153,6 +1153,9 @@ private fun VaaniWorkspace(
             if (event == Lifecycle.Event.ON_RESUME) {
                 access = OnboardingState.access(context)
                 if (accountClient.current() != null) {
+                    // Re-register the current FCM token after process restart;
+                    // onNewToken is not guaranteed to run for an unchanged token.
+                    VaaniSyncMessagingService.registerCurrentDevice(context)
                     scope.launch { EncryptedPersonalizationSync(context).sync(pushLocal = false) }
                 }
             }
