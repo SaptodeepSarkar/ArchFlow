@@ -8,7 +8,9 @@ connection. The initial cloud surface is deliberately narrow:
 Only vocabulary, snippet, and replacement records are eligible. Each record is
 serialized as versioned `vaani-core` JSON, gzip-compressed, then encrypted with
 AES-256-GCM on the device. Firestore receives only its record ID, update time,
-nonce, and ciphertext. A 256-bit recovery code is generated on a first device
+Lamport conflict-order metadata (logical clock, writer device ID, revision),
+nonce, and ciphertext. The metadata is authenticated as AES-GCM associated
+data, so it cannot be changed without invalidating the ciphertext. A 256-bit recovery code is generated on a first device
 and explicitly added to other devices; it is protected at rest by each
 platform's secure store and is never derived from an account password.
 

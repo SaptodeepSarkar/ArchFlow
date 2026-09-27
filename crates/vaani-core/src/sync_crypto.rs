@@ -58,10 +58,21 @@ pub struct EncryptedEnvelope {
     pub schema_version: u32,
     pub record_id: String,
     pub updated_at_ms: i64,
+    /// Non-content ordering metadata lets relay rules reject stale writers.
+    pub logical_clock: u64,
+    pub writer_device_id: String,
+    pub revision: u64,
     pub compression: String,
     pub cipher: String,
     pub nonce: String,
     pub ciphertext: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncEnvelopeMetadata {
+    pub logical_clock: u64,
+    pub writer_device_id: String,
+    pub revision: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,9 +100,10 @@ pub fn encrypt_record<T: Serialize>(
     key: &RecoveryKey,
     record_id: &str,
     updated_at_ms: i64,
+    metadata: &SyncEnvelopeMetadata,
     value: &T,
 ) -> Result<EncryptedEnvelope, SyncCryptoError> {
-    if record_id.is_empty() || record_id.len() > 128 {
+    if record_id.is_empty() || record_id.len() > 128 || metadata.writer_device_id.is_empty() || metadata.writer_device_id.len() > 128 {
         return Err(SyncCryptoError::InvalidEnvelope);
     }
     let serialized = serde_json::to_vec(value).map_err(|_| SyncCryptoError::Serialize)?;
@@ -108,7 +120,7 @@ pub fn encrypt_record<T: Serialize>(
             Nonce::from_slice(&nonce_bytes),
             aes_gcm::aead::Payload {
                 msg: &compressed,
-                aad: associated_data(record_id).as_bytes(),
+                aad: associated_data(record_id, metadata).as_bytes(),
             },
         )
         .map_err(|_| SyncCryptoError::Encrypt)?;
@@ -116,6 +128,9 @@ pub fn encrypt_record<T: Serialize>(
         schema_version: SYNC_CIPHER_SCHEMA,
         record_id: record_id.into(),
         updated_at_ms,
+        logical_clock: metadata.logical_clock,
+        writer_device_id: metadata.writer_device_id.clone(),
+        revision: metadata.revision,
         compression: "gzip".into(),
         cipher: "aes-256-gcm".into(),
         nonce: URL_SAFE_NO_PAD.encode(nonce_bytes),
@@ -149,7 +164,11 @@ pub fn decrypt_record<T: for<'a> Deserialize<'a>>(
             Nonce::from_slice(&nonce),
             aes_gcm::aead::Payload {
                 msg: &ciphertext,
-                aad: associated_data(&envelope.record_id).as_bytes(),
+                aad: associated_data(&envelope.record_id, &SyncEnvelopeMetadata {
+                    logical_clock: envelope.logical_clock,
+                    writer_device_id: envelope.writer_device_id.clone(),
+                    revision: envelope.revision,
+                }).as_bytes(),
             },
         )
         .map_err(|_| SyncCryptoError::Decrypt)?;
@@ -161,8 +180,8 @@ pub fn decrypt_record<T: for<'a> Deserialize<'a>>(
     serde_json::from_slice(&serialized).map_err(|_| SyncCryptoError::Deserialize)
 }
 
-fn associated_data(record_id: &str) -> String {
-    format!("{AAD_PREFIX}{record_id}")
+fn associated_data(record_id: &str, metadata: &SyncEnvelopeMetadata) -> String {
+    format!("{AAD_PREFIX}{record_id}:{}:{}:{}", metadata.logical_clock, metadata.writer_device_id, metadata.revision)
 }
 
 #[cfg(test)]
@@ -183,6 +202,7 @@ mod tests {
             &key,
             "record-1",
             42,
+            &SyncEnvelopeMetadata { logical_clock: 1, writer_device_id: "device".into(), revision: 1 },
             &vec!["my github", "https://example.test"],
         )
         .unwrap();
@@ -193,6 +213,13 @@ mod tests {
             decrypt_record::<Vec<String>>(&key, &envelope),
             Err(SyncCryptoError::Decrypt)
         );
+        let mut envelope = encrypt_record(
+            &key, "record-1", 42,
+            &SyncEnvelopeMetadata { logical_clock: 1, writer_device_id: "device".into(), revision: 1 },
+            &vec!["safe"],
+        ).unwrap();
+        envelope.logical_clock = 2;
+        assert_eq!(decrypt_record::<Vec<String>>(&key, &envelope), Err(SyncCryptoError::Decrypt));
     }
 
     #[test]
@@ -222,7 +249,7 @@ mod tests {
         });
         let key = RecoveryKey::generate().unwrap();
         let envelope =
-            encrypt_record(&key, "android-rule-1", 1727000000000, &android_record).unwrap();
+            encrypt_record(&key, "android-rule-1", 1727000000000, &SyncEnvelopeMetadata { logical_clock: 1727000000000, writer_device_id: "android-device".into(), revision: 1 }, &android_record).unwrap();
         let clear: PersonalizationRecord = decrypt_record(&key, &envelope).unwrap();
         assert_eq!(clear.id(), "android-rule-1");
     }

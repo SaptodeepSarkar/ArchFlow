@@ -12,6 +12,9 @@ const encryptedRecord = {
   schema_version: 1,
   record_id: 'hyprland',
   updated_at_ms: 1000,
+  logical_clock: 1000,
+  writer_device_id: 'device-a',
+  revision: 1,
   compression: 'gzip',
   cipher: 'aes-256-gcm',
   nonce: 'abcdefghijklmnop',
@@ -57,12 +60,15 @@ describe('Vaani Firestore privacy boundary', () => {
     await assertFails(setDoc(doc(aliceDb(), 'users/alice/personalization/other'), encryptedRecord));
   });
 
-  it('rejects malformed encryption envelopes and stale writes', async () => {
+  it('rejects malformed encryption envelopes and stale CRDT writes', async () => {
     const ref = doc(aliceDb(), 'users/alice/personalization/hyprland');
     await assertFails(setDoc(ref, { ...encryptedRecord, nonce: 'short' }));
     await assertFails(setDoc(ref, { ...encryptedRecord, compression: 'none' }));
     await assertFails(setDoc(ref, { ...encryptedRecord, ciphertext: '' }));
     await assertSucceeds(setDoc(ref, encryptedRecord));
     await assertFails(setDoc(ref, { ...encryptedRecord, updated_at_ms: 999 }));
+    await assertFails(setDoc(ref, { ...encryptedRecord, logical_clock: 999, updated_at_ms: 2000 }));
+    await assertFails(setDoc(ref, { ...encryptedRecord, writer_device_id: 'device-0', updated_at_ms: 2000 }));
+    await assertSucceeds(setDoc(ref, { ...encryptedRecord, writer_device_id: 'device-z', updated_at_ms: 1 }));
   });
 });
