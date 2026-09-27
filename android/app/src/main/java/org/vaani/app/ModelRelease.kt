@@ -48,9 +48,18 @@ object ModelRelease {
         }
         update(context, Status.QUEUED)
         val request = OneTimeWorkRequestBuilder<ModelReleaseWorker>()
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            // These are large local model packages.  Deferring them until an
+            // unmetered, non-low-battery window avoids an onboarding action
+            // unexpectedly becoming a cellular or low-power background load.
+            .setConstraints(Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.UNMETERED)
+                .setRequiresBatteryNotLow(true)
+                .setRequiresStorageNotLow(true)
+                .build())
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.REPLACE, request)
+        // Re-opening onboarding/settings must not cancel a running transfer
+        // and start its network work over again.
+        WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.KEEP, request)
     }
 
     fun status(context: Context): Status {

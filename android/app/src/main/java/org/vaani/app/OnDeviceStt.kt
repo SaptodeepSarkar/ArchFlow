@@ -178,6 +178,15 @@ class NativeWhisperStt(
                 // AudioRecord/ABI/model failure on a physical device.
                 Log.w("VaaniStt", "Native STT session failed: ${error.javaClass.simpleName}")
                 withContext(Dispatchers.Main) { onError("Embedded STT failed") }
+            } finally {
+                // AudioRecord can throw before the normal post-loop cleanup.
+                // Always release the microphone promptly; a cancelled session
+                // must not retain an audio input or its associated power use.
+                if (recorder === audio) {
+                    recorder = null
+                    audio.runCatching { stop() }
+                    audio.release()
+                }
             }
         }
     }
