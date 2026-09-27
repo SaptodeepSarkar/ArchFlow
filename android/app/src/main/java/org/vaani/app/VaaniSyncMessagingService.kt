@@ -46,7 +46,15 @@ class VaaniSyncMessagingService : FirebaseMessagingService() {
 }
 
 class EncryptedSyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
-    override suspend fun doWork(): Result = EncryptedPersonalizationSync(applicationContext).sync(pushLocal = false)
+    override suspend fun doWork(): Result {
+        val sync = EncryptedPersonalizationSync(applicationContext)
+        // A queued opaque wake-up may outlive sign-out or arrive before this
+        // device imports a recovery code. Neither state can be fixed by
+        // retrying; a later sign-in/import or FCM wake-up starts a new cycle.
+        if (FirebaseRuntime.auth(applicationContext)?.currentUser == null || !sync.isConfiguredForCurrentAccount()) {
+            return Result.success()
+        }
+        return sync.sync(pushLocal = false)
         .fold(
             onSuccess = { Result.success() },
             // FCM wakeups can be duplicated and invalid account/recovery-key
@@ -56,6 +64,7 @@ class EncryptedSyncWorker(context: Context, parameters: WorkerParameters) : Coro
             // wakeup or explicit Sync starts a fresh cycle.
             onFailure = { if (SyncWork.shouldRetry(runAttemptCount)) Result.retry() else Result.failure() },
         )
+    }
 }
 
 internal object SyncWork {

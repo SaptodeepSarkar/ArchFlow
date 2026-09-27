@@ -30,21 +30,24 @@ The rules in [`firestore.rules`](../../firestore.rules) enforce:
 
 The repository binds its Firebase CLI default to the existing `arch-flow-vanni`
 development project in `.firebaserc`; no credentials are committed. The
-Android client uses the registered `google-services.json` configuration and
-does not make sign-in mandatory. Its Home-menu account surface supports
-email/password and Google identity. The Android debug SHA-1 is registered for
-emulator builds, but a refreshed configuration still needs a generated
-`default_web_client_id` before Google sign-in can complete.
+Android client uses Firebase only when a local `google-services.json` is
+provided, and does not make sign-in mandatory. Its Home-menu account surface
+supports email/password and Google identity.
 
-As checked on 2026-09-22, Firebase Authentication has not been initialized in
-this project and Google's management API reports `BILLING_NOT_ENABLED` for
-that initialization. Do not enable billing or choose a Cloud Firestore region
-from an automated repository task: both are an operator decision with cost and
-data-residency consequences. Once an operator has enabled billing, initialize
-Firebase Authentication, enable Email/Password and Google, refresh
-`android/app/google-services.json`, select the Firestore region, and deploy
-the rules. Validate the rules with the Firebase Emulator Suite before that
-operator-approved deploy:
+Deployment audit, 2026-09-27: the active project has a native default
+Firestore database in `asia-south2` (created 2026-09-22) and one active
+Android app (`org.vaani.keyboard`). The CLI reports **no deployed Cloud
+Functions**, so the source's opaque FCM wake-up function is not live and
+cross-device background notification sync is not currently available. The
+repository cannot prove the deployed Firestore rules or Authentication provider
+configuration from its checked-in files; source rules are not deployment
+evidence. Therefore real account sync must be treated as unavailable until an
+operator verifies Auth providers, deploys the reviewed rules, and performs a
+two-device recovery-code test. Do not enable billing or alter the database
+region from an automated repository task.
+
+Before an operator-approved deploy, validate the rules with the Firebase
+Emulator Suite:
 
 ```sh
 cd firebase
