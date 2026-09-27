@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 
@@ -275,6 +275,23 @@ impl Config {
         Self::load_from(&p)
     }
 
+    /// Load the user configuration, creating a private default file only on
+    /// first run. Existing (including malformed) user files are never
+    /// replaced: a malformed file still falls back in memory as before.
+    pub fn load_or_create() -> anyhow::Result<Self> {
+        let p = Self::config_path();
+        Self::load_or_create_from(&p)
+    }
+
+    pub fn load_or_create_from(p: &Path) -> anyhow::Result<Self> {
+        if p.exists() {
+            return Ok(Self::load_from(p));
+        }
+        let config = Self::default();
+        config.save_to(p)?;
+        Ok(config)
+    }
+
     pub fn load_from(p: &std::path::Path) -> Self {
         match std::fs::read_to_string(p) {
             Ok(s) => match toml::from_str::<Config>(&s) {
@@ -542,13 +559,21 @@ impl Config {
     /// Atomic persist (tmp file + rename). User config is preserved on
     /// uninstall; never touched by package hooks.
     pub fn save(&self) -> anyhow::Result<()> {
-        let p = Self::config_path();
+        self.save_to(&Self::config_path())
+    }
+
+    fn save_to(&self, p: &Path) -> anyhow::Result<()> {
         if let Some(dir) = p.parent() {
             std::fs::create_dir_all(dir)?;
         }
         let text = toml::to_string_pretty(self)?;
         let tmp = p.with_extension("toml.tmp");
         std::fs::write(&tmp, text)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+        }
         std::fs::rename(&tmp, &p)?;
         Ok(())
     }
@@ -618,5 +643,24 @@ mod tests {
         c.insertion.mode = "unsafe".into();
         c.normalise();
         assert_eq!(c.insertion.mode, "automatic");
+    }
+
+    #[test]
+    fn first_run_creates_a_parseable_config_without_replacing_it() {
+        let path = std::env::temp_dir().join(format!(
+            "vaani-config-first-run-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let created = Config::load_or_create_from(&path).unwrap();
+        assert_eq!(created.general.shortcut, "SUPER+H");
+        assert!(path.is_file());
+        std::fs::write(&path, "[general]\nshortcut = 'CTRL+F9'\n").unwrap();
+        let existing = Config::load_or_create_from(&path).unwrap();
+        assert_eq!(existing.general.shortcut, "CTRL+F9");
+        let _ = std::fs::remove_file(path);
     }
 }

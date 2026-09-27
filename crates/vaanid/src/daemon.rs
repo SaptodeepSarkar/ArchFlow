@@ -101,7 +101,7 @@ pub async fn run() -> anyhow::Result<()> {
     tracing::info!(sock = %sock.display(), "listening");
 
     let (tx, _rx) = broadcast::channel::<Event>(256);
-    let mut cfg = Config::load();
+    let mut cfg = Config::load_or_create()?;
     let mut personalization = PersonalizationSnapshot::default();
     if let Ok(store) = JsonlStorage::open(paths::personalization_path(), "linux") {
         if let Ok(snapshot) = store.personalization() {
