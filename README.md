@@ -14,6 +14,10 @@ always-listening microphone is required. English, Hindi (`hi`), and Bengali
 
 ## Install
 
+Vaani ships two independently buildable surfaces. See
+[Delivery surfaces](docs/RELEASES.md) for the Android APK build/publish path
+and the Linux/QML installation path.
+
 On Arch + Hyprland, install the documented dependencies, then:
 
 ```sh
@@ -104,7 +108,7 @@ residency/unload policy, and shortcut configuration. The setup is persisted in
 `~/.config/vaani/config.toml`; the full settings window remains available later.
 
 Open `android/` in Android Studio with JDK 17 and SDK 35 to build and install
-the debug APK. The onboarding uses the original Vaani editorial artwork and
+the debug APK, or run `make android-debug` from the repository root. The onboarding uses the original Vaani editorial artwork and
 opens the real Android Accessibility and overlay permission surfaces. Firebase Auth is
 wired to the existing `org.vaani.keyboard` project registration. The APK
 embeds whisper.cpp and llama.cpp runtimes while keeping STT/LLM weights out of
@@ -125,6 +129,22 @@ emulator. Run the corresponding Android check locally with:
 cd android
 ./gradlew testDebugUnitTest assembleDebug connectedDebugAndroidTest
 ```
+
+## Build and model workspaces
+
+Use the root `Makefile` to keep desktop and Android work separate:
+
+```sh
+make desktop-debug    # Rust daemon/CLI/QML desktop surface
+make android-debug    # Kotlin/Compose APK only
+make test-desktop
+make test-android
+```
+
+All future STT and formatter/LLM datasets use the ignored, shared contract in
+[`data/shared/`](data/shared/README.md). Training wrappers and their stable
+commands live in [`pipelines/`](pipelines/README.md); the older specialized
+scripts remain in `tools/` as implementation details and experiment history.
 
 The Android unit suite covers model-output guarding, field detection, and the
 insert-or-copy delivery boundary. The API 35 instrumented suite covers the

@@ -221,6 +221,32 @@ qmllint ui/shell.qml ui/SettingsView.qml   # QML syntax
 vaani doctor                   # capability probe on the laptop
 ```
 
+## Repository layout and cleanup policy
+
+The repository has two independently buildable application surfaces:
+
+- `crates/`, `ui/`, `packaging/`, `install.sh`, and `uninstall.sh` form the
+  Linux/Hyprland/QML product.
+- `android/` is the Kotlin/Compose Android product; it does not depend on a
+  running Linux daemon.
+- `pipelines/` is the stable training/build entry point. `tools/` contains
+  specialized implementation and historical experiment scripts; do not move a
+  tool without updating its callers and experiment records.
+- `data/shared/stt/` and `data/shared/llm/` are the one shared, ignored data
+  contract for future model versions. Follow `data/shared/README.md`; never
+  commit audio, weights, raw/private dictation, caches, or generated datasets.
+- `brand/` and `assets/` hold source/provenance assets. `ui/assets/`, Android
+  `res/`, and `website/assets/` are deliberately consumer-local runtime copies.
+  See `docs/ASSET_MAP.md` before deduplicating or deleting an asset.
+- `docs/qa/` is dated verification evidence; `docs/screenshots/` is ignored
+  scratch capture space. Keep user/install documentation indexed in
+  `docs/README.md`; retain experiment evidence rather than silently deleting it.
+
+Use `make desktop-debug`, `make android-debug`, `make test-desktop`, and
+`make test-android` for surface-specific work. `make android-release` produces
+an unsigned artifact only; a public APK must be signed and checksummed before a
+release. Run `make data-check` before a shared formatter-data training run.
+
 ## Rules for agents
 
 -   Economy profile first: no new long-lived processes, no polling

@@ -12,6 +12,8 @@ so benchmark notes do not get confused with user-facing setup instructions.
 - [Compatibility](compatibility.md) — tested environments and known limits.
 - [Troubleshooting](troubleshooting.md) — common failures and safe recovery.
 - [Manual checks](manual-checks.md) — laptop checks that still need a human.
+- [Delivery surfaces](RELEASES.md) — Android APK and Linux/QML install paths.
+- [Asset and screenshot map](ASSET_MAP.md) — ownership and retention policy.
 
 ## Understand Vaani
 
@@ -21,6 +23,10 @@ so benchmark notes do not get confused with user-facing setup instructions.
 - [Performance](performance.md) — measured latency and resource notes.
 
 ## Models and experiments
+
+- [Shared data and training pipelines](../pipelines/README.md) — one data
+  contract for STT and formatter/LLM experiments, plus stable build/train entry
+  points.
 
 - [V5 benchmark](v5-benchmark.md) — frozen STT and formatter evaluation.
 - [V6 baseline](V6_BASELINE.md) — source-grounded formatter control and gates.
@@ -45,9 +51,9 @@ treated as claims about the default runtime.
 
 ## Android
 
-Android-specific UX specifications, reports, and benchmark notes live under
-[`../android/docs/`](../android/docs/). The Android client is a separate
-`InputMethodService`; it does not connect to the Linux daemon socket.
+Android-specific build, model, and device-staging guidance lives in
+[`../android/README.md`](../android/README.md). The Android client is a
+separate `InputMethodService`; it does not connect to the Linux daemon socket.
 
 ## Developer tooling
 

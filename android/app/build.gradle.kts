@@ -2,7 +2,13 @@ plugins {
     id("com.android.application")
     kotlin("android")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.gms.google-services")
+}
+
+// Firebase is an opt-in synchronization feature. A local-only APK must build
+// without a private google-services.json; when a release configuration is
+// supplied, apply the plugin and enable the generated resource values.
+if (file("google-services.json").isFile) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android {

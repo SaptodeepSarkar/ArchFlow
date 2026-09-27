@@ -15,11 +15,12 @@ adb shell am start -n org.vaani.keyboard/org.vaani.app.MainActivity
 ```
 
 The rebuilt app keeps the registered Firebase Android identity
-`org.vaani.keyboard` and uses the checked-in `google-services.json` client
-configuration. Account controls live behind the Home menu: email/password and
-Google identity are explicit opt-in choices shown immediately after the three
-opening splash screens. Choosing either account path—or **Continue without an
-account**—starts Vaani's verified model-release job on the available network.
+`org.vaani.keyboard`. Account controls are explicit opt-in choices shown
+immediately after the three opening splash screens. A private
+`android/app/google-services.json` enables Firebase-backed account features for
+a configured release build; it is intentionally not committed, and a
+local-only APK builds without it. Choosing either account path—or **Continue
+without an account**—starts Vaani's verified model-release job on the available network.
 The job
 uses HTTPS, SHA-256 verification, a private temporary file, and an atomic move
 before a model can run. There is no manual model-picker or replacement action
