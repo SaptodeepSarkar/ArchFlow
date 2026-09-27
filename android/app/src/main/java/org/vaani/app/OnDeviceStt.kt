@@ -111,7 +111,11 @@ class OnDeviceStt(private val context: Context) : SttSession {
 }
 
 /** File-backed whisper.cpp session used when a user-installed model pack exists. */
-class NativeWhisperStt(private val context: Context, private val modelFile: File) : SttSession {
+class NativeWhisperStt(
+    private val context: Context,
+    private val modelFile: File,
+    private val language: String = OnboardingState.writingLanguage(context),
+) : SttSession {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var recorder: AudioRecord? = null
     private var recording = false
@@ -155,7 +159,7 @@ class NativeWhisperStt(private val context: Context, private val modelFile: File
                 try {
                     val model = Whisper.loadModel(context, modelFile.absolutePath)
                     try {
-                        val result = Whisper.transcribe(model, wav.absolutePath, WhisperConfig(language = "en", threads = 2))
+                        val result = Whisper.transcribe(model, wav.absolutePath, WhisperConfig(language = language, threads = 2))
                         val segments = result.segments.mapIndexed { index, segment ->
                             SttSegmentEvidence(index, segment.startMs, segment.endMs, segment.text)
                         }

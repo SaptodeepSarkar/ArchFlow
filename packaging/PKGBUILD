@@ -37,6 +37,7 @@ package() {
   install -Dm644 packaging/vaanid.service "$pkgdir/usr/lib/systemd/user/vaanid.service"
   install -Dm644 packaging/vaani.desktop "$pkgdir/usr/share/applications/vaani.desktop"
   install -Dm644 packaging/hyprland/vaani.conf "$pkgdir/usr/share/vaani/hyprland/vaani.conf"
+  install -Dm644 packaging/hyprland/vaani.lua "$pkgdir/usr/share/vaani/hyprland/vaani.lua"
   install -Dm644 config.example.toml "$pkgdir/usr/share/vaani/config.example.toml"
   install -Dm644 models/manifest.toml "$pkgdir/usr/share/vaani/models/manifest.toml"
   # Quickshell app-owned config (NOT the user's desktop shell):

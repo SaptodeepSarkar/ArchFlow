@@ -52,7 +52,7 @@ Scope {
     // Daemon wire format: {protocol_version, request_id, session_id, kind}
     // where kind = {op, args?}. Anything else is rejected as malformed.
     function sendOp(op, args) {
-        if (!sock.connected) { root.statusText = "Daemon unavailable — start vaanid.service"; return; }
+        if (!sock.connected) { root.statusText = "Daemon unavailable — start vaanid.service"; return false; }
         var msg = {
             protocol_version: 1,
             request_id: "qml-" + Math.floor(Math.random() * 1e9),
@@ -65,6 +65,7 @@ Scope {
             msg.kind.args = args;
         sock.write(JSON.stringify(msg) + "\n");
         sock.flush();
+        return true;
     }
 
     function handleLine(line) {

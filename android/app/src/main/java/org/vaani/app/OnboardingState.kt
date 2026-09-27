@@ -26,6 +26,8 @@ data class DeviceAccess(
 object OnboardingState {
     private const val PREFERENCES = "vaani_onboarding"
     private const val COMPLETED = "completed"
+    private const val WRITING_LANGUAGE = "writing_language"
+    private const val DEFAULT_LANGUAGE = "en"
 
     fun isCompleted(context: Context): Boolean =
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean(COMPLETED, false)
@@ -33,6 +35,17 @@ object OnboardingState {
     fun markCompleted(context: Context) {
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit().putBoolean(COMPLETED, true).apply()
+    }
+
+    fun writingLanguage(context: Context): String =
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getString(WRITING_LANGUAGE, DEFAULT_LANGUAGE)
+            .takeIf { it in setOf("en", "hi", "bn") } ?: DEFAULT_LANGUAGE
+
+    fun setWritingLanguage(context: Context, language: String) {
+        require(language in setOf("en", "hi", "bn"))
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit().putString(WRITING_LANGUAGE, language).apply()
     }
 
     fun access(context: Context): DeviceAccess = DeviceAccess(

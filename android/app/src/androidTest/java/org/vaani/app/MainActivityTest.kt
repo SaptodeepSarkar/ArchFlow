@@ -22,7 +22,7 @@ class MainActivityTest {
         rule.onNodeWithText("Next").assertIsDisplayed().performClick()
         rule.onNodeWithText("Wherever you\nwrite.").assertIsDisplayed()
         rule.onNodeWithText("Next").assertIsDisplayed().performClick()
-        rule.onNodeWithText("Your settings,\nwhen you need them.").assertIsDisplayed()
+        rule.onNodeWithText("Keep your\nwriting setup close.").assertIsDisplayed()
     }
 
     @Test fun model_importer_copies_a_private_model_pack() {
