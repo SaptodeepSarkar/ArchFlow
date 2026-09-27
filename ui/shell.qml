@@ -341,16 +341,18 @@ Scope {
                         Accessible.description: "Stop the current dictation"
                         text: "Stop"
                         enabled: root.state === "RECORDING" || root.state === "STARTING"
-                        Layout.preferredWidth: 31
-                        Layout.preferredHeight: 31
+                        // Keep the visible affordance compact; the 24 px
+                        // target remains keyboard/accessibility reachable.
+                        Layout.preferredWidth: 24
+                        Layout.preferredHeight: 24
                         Layout.alignment: Qt.AlignVCenter
                         onClicked: root.sendOp("stop")
                         contentItem: Rectangle {
-                            implicitWidth: 10; implicitHeight: 10; radius: 2
+                            width: 10; height: 10; radius: 2
                             color: "#FFD4A3"
                             anchors.centerIn: parent
                         }
-                        background: Rectangle { radius: 10; color: "#4A424E" }
+                        background: Rectangle { radius: 8; color: "transparent" }
                         }
                 }
                 PropertyAnimation {

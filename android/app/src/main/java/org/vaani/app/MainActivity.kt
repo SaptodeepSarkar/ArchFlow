@@ -69,6 +69,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -1223,7 +1226,17 @@ private fun VaaniWorkspace(
         Modifier.fillMaxSize().background(VaaniColor.Paper).imePadding().padding(horizontal = 20.dp, vertical = 34.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("☰", color = VaaniColor.Ink, fontSize = 20.sp, modifier = Modifier.clickable { accountOpen = true })
+            Box(
+                Modifier.size(48.dp)
+                    .semantics {
+                        contentDescription = "Open account and sync settings"
+                        role = Role.Button
+                    }
+                    .clickable { accountOpen = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("☰", color = VaaniColor.Ink, fontSize = 20.sp)
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 VaaniRibbonSketch(Modifier.size(22.dp))
                 Text("Vaani", color = VaaniColor.Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -1235,7 +1248,17 @@ private fun VaaniWorkspace(
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 listOf("Dictionary", "Style").forEach { label ->
-                    Box(Modifier.weight(1f).heightIn(min = 38.dp).background(if (tab == label) VaaniColor.Lilac else VaaniColor.Cloud, RoundedCornerShape(12.dp)).clickable { tab = label }, contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier.weight(1f)
+                            .heightIn(min = 48.dp)
+                            .semantics {
+                                contentDescription = "$label tab"
+                                role = Role.Tab
+                            }
+                            .background(if (tab == label) VaaniColor.Lilac else VaaniColor.Cloud, RoundedCornerShape(12.dp))
+                            .clickable { tab = label },
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Text(label, color = VaaniColor.Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
                     }
                 }
