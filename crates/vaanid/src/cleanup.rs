@@ -66,10 +66,31 @@ pub(crate) fn conservative_format(text: &str) -> String {
     if out.is_empty() {
         return out;
     }
-    if let Some((index, ch)) = out.char_indices().find(|(_, ch)| ch.is_alphabetic()) {
-        let upper = ch.to_uppercase().to_string();
-        out.replace_range(index..index + ch.len_utf8(), &upper);
+    // This fallback must never substitute a dictated word, but casing is a
+    // safe mechanical operation.  The generative formatter can be rejected
+    // by the source-grounding gate for a single unwanted rewrite; without
+    // this pass users would then get an entirely lower-case utterance.
+    let mut chars: Vec<char> = out.chars().collect();
+    let mut next_sentence = true;
+    for index in 0..chars.len() {
+        let ch = chars[index];
+        if next_sentence && ch.is_alphabetic() {
+            chars[index] = ch.to_uppercase().next().unwrap_or(ch);
+            next_sentence = false;
+        }
+        // The pronoun is mechanical normalization, not entity guessing. It
+        // is deliberately bounded so code-like identifiers (e.g. `i32`) stay
+        // untouched.
+        let before_word = index == 0 || !chars[index - 1].is_alphanumeric();
+        let after_word = index + 1 == chars.len() || !chars[index + 1].is_alphanumeric();
+        if ch == 'i' && before_word && after_word {
+            chars[index] = 'I';
+        }
+        if matches!(ch, '.' | '!' | '?' | '…') {
+            next_sentence = true;
+        }
     }
+    out = chars.into_iter().collect();
     if !matches!(out.chars().last(), Some('.' | '!' | '?' | '…' | '।')) {
         out.push('.');
     }
@@ -175,6 +196,14 @@ mod tests {
         assert_eq!(
             conservative_format("first item\nsecond item"),
             "first item\nsecond item"
+        );
+        assert_eq!(
+            conservative_format("i think i can. then i will try"),
+            "I think I can. Then I will try."
+        );
+        assert_eq!(
+            conservative_format("use i32 and i as a variable"),
+            "Use i32 and I as a variable."
         );
     }
     #[test]
