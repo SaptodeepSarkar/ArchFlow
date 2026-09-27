@@ -151,7 +151,14 @@ pub(crate) fn closed_special(text: &str) -> Option<String> {
                 .map(|_| (i, *word))
         })
         .collect();
-    if positions.len() >= 2 {
+    // Ordinals occur frequently in ordinary narration ("the first launch
+    // failed and the second worked").  They are structure only when the
+    // speaker actually requests a list/sequence; otherwise preserve prose.
+    let explicit_list_request = lower.contains("list")
+        || lower.contains("steps")
+        || lower.contains("numbered")
+        || lower.contains("sequence");
+    if explicit_list_request && positions.len() >= 2 {
         let mut items = Vec::new();
         for (n, (start, _)) in positions.iter().enumerate() {
             let end = positions.get(n + 1).map(|(i, _)| *i).unwrap_or(words.len());
@@ -231,8 +238,12 @@ mod tests {
             Some("😂".into())
         );
         assert_eq!(
-            closed_special("first launch VSCode second inspect logs"),
+            closed_special("make a numbered list first launch VSCode second inspect logs"),
             Some("1. Launch VSCode\n2. Inspect logs".into())
+        );
+        assert_eq!(
+            closed_special("the first launch failed and the second one worked"),
+            None
         );
         assert_eq!(closed_special("I do not want a laughing emoji"), None);
         assert_eq!(closed_special("open the browser"), None);
