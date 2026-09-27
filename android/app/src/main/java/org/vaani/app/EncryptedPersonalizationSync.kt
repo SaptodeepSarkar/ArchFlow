@@ -22,12 +22,13 @@ import javax.crypto.spec.GCMParameterSpec
 
 /** Android half of the same gzip + AES-256-GCM envelope used by desktop. */
 class EncryptedPersonalizationSync(private val context: Context) {
-    private val auth = FirebaseAuth.getInstance()
-    private val firestore = FirebaseFirestore.getInstance()
     private val keyStore = AndroidSyncKeyStore(context)
 
     /** A notification wake-up pulls only, preventing a write-notify loop. */
     suspend fun sync(pushLocal: Boolean = true): Result<Unit> = runCatching {
+        val auth = FirebaseRuntime.auth(context) ?: error(FirebaseRuntime.unavailableMessage())
+        val firestore = FirebaseRuntime.app(context)?.let(FirebaseFirestore::getInstance)
+            ?: error(FirebaseRuntime.unavailableMessage())
         val uid = auth.currentUser?.uid ?: error("Sign in before encrypted sync.")
         val key = keyStore.load() ?: error("Set up encrypted sync on this device first.")
         val store = PersonalizationStore(context)

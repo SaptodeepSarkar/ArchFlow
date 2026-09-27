@@ -9,35 +9,49 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.FirebaseApp
 import kotlinx.coroutines.tasks.await
 
 data class VaaniAccount(val uid: String, val label: String, val provider: String)
+
+/** Optional Firebase boundary: local-only APKs deliberately ship without it. */
+object FirebaseRuntime {
+    fun app(context: Context): FirebaseApp? = runCatching {
+        FirebaseApp.getApps(context).firstOrNull() ?: FirebaseApp.initializeApp(context)
+    }.getOrNull()
+
+    fun auth(context: Context): FirebaseAuth? = app(context)?.let(FirebaseAuth::getInstance)
+    fun unavailableMessage() = "Account sync is unavailable in this local-only build."
+}
 
 /**
  * Firebase identity boundary. It deliberately stores no password, token, audio,
  * or dictation text; Firebase Auth owns credentials and refresh tokens.
  */
 class VaaniAccountClient(private val context: Context) {
-    private val auth = FirebaseAuth.getInstance()
+    private val auth get() = FirebaseRuntime.auth(context)
 
-    fun current(): VaaniAccount? = auth.currentUser?.let { user ->
+    fun current(): VaaniAccount? = auth?.currentUser?.let { user ->
         val provider = user.providerData.lastOrNull()?.providerId ?: "firebase"
         VaaniAccount(user.uid, user.email ?: "Signed in", provider)
     }
 
     suspend fun signUp(email: String, password: String): Result<VaaniAccount> = runCatching {
+        val firebaseAuth = auth ?: error(FirebaseRuntime.unavailableMessage())
         require(email.isNotBlank() && password.length >= 8) { "Use an email and a password with at least 8 characters." }
-        auth.createUserWithEmailAndPassword(email.trim(), password).await()
+        firebaseAuth.createUserWithEmailAndPassword(email.trim(), password).await()
         current() ?: error("Your account could not be opened.")
     }
 
     suspend fun signIn(email: String, password: String): Result<VaaniAccount> = runCatching {
+        val firebaseAuth = auth ?: error(FirebaseRuntime.unavailableMessage())
         require(email.isNotBlank() && password.isNotBlank()) { "Enter your email and password." }
-        auth.signInWithEmailAndPassword(email.trim(), password).await()
+        firebaseAuth.signInWithEmailAndPassword(email.trim(), password).await()
         current() ?: error("Your account could not be opened.")
     }
 
     suspend fun signInWithGoogle(activity: Activity): Result<VaaniAccount> = runCatching {
+        val firebaseAuth = auth ?: error(FirebaseRuntime.unavailableMessage())
         val resource = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
         check(resource != 0) { "Google sign-in is being prepared. Update the Firebase Android configuration first." }
         val option = GetGoogleIdOption.Builder()
@@ -55,9 +69,9 @@ class VaaniAccountClient(private val context: Context) {
             "Google did not return an ID token."
         }
         val token = GoogleIdTokenCredential.createFrom(credential.data).idToken
-        auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
+        firebaseAuth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
         current() ?: error("Your Google account could not be opened.")
     }
 
-    fun signOut() = auth.signOut()
+    fun signOut() = auth?.signOut()
 }
