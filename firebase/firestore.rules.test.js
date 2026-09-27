@@ -52,9 +52,9 @@ describe('Vaani Firestore privacy boundary', () => {
     await assertFails(setDoc(doc(aliceDb(), 'users/alice/dictations/raw'), { text: 'never' }));
   });
 
-  it('rejects unknown fields and records owned by another user', async () => {
+  it('rejects unknown fields and envelope/document ID mismatches', async () => {
     await assertFails(setDoc(doc(aliceDb(), 'users/alice/personalization/bad'), { ...encryptedRecord, unexpected: true }));
-    await assertFails(setDoc(doc(aliceDb(), 'users/alice/personalization/other'), { ...encryptedRecord, record_id: 'other' }));
+    await assertFails(setDoc(doc(aliceDb(), 'users/alice/personalization/other'), encryptedRecord));
   });
 
   it('rejects malformed encryption envelopes and stale writes', async () => {
