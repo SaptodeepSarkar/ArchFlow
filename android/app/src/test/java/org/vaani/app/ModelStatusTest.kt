@@ -9,4 +9,10 @@ class ModelStatusTest {
         assertTrue(ModelStatus(sttAvailable = true, formatterAvailable = true).ready)
         assertFalse(ModelStatus(sttAvailable = true, formatterAvailable = false).ready)
     }
+
+    @Test fun background_sync_retries_are_bounded() {
+        assertTrue(SyncWork.shouldRetry(0))
+        assertTrue(SyncWork.shouldRetry(2))
+        assertFalse(SyncWork.shouldRetry(3))
+    }
 }
