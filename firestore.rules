@@ -11,12 +11,17 @@ service cloud.firestore {
 
     function validEnvelope(data, recordId) {
       return data.keys().hasOnly([
-          'schema_version', 'record_id', 'updated_at_ms', 'compression',
+          'schema_version', 'record_id', 'updated_at_ms', 'logical_clock',
+          'writer_device_id', 'revision', 'compression',
           'cipher', 'nonce', 'ciphertext'
         ])
         && data.schema_version == 1
         && data.record_id == recordId
         && data.updated_at_ms is int
+        && data.logical_clock is int
+        && data.writer_device_id is string
+        && data.writer_device_id.size() > 0 && data.writer_device_id.size() <= 128
+        && data.revision is int
         && data.compression == 'gzip'
         && data.cipher == 'aes-256-gcm'
         && data.nonce is string
@@ -25,12 +30,25 @@ service cloud.firestore {
         && data.ciphertext.size() > 24 && data.ciphertext.size() <= 20000;
     }
 
+    // This mirrors vaani-core's (logical clock, writer ID, revision,
+    // timestamp) total order. Metadata contains no personalized text, but
+    // must remain visible so rules can atomically reject stale writes.
+    function wins(data, existing) {
+      return data.logical_clock > existing.logical_clock
+        || (data.logical_clock == existing.logical_clock
+          && (data.writer_device_id > existing.writer_device_id
+            || (data.writer_device_id == existing.writer_device_id
+              && (data.revision > existing.revision
+                || (data.revision == existing.revision
+                  && data.updated_at_ms >= existing.updated_at_ms)))));
+    }
+
     match /users/{uid}/personalization/{recordId} {
       allow get, list: if ownsUser(uid);
       allow create: if ownsUser(uid) && validEnvelope(request.resource.data, recordId);
       allow update: if ownsUser(uid)
         && validEnvelope(request.resource.data, recordId)
-        && request.resource.data.updated_at_ms >= resource.data.updated_at_ms;
+        && wins(request.resource.data, resource.data);
       allow delete: if false;
     }
 

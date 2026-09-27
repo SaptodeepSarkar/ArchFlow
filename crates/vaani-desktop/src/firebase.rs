@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use vaani_core::engine::{EngineError, EngineErrorKind};
 use vaani_core::sync::{PersonalizationRecord, SyncEntityKind, SyncProvider, SyncRecord};
-use vaani_core::sync_crypto::{decrypt_record, encrypt_record, EncryptedEnvelope, RecoveryKey};
+use vaani_core::sync_crypto::{decrypt_record, encrypt_record, EncryptedEnvelope, RecoveryKey, SyncEnvelopeMetadata};
 
 const FIRESTORE_BASE: &str = "https://firestore.googleapis.com";
 const AUTH_BASE: &str = "https://identitytoolkit.googleapis.com/v1";
@@ -277,7 +277,7 @@ impl<T: FirebaseTokenProvider> EncryptedFirebaseRestProvider<T> {
 
     fn push_one(&self, record: &PersonalizationRecord) -> Result<(), EngineError> {
         let updated_at_ms = record_updated_at(record);
-        let envelope = encrypt_record(&self.key, record.id(), updated_at_ms, record)
+        let envelope = encrypt_record(&self.key, record.id(), updated_at_ms, &record_metadata(record), record)
             .map_err(|_| network_error("could not encrypt personalization record"))?;
         let token = self.inner.auth_header()?;
         self.inner
@@ -545,6 +545,15 @@ fn record_updated_at(record: &PersonalizationRecord) -> i64 {
     }
 }
 
+fn record_metadata(record: &PersonalizationRecord) -> SyncEnvelopeMetadata {
+    let (logical_clock, writer_device_id, revision) = match record {
+        PersonalizationRecord::Vocabulary(record) => (record.logical_clock, &record.writer_device_id, record.revision),
+        PersonalizationRecord::Snippet(record) => (record.logical_clock, &record.writer_device_id, record.revision),
+        PersonalizationRecord::Replacement(record) => (record.logical_clock, &record.writer_device_id, record.revision),
+    };
+    SyncEnvelopeMetadata { logical_clock, writer_device_id: writer_device_id.clone(), revision }
+}
+
 fn encrypted_fields(envelope: &EncryptedEnvelope) -> Map<String, Value> {
     [
         (
@@ -556,6 +565,15 @@ fn encrypted_fields(envelope: &EncryptedEnvelope) -> Map<String, Value> {
             "updated_at_ms".into(),
             integer_value(envelope.updated_at_ms),
         ),
+        (
+            "logical_clock".into(),
+            integer_value(envelope.logical_clock),
+        ),
+        (
+            "writer_device_id".into(),
+            string_value(&envelope.writer_device_id),
+        ),
+        ("revision".into(), integer_value(envelope.revision)),
         ("compression".into(), string_value(&envelope.compression)),
         ("cipher".into(), string_value(&envelope.cipher)),
         ("nonce".into(), string_value(&envelope.nonce)),
@@ -577,6 +595,9 @@ fn encrypted_record_from_document(
         schema_version: required_u64(fields, "schema_version")? as u32,
         record_id: required_string(fields, "record_id")?.to_owned(),
         updated_at_ms: required_i64(fields, "updated_at_ms")?,
+        logical_clock: required_u64(fields, "logical_clock")?,
+        writer_device_id: required_string(fields, "writer_device_id")?.to_owned(),
+        revision: required_u64(fields, "revision")?,
         compression: required_string(fields, "compression")?.to_owned(),
         cipher: required_string(fields, "cipher")?.to_owned(),
         nonce: required_string(fields, "nonce")?.to_owned(),

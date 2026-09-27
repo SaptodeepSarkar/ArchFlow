@@ -24,6 +24,11 @@ import javax.crypto.spec.GCMParameterSpec
 class EncryptedPersonalizationSync(private val context: Context) {
     private val keyStore = AndroidSyncKeyStore(context)
 
+    private companion object {
+        const val MAX_REMOTE_RECORDS = 2_000
+        const val MAX_DECOMPRESSED_RECORD_BYTES = 64 * 1024
+    }
+
     /** A notification wake-up pulls only, preventing a write-notify loop. */
     suspend fun sync(pushLocal: Boolean = true): Result<Unit> = runCatching {
         val auth = FirebaseRuntime.auth(context) ?: error(FirebaseRuntime.unavailableMessage())
@@ -37,6 +42,7 @@ class EncryptedPersonalizationSync(private val context: Context) {
         val store = PersonalizationStore(context)
         val deviceId = deviceId()
         val remote = firestore.collection("users").document(uid).collection("personalization").get().await()
+        require(remote.size() <= MAX_REMOTE_RECORDS) { "Encrypted sync record limit exceeded." }
         remote.documents.forEach { document ->
             val record = decrypt(key, document.id, document.data ?: return@forEach)
             store.mergeSyncedRecord(record)
@@ -47,7 +53,11 @@ class EncryptedPersonalizationSync(private val context: Context) {
             val body = record.getJSONObject(wrapper)
             firestore.collection("users").document(uid).collection("personalization")
                 .document(body.getString("id"))
-                .set(encrypt(key, body.getString("id"), body.getLong("updated_at_ms"), record.toString()))
+                .set(encrypt(
+                    key, body.getString("id"), body.getLong("updated_at_ms"),
+                    body.getLong("logical_clock"), body.getString("writer_device_id"),
+                    body.getLong("revision"), record.toString(),
+                ))
                 .await()
         }
     }
@@ -73,14 +83,18 @@ class EncryptedPersonalizationSync(private val context: Context) {
     private fun signedInUid(): String = FirebaseRuntime.auth(context)?.currentUser?.uid
         ?: error("Sign in before setting up encrypted sync.")
 
-    private fun encrypt(key: ByteArray, recordId: String, updatedAt: Long, clear: String): Map<String, Any> {
+    private fun encrypt(
+        key: ByteArray, recordId: String, updatedAt: Long, logicalClock: Long,
+        writerDeviceId: String, revision: Long, clear: String,
+    ): Map<String, Any> {
         val nonce = ByteArray(12).also(SecureRandom()::nextBytes)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
             init(Cipher.ENCRYPT_MODE, javax.crypto.spec.SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
-            updateAAD("vaani-sync-envelope-v1:$recordId".toByteArray())
+            updateAAD(associatedData(recordId, logicalClock, writerDeviceId, revision))
         }
         val compressed = ByteArrayOutputStream().use { bytes -> GZIPOutputStream(bytes).use { it.write(clear.toByteArray()) }; bytes.toByteArray() }
         return mapOf("schema_version" to 1L, "record_id" to recordId, "updated_at_ms" to updatedAt,
+            "logical_clock" to logicalClock, "writer_device_id" to writerDeviceId, "revision" to revision,
             "compression" to "gzip", "cipher" to "aes-256-gcm",
             "nonce" to Base64.encodeToString(nonce, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING),
             "ciphertext" to Base64.encodeToString(cipher.doFinal(compressed), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING))
@@ -92,9 +106,24 @@ class EncryptedPersonalizationSync(private val context: Context) {
         val ciphertext = Base64.decode(fields["ciphertext"] as String, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
             init(Cipher.DECRYPT_MODE, javax.crypto.spec.SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
-            updateAAD("vaani-sync-envelope-v1:$recordId".toByteArray())
+            updateAAD(associatedData(
+                recordId,
+                fields["logical_clock"] as Long,
+                fields["writer_device_id"] as String,
+                fields["revision"] as Long,
+            ))
         }
-        val clear = GZIPInputStream(ByteArrayInputStream(cipher.doFinal(ciphertext))).readBytes().toString(Charsets.UTF_8)
+        val clear = GZIPInputStream(ByteArrayInputStream(cipher.doFinal(ciphertext))).use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                require(output.size() + read <= MAX_DECOMPRESSED_RECORD_BYTES) { "Encrypted sync record is too large." }
+                output.write(buffer, 0, read)
+            }
+            output.toString(Charsets.UTF_8.name())
+        }
         return JSONObject(clear)
     }
 
@@ -102,6 +131,9 @@ class EncryptedPersonalizationSync(private val context: Context) {
         val preferences = context.getSharedPreferences("vaani_sync_device", Context.MODE_PRIVATE)
         return preferences.getString("id", null) ?: UUID.randomUUID().toString().also { preferences.edit().putString("id", it).apply() }
     }
+
+    private fun associatedData(recordId: String, logicalClock: Long, writerDeviceId: String, revision: Long) =
+        "vaani-sync-envelope-v1:$recordId:$logicalClock:$writerDeviceId:$revision".toByteArray()
 }
 
 /** Encrypts the recovery key at rest with a non-exportable Android Keystore key. */
