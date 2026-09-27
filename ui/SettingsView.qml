@@ -21,13 +21,27 @@ Rectangle {
     property bool serviceEnabled: false
     property string serviceMessage: "Checking the Vaani service…"
     property string pendingServiceAction: ""
+    property string pendingConfigKey: ""
+    property string pendingConfigValue: ""
     signal replayWelcome()
 
     Component.onCompleted: { bridge.settingsApi = app; requestConfig(); requestPersonalization(); refreshService(); }
     Component.onDestruction: if (bridge.settingsApi === app) bridge.settingsApi = null
     function requestConfig() { bridge.sendOp("config_get"); }
     function requestPersonalization() { bridge.sendOp("personalization_get"); }
-    function setKey(key, value) { bridge.sendOp("config_set", {key: key, value: value}); }
+    // Settings remain useful while the daemon is stopped. Persist through the
+    // desktop helper, which shares Config::set_key's strict whitelist; then
+    // refresh a connected daemon's in-memory copy.
+    function setKey(key, value) {
+        if (configWriter.running) {
+            serviceMessage = "Saving another setting…";
+            return;
+        }
+        pendingConfigKey = key;
+        pendingConfigValue = value;
+        serviceMessage = "Saving setting…";
+        configWriter.exec(["vaani-desktop", "config-set", key, value]);
+    }
     function saveShortcut(value) {
         var trimmed = value.trim();
         if (trimmed.length === 0) {
@@ -107,6 +121,20 @@ Rectangle {
                 ? "Shortcut saved and Hyprland reload requested."
                 : "Shortcut was not saved. Use a supported chord such as SUPER+H.";
             app.requestConfig();
+        }
+    }
+    Process {
+        id: configWriter
+        onExited: function(exitCode) {
+            if (exitCode === 0) {
+                app.serviceMessage = "Setting saved.";
+                // This is only a live refresh. Persistence already succeeded
+                // above, so it is safe when the service is unavailable.
+                bridge.sendOp("config_set", {key: app.pendingConfigKey, value: app.pendingConfigValue});
+                app.requestConfig();
+            } else {
+                app.serviceMessage = "That setting was not saved. Use one of Vaani’s supported values.";
+            }
         }
     }
 

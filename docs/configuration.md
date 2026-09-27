@@ -1,8 +1,14 @@
 # Configuration
 
-Copy `config.example.toml` to `~/.config/vaani/config.toml` (schema_version = 1).
+The user-local installer creates `~/.config/vaani/config.toml` from the
+example on first install (mode `0600`) and preserves it on reinstall. Package
+installs get the same first-run file when `vaanid` starts. You can also copy
+`config.example.toml` yourself.
+
 Live-edit via UI or CLI (`vaani config-get`, `vaani config-set <key> <value>`)
-with a strict key whitelist — see `Config::set_key`.
+with a strict key whitelist — see `Config::set_key`. The desktop Settings page
+persists supported settings even while the service is stopped; when it is
+running, the change is also applied to its current session.
 
 New configs default to automatic typing. Existing V5-era configs that explicitly
 saved `copy-only` keep that choice; restore the typing behavior with
@@ -42,3 +48,7 @@ If `graphical-session.target` is unmanaged by your Hyprland launch, enable with:
 `systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR` to the
 session env (only required display/session vars — never credentials or the
 whole environment). Do not enable lingering for dictation.
+
+`vaanid.service` restarts an unexpected controller exit after five seconds so
+the Hyprland shortcut does not remain dead after a transient failure. An
+explicit `systemctl --user stop vaanid.service` still leaves it stopped.

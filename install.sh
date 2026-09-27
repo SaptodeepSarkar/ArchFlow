@@ -14,7 +14,7 @@ config_root="${XDG_CONFIG_HOME:-$HOME/.config}"
 data_root="${XDG_DATA_HOME:-$HOME/.local/share}"
 bin_root="$HOME/.local/bin"
 cargo build --locked --release --workspace
-mkdir -p "$bin_root" "$config_root/systemd/user" "$config_root/hypr" "$data_root/applications" "$config_root/quickshell/vaani/assets" "$data_root/vaani"
+mkdir -p "$bin_root" "$config_root/systemd/user" "$config_root/hypr" "$config_root/vaani" "$data_root/applications" "$config_root/quickshell/vaani/assets" "$data_root/vaani"
 for binary in vaanid vaani vaani-worker vaani-desktop; do
   install -m755 "target/release/$binary" "$bin_root/$binary"
 done
@@ -38,6 +38,12 @@ PY
 install -m644 ui/*.qml "$config_root/quickshell/vaani/"
 install -m644 ui/assets/*.png "$config_root/quickshell/vaani/assets/"
 install -m644 config.example.toml "$data_root/vaani/"
+# Give a first install an editable, private config without replacing any
+# existing choices on reinstall. The daemon also has this guard for package
+# installs that do not use this script.
+if [ ! -e "$config_root/vaani/config.toml" ]; then
+  install -m600 config.example.toml "$config_root/vaani/config.toml"
+fi
 # Preserve an existing chosen shortcut when reinstalling, then regenerate the
 # app-owned include and request a compositor reload. It never edits the user's
 # main Hyprland configuration.

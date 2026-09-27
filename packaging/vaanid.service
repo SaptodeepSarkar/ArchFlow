@@ -4,14 +4,18 @@ Documentation=https://github.com/SaptodeepSarkar/ArchFlow
 After=pipewire.service wireplumber.service
 Wants=pipewire.service
 PartOf=graphical-session.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+# A controller crash must not silently make the compositor shortcut inert for
+# the rest of the login session. Retry at a deliberately slow cadence rather
+# than exhausting a short start-limit budget and leaving a failed unit behind.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/vaanid --foreground
-Restart=on-failure
-# Bounded restarts: 5 tries in 60 s, then stop hammering.
+Restart=always
+RestartSec=5
+# systemctl stop suppresses Restart=always; this only recovers an unexpected
+# controller exit. Five seconds avoids a hot crash loop on a bad setup.
 # Clean process-group teardown (no orphaned pw-record / workers).
 KillMode=mixed
 KillSignal=SIGTERM
