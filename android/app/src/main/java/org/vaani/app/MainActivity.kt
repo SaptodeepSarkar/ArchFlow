@@ -113,7 +113,6 @@ class MainActivity : ComponentActivity() {
 private fun VaaniApp() {
     val context = LocalContext.current
     var page by remember { mutableIntStateOf(if (OnboardingState.isCompleted(context)) 17 else 0) }
-    var overlayEnabled by remember { mutableStateOf(false) }
     val accountClient = remember { VaaniAccountClient(context) }
     val accountScope = rememberCoroutineScope()
     var accountMessage by remember { mutableStateOf<String?>(null) }
@@ -196,8 +195,7 @@ private fun VaaniApp() {
             page = 17
         })
         else -> VaaniWorkspace(
-            overlayEnabled = overlayEnabled,
-            onToggleOverlay = {
+            onEnableOverlay = {
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                     micPermission.launch(Manifest.permission.RECORD_AUDIO)
                 } else if (!AccessibilityBridge.isTextBoxAccessEnabled(context)) {
@@ -206,7 +204,6 @@ private fun VaaniApp() {
                     context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
                 } else {
                     context.startService(Intent(context, VoiceOverlayService::class.java))
-                    overlayEnabled = true
                 }
             },
         )
@@ -1073,17 +1070,15 @@ private fun TextBoxAccessScreen(onOpenAccessibility: () -> Unit, onSkip: () -> U
 
 @Composable
 private fun PrivateByDefaultScreen(onNext: () -> Unit) {
-    var localOnly by remember { mutableStateOf(true) }
     VaaniFlowScaffold(
         step = 8,
         title = "Your phrases\nstay private.",
-        body = "Local-only is the default. Future optional sync stores preferences, never raw dictation history by default.",
+        body = "Audio, raw dictation, and formatting stay on this device. Optional sync is limited to encrypted preferences when you choose to set it up.",
         action = "Continue",
         onAction = onNext,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            VaaniChoiceRow("Keep everything on this device", localOnly) { localOnly = true }
-            VaaniChoiceRow("Help improve Vaani later", !localOnly) { localOnly = false }
+        Box(Modifier.fillMaxWidth().background(VaaniColor.Cloud, RoundedCornerShape(18.dp)).padding(18.dp)) {
+            Text("There is no participation or dictation-sharing switch here because Vaani does not upload your phrases for product improvement.", color = VaaniColor.Ink, fontSize = 14.sp, lineHeight = 20.sp)
         }
     }
 }
@@ -1127,26 +1122,22 @@ private fun NotificationValueScreen(onNext: () -> Unit, onSkip: () -> Unit) = Va
 
 @Composable
 private fun DiscoveryScreen(onNext: () -> Unit) {
-    var selected by remember { mutableStateOf<String?>(null) }
     VaaniFlowScaffold(
         step = 11,
-        title = "How did you\nfind Vaani?",
-        body = "Optional — it helps us understand where the project is reaching people.",
+        title = "You’re ready\nto write.",
+        body = "Your setup is local. You can add optional encrypted preference sync later from your account settings.",
         action = "Finish setup",
         onAction = onNext,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            listOf("A friend", "Open-source community", "Social media", "AI tools", "Something else").forEach { source ->
-                VaaniChoiceRow(source, selected == source) { selected = source }
-            }
+        Box(Modifier.fillMaxWidth().background(VaaniColor.Apricot, RoundedCornerShape(22.dp)).padding(22.dp)) {
+            Text("No onboarding answers are collected or sent.", color = VaaniColor.Ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
 
 @Composable
 private fun VaaniWorkspace(
-    overlayEnabled: Boolean,
-    onToggleOverlay: () -> Unit,
+    onEnableOverlay: () -> Unit,
 ) {
     val context = LocalContext.current
     val accountClient = remember { VaaniAccountClient(context) }
@@ -1239,11 +1230,8 @@ private fun VaaniWorkspace(
         Text(access.summary, color = if (access.microphone && access.textBoxAccess && access.overlay) VaaniColor.Plum else VaaniColor.Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(16.dp))
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).background(VaaniColor.Cloud, RoundedCornerShape(14.dp)).padding(horizontal = 15.dp), contentAlignment = Alignment.CenterStart) {
-                Text("Search", color = VaaniColor.Muted, fontSize = 14.sp)
-            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                listOf("Dictionary", "Style", "Snippets").forEach { label ->
+                listOf("Dictionary", "Style").forEach { label ->
                     Box(Modifier.weight(1f).heightIn(min = 38.dp).background(if (tab == label) VaaniColor.Lilac else VaaniColor.Cloud, RoundedCornerShape(12.dp)).clickable { tab = label }, contentAlignment = Alignment.Center) {
                         Text(label, color = VaaniColor.Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
                     }
@@ -1252,7 +1240,6 @@ private fun VaaniWorkspace(
             when (tab) {
                 "Dictionary" -> PersonalizationWorkspace()
                 "Style" -> StyleWorkspace()
-                else -> WorkspaceEmpty("Saved snippets will appear here.")
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -1262,7 +1249,7 @@ private fun VaaniWorkspace(
             fontSize = 12.sp,
         )
         Spacer(Modifier.height(12.dp))
-        VaaniPrimaryButton(if (overlayEnabled) "Vaani control is active" else "Enable Vaani control", onToggleOverlay)
+        VaaniPrimaryButton("Enable Vaani control", onEnableOverlay)
     }
 }
 
@@ -1310,21 +1297,6 @@ private fun PersonalizationWorkspace() {
             }
         }
         message?.let { Text(it, color = VaaniColor.Muted, fontSize = 12.sp) }
-    }
-}
-
-@Composable
-private fun WorkspaceEmpty(message: String) {
-    Box(Modifier.fillMaxWidth().height(460.dp)) {
-        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(15.dp)) {
-            VaaniRibbonSketch(Modifier.size(48.dp))
-            Text(message, color = VaaniColor.Muted, fontSize = 15.sp, textAlign = TextAlign.Center)
-        }
-        Box(
-            Modifier.align(Alignment.BottomEnd).size(56.dp).background(VaaniColor.Ink, CircleShape)
-                .clickable { },
-            contentAlignment = Alignment.Center,
-        ) { Text("+", color = VaaniColor.Cloud, fontSize = 28.sp, fontWeight = FontWeight.Normal) }
     }
 }
 
