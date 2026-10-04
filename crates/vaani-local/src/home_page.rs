@@ -34,6 +34,7 @@ pub fn build(stack: &gtk::Stack, tx: &async_channel::Sender<Update>) {
 
     let metrics = gtk::Box::new(Orientation::Horizontal, 14);
     metrics.set_homogeneous(true);
+    let mut values = Vec::new();
     for (title, value, hint) in [
         (
             "Your shortcut",
@@ -54,11 +55,20 @@ pub fn build(stack: &gtk::Stack, tx: &async_channel::Sender<Update>) {
         let value = label(value);
         value.add_css_class("metric-value");
         metric.append(&value);
+        values.push(value.clone());
         let hint = label(hint);
         hint.add_css_class("muted");
         metric.append(&hint);
         metrics.append(&metric);
     }
+    stack.connect_visible_child_name_notify(move |stack| {
+        if stack.visible_child_name().as_deref() == Some("home") {
+            if let Ok((_, cfg)) = settings::read(&vaani_core::config::Config::config_path()) {
+                values[0].set_text(&cfg.general.shortcut);
+                values[1].set_text(&cfg.recognition.model);
+            }
+        }
+    });
     home.append(&metrics);
     let service = card("Your dictation controls", "Start the shortcut service when you need it. Models load on demand; Economy releases them after use.", "");
     let row = actions(&service);

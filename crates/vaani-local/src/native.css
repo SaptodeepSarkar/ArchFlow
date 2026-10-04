@@ -28,3 +28,8 @@ entry { padding: 5px 12px; }
 textview { background: #f4f8fb; color: #243d4a; border-radius: 12px; padding: 12px; }
 .status-bar { border-top: 1px solid #d9e1e3; background: #fffdfb; padding: 12px 24px; color: #586b76; font-size: 11px; }
 .personal-row { border: 1px solid #d9e1e3; border-radius: 14px; background: #fffdfb; padding: 12px 16px; }
+
+headerbar button { min-height: 0; padding: 4px; border: none; background: transparent; }
+.vaani-card.hero > .section-title { font-size: 10px; letter-spacing: 1px; color: #814924; }
+
+.retention-choice:checked { background: #286d9f; border-color: #286d9f; color: white; }
