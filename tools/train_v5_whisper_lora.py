@@ -176,6 +176,13 @@ class StreamingRows(torch.utils.data.IterableDataset):
 
 
 class WeightedTrainer(Seq2SeqTrainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Our custom loss is a microbatch weighted mean and does not use the
+        # accumulation-wide token count. Forward **kwargs is not evidence
+        # that this overridden loss performs gradient-accumulation scaling.
+        self.model_accepts_loss_kwargs = False
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         weights = inputs.pop("sample_weight").to(model.device)
         labels = inputs["labels"]

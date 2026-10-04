@@ -32,6 +32,14 @@ Indian-English/Hinglish or unseen-speaker generalization.
 
 ## Budget and abort conditions
 
+Recipe correction discovered after preregistration: the canonical custom
+weighted loss now explicitly enables proper gradient-accumulation scaling
+under the installed Transformers version. First establish a three-context
+clean-base control under that same corrected trainer before attributing an
+expanded-context difference to data diversity. The old 20% candidate remains
+historical, not a matched causal control. See
+`2026-10-04-stt-accumulation-loss.md` for the executable regression evidence.
+
 GPU training starts only after the formatter releases the GPU. Use resumable
 45-minute segments, at most 5 GiB host memory, no scope swap, bounded workers,
 and the local 6 GiB GPU. Do not increase limits to mask an OOM. Abort on CUDA

@@ -4,6 +4,9 @@ from __future__ import annotations
 import sys
 import itertools
 import random
+import tempfile
+from types import SimpleNamespace
+from unittest.mock import Mock
 import unittest
 from pathlib import Path
 
@@ -16,11 +19,43 @@ except ImportError:
 
 if torch is not None:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-    from train_v5_whisper_lora import Collator, StreamingRows
+    from train_v5_whisper_lora import Collator, StreamingRows, WeightedTrainer
+    from transformers import Seq2SeqTrainingArguments
 
 
 @unittest.skipIf(torch is None, "optional Whisper training dependencies are unavailable")
 class WhisperCollatorTests(unittest.TestCase):
+    def test_custom_loss_accumulation_scaling_despite_forward_kwargs(self):
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.logits = torch.nn.Parameter(torch.tensor([1.0, 0.0]))
+
+            @property
+            def device(self):
+                return self.logits.device
+
+            def forward(self, labels=None, **kwargs):
+                return SimpleNamespace(logits=self.logits.expand(labels.shape[0], labels.shape[1], 2))
+
+        with tempfile.TemporaryDirectory() as directory:
+            model = Model()
+            trainer = WeightedTrainer(model=model, args=Seq2SeqTrainingArguments(
+                output_dir=directory, use_cpu=True, report_to="none",
+                gradient_accumulation_steps=8))
+            self.assertFalse(trainer.model_accepts_loss_kwargs)
+            trainer.current_gradient_accumulation_steps = 8
+            trainer.accelerator.backward = Mock()
+            inputs = {"labels": torch.tensor([[0, 1]]), "sample_weight": torch.tensor([1.0])}
+            expected = trainer.compute_loss(model, dict(inputs)) / 8
+            actual = trainer.training_step(model, dict(inputs), num_items_in_batch=16)
+            self.assertAlmostEqual(actual.item(), expected.item(), places=6)
+            self.assertAlmostEqual(trainer.accelerator.backward.call_args.args[0].item(),
+                                   expected.item(), places=6)
+            trainer.model_accepts_loss_kwargs = True
+            unscaled = trainer.training_step(model, dict(inputs), num_items_in_batch=16)
+            self.assertAlmostEqual(unscaled.item(), expected.item() * 8, places=6)
+
     def test_nonfinite_or_nonpositive_weights_fail_before_feature_padding(self):
         for weight in (float("nan"), float("inf"), 0, -1):
             with self.subTest(weight=weight), self.assertRaises(ValueError):
