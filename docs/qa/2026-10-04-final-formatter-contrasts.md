@@ -26,5 +26,21 @@ The new suite is evaluation-only. If its results inform another candidate,
 it becomes diagnostic for that later candidate and a fresh final suite is
 needed. No evaluation or promotion result is claimed here.
 
+## V5 CPU control completed
+
+The archived V5 adapter was evaluated with the schema-3 evaluator on all
+28 cases, using CPU float32, two math threads, offline local assets, a 3 GiB
+no-swap scope, and a 20-minute ceiling. The process exited successfully.
+Exact matches: 3/28 (10.71%); normalized exact: 4/28 (14.29%). Lexical proxy
+checks counted 66 novel content tokens across 16 outputs and 21 missing
+target-content tokens across six outputs. These are aggregate automatic
+checks, not a human semantic error rate or an Android measurement.
+
+Report outside Git:
+`~/.local/share/vaani/models/v6-short-filler-final-cpu-20261004/v5-independent-challenge.json`.
+V6 must be evaluated with the same CPU evaluator/code/protocol and data
+hashes for this paired control. No V6 result is available yet; no candidate
+training data or selection was changed in response to the V5 scores.
+
 Three generator tests pass: unique labels/freeze, normalized-overlap rejection,
 and changed-input rejection. Outputs cannot be overwritten.
