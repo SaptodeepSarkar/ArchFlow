@@ -45,4 +45,15 @@ Expected improvement: short filler removal without broader deletion. Budget:
 45 minutes maximum training wall time, 5 GiB host memory and no swap within
 the training scope, and the 6 GiB GPU's capacity. Abort on timeout, memory
 limit, CUDA OOM, or invalid data. Do not run concurrent STT/TTS training.
-The experiment remains pending until a live run and its outputs are verified.
+The GPU run was launched in `vaani-v6-filler-train-20261004.scope` with these
+limits and verified active, with optimizer steps advancing beyond 40/3,000.
+Early speed is about 1.7 seconds/step, so the fixed 3,000-step run will require
+more than one 45-minute segment. Resume only after verifying the segment has
+terminated and identifying its last complete checkpoint. Preserve the original
+inputs/settings and final-step selection; no quality gain is established yet.
+
+Independent STT data check during the run: the expanded synthetic vocabulary
+audio manifest contains 971 valid clips, zero integrity errors and zero
+untracked files. Only 41/79 planned terms are represented (40 have all 24
+clips; one has 11); 38 terms are missing. This partial pack must not be treated
+as completed balanced training data. Acoustic diversity remains an STT task.
