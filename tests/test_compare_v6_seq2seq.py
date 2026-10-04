@@ -17,7 +17,8 @@ class CompareSeq2SeqTest(unittest.TestCase):
             common = {"target_set_sha256": "targets", "base_model_sha256": "base",
                       "evaluation_code_sha256": "eval-code", "protocol_code_sha256": "protocol-code"}
             v5 = {**common, "protocol": "v5", "adapter_sha256": "v5-adapter", **v5}
-            v6 = {**common, "protocol": "v6", "adapter_sha256": "v6-adapter", **v6}
+            v6 = {**common, "protocol": "v6", "adapter_sha256": "v6-adapter",
+                  "unguarded_raw_violation_outputs": 0, **v6}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             base, candidate, report = root / "v5.json", root / "v6.json", root / "comparison.json"
@@ -85,12 +86,17 @@ class CompareSeq2SeqTest(unittest.TestCase):
                 "missing_target_content_tokens": 0,
                 "outputs_missing_target_content": 0}
         candidate = {**base, "exact_rate": .6, "normalized_exact_rate": .6,
-                     "raw_token_order_violations": 1}
+                     "raw_token_order_violations": 1, "unguarded_raw_violation_outputs": 1}
         result, report = self.run_compare(base, candidate)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertFalse(report["meaning_preservation_gate"])
         self.assertFalse(report["promotion_eligible"])
-        guarded = {**candidate, "copy_guard_fallbacks": 1}
+        unrelated = {**candidate, "copy_guard_fallbacks": 1}
+        result, report = self.run_compare(base, unrelated)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertFalse(report["raw_violations_covered_by_fallbacks"])
+        guarded = {**candidate, "copy_guard_fallbacks": 1,
+                   "unguarded_raw_violation_outputs": 0, "raw_missing_protected_tokens": 3}
         result, report = self.run_compare(base, guarded)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(report["meaning_preservation_gate"])

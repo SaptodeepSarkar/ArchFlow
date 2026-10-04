@@ -92,6 +92,7 @@ def main() -> None:
     raw_novel_numeric_tokens = raw_novel_word_tokens = 0
     raw_token_order_violations = 0
     raw_missing_protected_tokens = 0
+    unguarded_raw_violation_outputs = 0
     missing_target_content_tokens = 0
     outputs_missing_target_content = 0
     category_metrics: dict[str, dict[str, int]] = {}
@@ -120,13 +121,17 @@ def main() -> None:
                 raw_novel_numeric_tokens += sum(token.isdigit() for token in raw_novel)
                 raw_novel_word_tokens += sum(not token.isdigit() for token in raw_novel)
                 raw_outputs_with_novel_content += bool(raw_novel)
-                raw_missing_protected_tokens += len(v6_missing_protected_tokens(source, output))
+                raw_missing = v6_missing_protected_tokens(source, output)
+                raw_missing_protected_tokens += len(raw_missing)
                 raw_order_violation = not v6_preserves_source_order(source, output)
                 raw_token_order_violations += raw_order_violation
                 if v6_requires_copy_fallback(source, output):
                     output = source
                     copy_guard_fallbacks += 1
                     copy_guard_fallback = True
+                unguarded_raw_violation_outputs += int(
+                    bool(raw_missing or raw_order_violation) and not copy_guard_fallback
+                )
             exact += output == target
             normalized_exact += normalized(output) == normalized(target)
             missing_target = v6_missing_target_content_tokens(target, output)
@@ -152,7 +157,7 @@ def main() -> None:
                                   "novel_content_tokens": novel_content_tokens,
                                   "token_order_violations": raw_token_order_violations}),
                       file=sys.stderr, flush=True)
-    report = {"schema_version": 2, "rows": len(rows),
+    report = {"schema_version": 3, "rows": len(rows),
               "source_set_sha256": source_digest.hexdigest(),
               "target_set_sha256": target_digest.hexdigest(),
               "base_model_sha256": model_sha256(args.model),
@@ -169,6 +174,7 @@ def main() -> None:
               "copy_guard_fallbacks": copy_guard_fallbacks,
               "raw_missing_protected_tokens": raw_missing_protected_tokens,
               "raw_token_order_violations": raw_token_order_violations,
+              "unguarded_raw_violation_outputs": unguarded_raw_violation_outputs,
               "missing_target_content_tokens": missing_target_content_tokens,
               "outputs_missing_target_content": outputs_missing_target_content,
               "category_metrics": category_report(category_metrics),

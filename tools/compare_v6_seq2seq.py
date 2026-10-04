@@ -40,16 +40,11 @@ def main() -> None:
     exact_delta = v6["exact_rate"] - v5["exact_rate"]
     normalized_delta = v6["normalized_exact_rate"] - v5["normalized_exact_rate"]
     fallback_count = v6.get("copy_guard_fallbacks", 0)
-    # Raw generations can be unsafe when the protocol correctly falls back to
-    # the unchanged source. Require every aggregate raw violation type to be
-    # covered by a fallback, then gate the delivered output itself below.
-    raw_violations_covered = all(
-        v6.get(field, 0) <= fallback_count
-        for field in (
-            "raw_missing_protected_tokens",
-            "raw_token_order_violations",
-        )
-    )
+    # Counts cannot prove row-level coverage: an unrelated row's fallback
+    # cannot cover an unsafe output, and one fallback can protect many tokens.
+    if "unguarded_raw_violation_outputs" not in v6:
+        raise SystemExit("V6 qualification requires row-level guard coverage; rerun evaluation")
+    raw_violations_covered = v6["unguarded_raw_violation_outputs"] == 0
     meaning_safe = (
         v6["novel_content_tokens"] == 0
         and v6["outputs_with_novel_content"] == 0
@@ -88,6 +83,7 @@ def main() -> None:
         "v6_raw_token_order_violations": v6.get("raw_token_order_violations", 0),
         "v6_copy_guard_fallbacks": fallback_count,
         "raw_violations_covered_by_fallbacks": raw_violations_covered,
+        "v6_unguarded_raw_violation_outputs": v6["unguarded_raw_violation_outputs"],
         "v6_copy_guard_fallback_rate": fallback_rate,
         "max_copy_fallback_rate": args.max_copy_fallback_rate,
         "meaning_preservation_gate": meaning_safe,
