@@ -176,6 +176,52 @@ class LinuxCt2EvalTests(unittest.TestCase):
             self.assertNotIn("meeting", serialized)
             self.assertNotIn(str(audio), serialized)
 
+    def test_partial_decode_failure_writes_diagnostic_but_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            audio = root / "clip.wav"
+            with wave.open(str(audio), "wb") as handle:
+                handle.setnchannels(1)
+                handle.setsampwidth(2)
+                handle.setframerate(16_000)
+                handle.writeframes(struct.pack("<h", 0) * 1600)
+            manifest = root / "heldout.sqlite3"
+            with sqlite3.connect(manifest) as database:
+                database.execute("CREATE TABLE examples (id TEXT, audio_path TEXT, target_text TEXT)")
+                database.executemany("INSERT INTO examples VALUES (?, ?, ?)", [
+                    ("a", str(audio), "test phrase"),
+                    ("b", str(audio), "test phrase"),
+                ])
+            model_path = root / "model"
+            model_path.mkdir()
+            (model_path / "model.bin").write_bytes(b"test")
+            report_path = root / "report.json"
+            calls = 0
+
+            def transcribe(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise RuntimeError("private content must not escape")
+                return iter([SimpleNamespace(text="test phrase")]), SimpleNamespace()
+
+            fake_module = SimpleNamespace(WhisperModel=lambda *args, **kwargs:
+                                          SimpleNamespace(transcribe=transcribe))
+            argv = ["eval_v6_linux_ct2.py", "--manifest", str(manifest),
+                    "--model", str(model_path), "--report", str(report_path),
+                    "--device", "cpu", "--limit", "0"]
+            with patch.object(sys, "argv", argv), patch.dict(
+                sys.modules, {"faster_whisper": fake_module}
+            ), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(SystemExit, "evaluation incomplete"):
+                    evaluator.main()
+            serialized = report_path.read_text()
+            report = json.loads(serialized)
+            self.assertEqual(report["rows_decoded"], 1)
+            self.assertEqual(report["decode_failures"], 1)
+            self.assertEqual(report["decode_failure_classes"], {"RuntimeError": 1})
+            self.assertNotIn("private content", serialized)
+
 
 if __name__ == "__main__":
     unittest.main()

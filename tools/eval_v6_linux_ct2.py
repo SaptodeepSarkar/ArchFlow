@@ -8,6 +8,7 @@ never writes utterance text or per-row scores.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -70,7 +71,7 @@ def model_sha256(path: Path) -> str:
 def load_rows(manifest: Path, limit: int) -> list[dict]:
     if manifest.suffix == ".sqlite3":
         uri = f"{manifest.resolve().as_uri()}?mode=ro"
-        with sqlite3.connect(uri, uri=True) as database:
+        with closing(sqlite3.connect(uri, uri=True)) as database:
             columns = {row[1] for row in database.execute("PRAGMA table_info(examples)")}
             required = {"id", "audio_path", "target_text"}
             if not required <= columns:
@@ -299,6 +300,8 @@ def main() -> None:
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, sort_keys=True))
+    if failures:
+        raise SystemExit("evaluation incomplete: decode failures; aggregate report is diagnostic only")
 
 
 if __name__ == "__main__":
