@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import json
+import tempfile
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "build_v6_hard_examples.py"
@@ -17,6 +19,27 @@ RENDER_SPEC.loader.exec_module(RENDERER)
 
 
 class HardExamplesTest(unittest.TestCase):
+    def test_targeted_filler_quota_keeps_short_middle_examples(self):
+        rows = MODULE.build(1000, categories={"filler-context"})
+        self.assertTrue(rows)
+        self.assertTrue(all(row["metadata"]["categories"] == ["filler-context"] for row in rows))
+        self.assertTrue(any(len(row["source_tokens"]) <= 6 and
+                            row["token_labels"].index("DELETE_FILLER") > 0 for row in rows))
+        self.assertTrue(all(RENDERER.render(row) == row["target_text"] for row in rows))
+
+    def test_foundation_exclusions_cannot_silently_leak(self):
+        row = MODULE.build(1, categories={"filler-context"})[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "heldout.jsonl"
+            path.write_text(json.dumps({"source": {"type": "synthetic"},
+                                        "utterance": {"raw_stt": row["source"]}}) + "\n")
+            excluded = MODULE.read_excluded_sources([path])
+            replay = MODULE.build(1000, excluded, {"filler-context"})
+            self.assertNotIn(row["source"].casefold(), {r["source"].casefold() for r in replay})
+            path.write_text(json.dumps({"utterance": {}}) + "\n")
+            with self.assertRaises(ValueError):
+                MODULE.read_excluded_sources([path])
+
     def test_exclusions_are_applied_before_quota_and_rows_stay_unique(self):
         initial = MODULE.build(2000)
         excluded = {row["source"].casefold() for row in initial[:372]}

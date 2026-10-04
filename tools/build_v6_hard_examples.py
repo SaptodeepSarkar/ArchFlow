@@ -44,12 +44,15 @@ def make(idx: int, source: str, target: str, labels: list[str], punct: dict[str,
             "metadata": {"categories": [category], "source": "hard-replay-generated"}}
 
 
-def build(count: int, excluded: set[str] | None = None) -> list[dict]:
+def build(count: int, excluded: set[str] | None = None,
+          categories: set[str] | None = None) -> list[dict]:
     rows: list[dict] = []
     seen: set[str] = set()
     excluded = {source.casefold() for source in (excluded or set())}
 
     def add(source: str, target: str, labels: list[str], punct: dict[str, str], **kw) -> None:
+        if categories is not None and kw.get("category") not in categories:
+            return
         key = source.casefold()
         if key in seen or key in excluded or len(rows) >= count:
             return
@@ -242,24 +245,44 @@ def build(count: int, excluded: set[str] | None = None) -> list[dict]:
     return rows
 
 
+def read_excluded_sources(paths: list[Path]) -> set[str]:
+    """Accept both edit-plan and foundation manifests; fail on missing text."""
+    excluded = set()
+    for path in paths:
+        for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            source = row.get("source")
+            if isinstance(source, dict):
+                source = source.get("raw_stt")
+            if not isinstance(source, str):
+                utterance = row.get("utterance", {})
+                source = utterance.get("raw_stt") if isinstance(utterance, dict) else None
+            if not isinstance(source, str) or not source.strip():
+                raise ValueError(f"missing exclusion source at {path}:{index}")
+            excluded.add(source.strip().casefold())
+    return excluded
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(); ap.add_argument("--count", type=int, default=2000); ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--exclude", type=Path, action="append", default=[],
                      help="JSONL source set to exclude by case-insensitive exact match; may be repeated")
+    ap.add_argument("--category", action="append", default=[],
+                    help="Generate only this category before applying the quota; may be repeated")
     args = ap.parse_args()
-    excluded = set()
-    for path in args.exclude:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                row = json.loads(line)
-                source = row.get("source")
-                if isinstance(source, str):
-                    excluded.add(source.casefold())
-    rows = build(args.count, excluded)
+    if args.count <= 0:
+        ap.error("--count must be positive")
+    categories = set(args.category) or None
+    excluded = read_excluded_sources(args.exclude)
+    rows = build(args.count, excluded, categories)
+    if not rows:
+        ap.error("no examples match the requested categories and exclusions")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
     ids_digest = hashlib.sha256("\n".join(r["id"] for r in rows).encode("utf-8")).hexdigest()
-    print(json.dumps({"rows": len(rows), "excluded_collisions": len(excluded & {row["source"].casefold() for row in build(args.count)}),
+    print(json.dumps({"rows": len(rows), "excluded_collisions": len(excluded & {row["source"].casefold() for row in build(args.count, categories=categories)}),
                       "out": str(args.out), "unique_sources": len({r['source'].casefold() for r in rows}),
                       "row_ids_sha256": ids_digest}))
 
