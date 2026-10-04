@@ -445,7 +445,7 @@ python3 tools/export_v6_stt_ct2.py \
   --adapter /home/saptodeep/.local/share/vaani/models/v6-stt-vocab-automated-20260930/training/adapter \
   --out-root /home/saptodeep/.local/share/vaani/models/v6-stt-vocab-automated-20260930/ct2-export
 pipelines/stt/qualify-v6-monsoon.sh \
-  --base-ct2 /home/saptodeep/.local/share/vaani/models/cozy \
+  --base-ct2 /home/saptodeep/.local/share/vaani/models/v5-stt-whisper-v5-supervised-200-ct2 \
   --candidate-ct2 /home/saptodeep/.local/share/vaani/models/v6-stt-vocab-automated-20260930/ct2-export/ct2-int8-float16 \
   --manifest /home/saptodeep/.local/share/vaani/v6-data/eval/monsoon-public-test-20260928/manifest.jsonl \
   --out /home/saptodeep/.local/share/vaani/models/v6-stt-vocab-automated-20260930/monsoon-once \
@@ -455,12 +455,15 @@ pipelines/stt/qualify-v6-monsoon.sh \
 The CPU setting is deliberate: the local CTranslate2 CUDA path previously
 failed because `libcublas.so.12` was unavailable. This test is not run on an
 unqualified candidate and its public-set result is never fed back into tuning.
-The one-shot base is the configured V5 Cozy CTranslate2 model, not untouched
+The one-shot base is the configured V5 supervised-200 CTranslate2 model, not untouched
 Whisper-small; that makes this the required paired V5-versus-V6 product
 comparison. Earlier clean-base comparisons remain training diagnostics only.
-The qualification script pins the current V5 Cozy directory hash
-`4d0f3f8b76542341002af040ed2a7128c00190747783257e3ccccc6583e2c9a5` and
+The qualification script pins the current deployed V5 directory hash
+`73f73065f95036f184910da576d0ca66ab5a1ef62f077d8dfbe8a029c59d5427` and
 refuses to spend the one-shot public test on a different base artifact.
+This pin was corrected on 2026-10-04 after checking the actual `v5` resolver
+and the configured recognition model: the earlier Cozy pin was stale. No
+public-test decode or claim was performed during this correction.
 
 The Android path remains a separate follow-up: export the clean merged HF
 checkpoint to a whisper.cpp-compatible model, quantize, and verify conversion
@@ -597,6 +600,17 @@ The completed CPU baseline covered all 861 rows (34 minutes of human speech),
 with 13.1569% WER, no failures, and 2/5 relevant term-row hits. Five supported
 term-row pairs are too few for a broad vocabulary-quality claim. The GPU
 result must be compared only with the matching GPU baseline, not this CPU run.
+
+The paired GPU run subsequently completed all 861 rows with zero failures.
+No-hint WER was 13.1820%; broad engineering hints gave 13.9596%, a 0.7776-point
+regression. Relevant term-row hits increased from 2/5 to 3/5, which does not
+offset the ordinary-speech cost and is far too little support for a vocabulary
+claim. Decode time was 172.862 seconds without hints and 190.220 seconds with
+hints (RTF 0.08482 and 0.09334). The paired comparator rejected promotion.
+The hinted report recorded four false vocabulary term-row hits across 856
+ordinary-speech rows; the earlier baseline did not yet emit that new metric,
+so no causal false-hit increase can be claimed from this pair. Reports remain
+outside Git under `~/.local/share/vaani/v6-data/hotword-icsi-dev-20261004/`.
 
 The evaluator now reports separate relevant-term and ordinary-speech WER
 slices, plus counts of vocabulary terms present in hypotheses but absent in
