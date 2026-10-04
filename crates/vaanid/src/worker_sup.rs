@@ -646,6 +646,10 @@ pub fn model_path_for(model: &str) -> String {
         if requested_v5 {
             return None;
         }
+        let pack_file = format!("{dir}/../stt/{model}.bin");
+        if std::path::Path::new(&pack_file).is_file() {
+            return Some(pack_file);
+        }
         let file = format!("{dir}/{model}.bin");
         if std::path::Path::new(&file).is_file() {
             return Some(file);

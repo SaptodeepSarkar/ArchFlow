@@ -1,0 +1,29 @@
+[package]
+name = "vaani-local"
+version = "1.2.0"
+edition = "2021"
+license = "MIT"
+[dependencies]
+vaani-core = { path = "../vaani-core" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+base64 = { workspace = true }
+aes-gcm = { workspace = true }
+sha2 = "0.10"
+openssl = "0.10"
+ureq = { version = "3.4.2", default-features = false, features = ["native-tls","json"] }
+toml_edit = { version = "0.22", features = ["serde"] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+async-channel = { version = "2", optional = true }
+[features]
+default = []
+native-ui = ["dep:gtk", "dep:adw", "dep:async-channel"]
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { package = "gtk4", version = "0.9", optional = true, features = ["v4_8"] }
+adw = { package = "libadwaita", version = "0.7", optional = true, features = ["v1_2"] }
+[[bin]]
+name = "vaani-linux"
+path = "src/main.rs"
+required-features = ["native-ui"]

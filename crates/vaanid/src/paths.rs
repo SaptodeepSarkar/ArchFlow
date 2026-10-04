@@ -72,3 +72,35 @@ pub fn ui_path() -> PathBuf {
     }
     local
 }
+
+/// Stable identity is shared with the local desktop repository.
+pub fn device_id() -> String {
+    let path = data_dir().join("device-id");
+    if let Ok(id) = std::fs::read_to_string(&path) {
+        if !id.trim().is_empty() {
+            return id.trim().to_owned();
+        }
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(mut file) => {
+            use std::io::Write;
+            if file.write_all(id.as_bytes()).is_ok() {
+                return id;
+            }
+        }
+        Err(_) => {
+            if let Ok(existing) = std::fs::read_to_string(&path) {
+                if !existing.trim().is_empty() {
+                    return existing.trim().to_owned();
+                }
+            }
+        }
+    }
+    // No persistence means no safe merge identity. Callers fail closed on storage errors.
+    format!("unpersisted-{id}")
+}
