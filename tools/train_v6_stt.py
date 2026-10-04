@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+import json
 from v6_stt_run_manifest import run_identity, verify_or_create
 
 
@@ -25,6 +26,8 @@ def main() -> None:
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--init-adapter", type=Path)
+    parser.add_argument("--preflight-only", action="store_true",
+                        help="hash run inputs without importing CUDA or starting training; use a separate output directory")
     parser.add_argument("--resume-from-checkpoint", type=Path)
     args, _ = parser.parse_known_args()
     if not args.pre_split:
@@ -34,10 +37,14 @@ def main() -> None:
     root = Path(__file__).resolve().parents[1]
     if args.out.resolve().is_relative_to(root):
         raise SystemExit("V6 STT output must stay outside Git")
-    import torch
-    if not torch.cuda.is_available():
-        raise SystemExit("CUDA unavailable; no run directory created")
+    if args.preflight_only and args.resume_from_checkpoint:
+        raise SystemExit("preflight-only cannot resume a training checkpoint")
+    if not args.preflight_only:
+        import torch
+        if not torch.cuda.is_available():
+            raise SystemExit("CUDA unavailable; no run directory created")
     settings = sys.argv[1:].copy()
+    settings = [value for value in settings if value != "--preflight-only"]
     if "--resume-from-checkpoint" in settings:
         index = settings.index("--resume-from-checkpoint")
         del settings[index:index + 2]
@@ -48,6 +55,12 @@ def main() -> None:
                              root / "tools/v6_stt_run_manifest.py"], settings,
                             adapters=[args.init_adapter] if args.init_adapter else [])
     verify_or_create(args.out, identity, args.resume_from_checkpoint)
+    if args.preflight_only:
+        print(json.dumps({"preflight_only": True, "training_started": False,
+                          "audio_files": identity["audio_files"],
+                          "input_manifests": len(identity["input_hashes"]),
+                          "model_assets": len(identity["model_hashes"])}))
+        return
     from train_v5_whisper_lora import main as train_whisper
     train_whisper()
 
