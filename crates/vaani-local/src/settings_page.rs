@@ -46,6 +46,7 @@ pub fn build(stack: &gtk::Stack, status: &gtk::Label, tx: &async_channel::Sender
     load.connect_clicked(move |_| load_fields());
     let save = button("Save settings", &prefs);
     let t = tx.clone();
+    let save_status = status.clone();
     save.connect_clicked(move |_| {
         let Some(expected) = loaded.borrow().clone() else {
             return;
@@ -74,9 +75,13 @@ pub fn build(stack: &gtk::Stack, status: &gtk::Label, tx: &async_channel::Sender
                 ["automatic", "copy-only", "review"][delivery.selected() as usize].to_string(),
             ),
         ];
-        let path = path.clone();
+        if let Err(error) = settings::update_many(&path, &expected, &updates) {
+            save_status.set_text(&error.to_string());
+            return;
+        }
+        // Refresh the conflict baseline after our own successful save.
+        *loaded.borrow_mut() = settings::read(&path).ok().map(|(text, _)| text);
         task(t.clone(), move || {
-            settings::update_many(&path, &expected, &updates)?;
             let message = if ipc::request(RequestKind::ConfigReload).is_ok() {
                 "Settings saved; model changes apply next session"
             } else {
