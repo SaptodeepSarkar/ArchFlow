@@ -254,7 +254,7 @@ fn llm_read_locked(slot: &mut Option<LlmServer>, secs: u64) -> anyhow::Result<St
 }
 
 /// Cleanup via the resident server (blocking; call from spawn_blocking).
-fn llm_server_cleanup(text: &str, cfg: &Config) -> anyhow::Result<String> {
+fn llm_server_cleanup(text: &str, cfg: &Config) -> anyhow::Result<(String, bool)> {
     let (model_dir, adapter_dir) = llm_paths(cfg);
     if model_dir.is_empty() || !std::path::Path::new(&model_dir).exists() {
         anyhow::bail!("no cleanup model dir");
@@ -277,10 +277,10 @@ fn llm_server_cleanup(text: &str, cfg: &Config) -> anyhow::Result<String> {
     if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
         anyhow::bail!("llm-server error: {err}");
     }
-    Ok(v.get("text")
+    Ok((v.get("text")
         .and_then(|t| t.as_str())
         .unwrap_or(text)
-        .to_string())
+        .to_string(), v.get("protocol").and_then(|p| p.as_str()) == Some("v6")))
 }
 
 /// One-shot fallback: single `vaani_inject.py` call (cold load each time).
@@ -401,7 +401,11 @@ fn llm_cleanup_one(text: &str, cfg: &Config) -> CleanupResult {
         None => match v6_cleanup(text) {
             Some(s) => CleanupResult { text: s, outcome: "v6_native_accepted" },
             None => match llm_server_cleanup(text, cfg) {
-            Ok(s) if !s.is_empty() && crate::cleanup::semantic_ok(text, &s) => CleanupResult {
+            Ok((s, true)) if !s.is_empty() && cfg.general.review_before_insertion => CleanupResult {
+                text: s,
+                outcome: "v6_review_required",
+            },
+            Ok((s, _)) if !s.is_empty() && crate::cleanup::semantic_ok(text, &s) => CleanupResult {
                 text: s,
                 outcome: "sidecar_accepted",
             },
@@ -447,7 +451,109 @@ fn one_shot_result(text: &str, cfg: &Config, prefix: &'static str) -> CleanupRes
 
 #[cfg(test)]
 mod tests {
-    use super::format_chunks;
+    use super::{format_chunks, llm_cleanup, reap_idle_llm};
+    use vaani_core::config::Config;
+
+    struct EvalRow {
+        source: String,
+        target_text: String,
+    }
+
+    impl EvalRow {
+        fn from_json(line: &str) -> Self {
+            let value: serde_json::Value =
+                serde_json::from_str(line).expect("parse evaluation row");
+            let source = value
+                .get("source")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| {
+                    value
+                        .get("utterance")
+                        .and_then(|u| u.get("raw_stt"))
+                        .and_then(serde_json::Value::as_str)
+                })
+                .expect("evaluation row has a source transcript");
+            let target_text = value
+                .get("target_text")
+                .and_then(serde_json::Value::as_str)
+                .expect("evaluation row has target_text");
+            Self {
+                source: source.into(),
+                target_text: target_text.into(),
+            }
+        }
+    }
+
+    fn load_eval_sample(path: &str, limit: usize) -> Vec<EvalRow> {
+        let contents = std::fs::read_to_string(path).expect("read private evaluation fixture");
+        let rows = contents.lines().filter(|line| !line.trim().is_empty())
+            .map(EvalRow::from_json).collect::<Vec<_>>();
+        assert!(!rows.is_empty(), "evaluation fixture must not be empty");
+        sample_eval_rows(&rows, limit)
+    }
+
+    fn sample_eval_rows(rows: &[EvalRow], limit: usize) -> Vec<EvalRow> {
+        let count = if limit == 0 { rows.len() } else { rows.len().min(limit) };
+        (0..count)
+            .map(|index| rows[index * rows.len() / count].clone())
+            .collect()
+    }
+
+    #[test]
+    fn runtime_evaluation_sampling_supports_full_suites() {
+        let rows = (0..11).map(|index| EvalRow {
+            source: index.to_string(), target_text: String::new(),
+        }).collect::<Vec<_>>();
+        assert_eq!(sample_eval_rows(&rows, 0).len(), 11);
+        assert_eq!(sample_eval_rows(&rows, 50).len(), 11);
+        let sample = sample_eval_rows(&rows, 3);
+        assert_eq!(sample.len(), 3);
+        assert_eq!(sample.iter().map(|row| row.source.parse::<usize>().unwrap())
+            .collect::<Vec<_>>(), vec![0, 3, 7]);
+        assert!(sample_eval_rows(&[], 0).is_empty());
+    }
+
+    impl Clone for EvalRow {
+        fn clone(&self) -> Self {
+            Self {
+                source: self.source.clone(),
+                target_text: self.target_text.clone(),
+            }
+        }
+    }
+
+    struct Aggregate {
+        rows: usize,
+        exact: usize,
+        accepted: usize,
+        other_route: usize,
+    }
+
+    fn evaluate(rows: &[EvalRow], model: &str, adapter: &str) -> Aggregate {
+        let mut config = Config::default();
+        config.general.residency_profile = "balanced".into();
+        config.general.review_before_insertion = false;
+        config.cleanup.model_path = model.into();
+        config.cleanup.adapter_path = adapter.into();
+        config.recognition.server_idle_secs = 60;
+        let mut aggregate = Aggregate {
+            rows: rows.len(),
+            exact: 0,
+            accepted: 0,
+            other_route: 0,
+        };
+        for row in rows {
+            let result = llm_cleanup(&row.source, &config);
+            aggregate.exact += usize::from(result.text == row.target_text);
+            if result.outcome == "sidecar_accepted" {
+                aggregate.accepted += 1;
+            } else {
+                aggregate.other_route += 1;
+            }
+        }
+        reap_idle_llm(0);
+        aggregate
+    }
 
     #[test]
     fn long_format_input_is_bounded_without_losing_words() {
@@ -461,5 +567,73 @@ mod tests {
             .iter()
             .all(|chunk| chunk.split_whitespace().count() <= 72));
         assert_eq!(chunks.join(" "), source);
+    }
+
+    /// Opt-in real sidecar smoke for an already-qualified local candidate.
+    /// It never inserts text, writes configuration, or prints transcript data.
+    #[test]
+    #[ignore = "requires local formatter base/adapter and CUDA; opt-in runtime qualification"]
+    fn v6_candidate_runs_through_controller_sidecar_and_rust_guard() {
+        let model = std::env::var("VAANI_V6_RUNTIME_TEST_MODEL")
+            .expect("set VAANI_V6_RUNTIME_TEST_MODEL to the local base model");
+        let adapter = std::env::var("VAANI_V6_RUNTIME_TEST_ADAPTER")
+            .expect("set VAANI_V6_RUNTIME_TEST_ADAPTER to the qualified V6 adapter");
+        let source = "i think we should wait until monday";
+        let expected = "I think we should wait until Monday.";
+        let mut config = Config::default();
+        config.general.residency_profile = "balanced".into();
+        config.cleanup.model_path = model;
+        config.cleanup.adapter_path = adapter;
+        config.recognition.server_idle_secs = 60;
+
+        let result = llm_cleanup(source, &config);
+        reap_idle_llm(0);
+
+        assert_eq!(result.outcome, "sidecar_accepted");
+        assert!(crate::cleanup::semantic_ok(source, &result.text));
+        assert!(result.text != source);
+        assert!(result.text == expected || crate::cleanup::semantic_ok(expected, &result.text));
+    }
+
+    /// Paired frozen-fixture comparison through the production Rust guard.
+    /// Prints aggregate counts only; never logs inputs, targets, IDs, or outputs.
+    #[test]
+    #[ignore = "requires local V5/V6 adapters and frozen private formatter fixtures"]
+    fn v5_v6_paired_frozen_runtime_evaluation() {
+        let model = std::env::var("VAANI_V6_RUNTIME_TEST_MODEL").expect("base model path");
+        let v5_adapter = std::env::var("VAANI_V5_RUNTIME_TEST_ADAPTER").expect("V5 adapter path");
+        let v6_adapter = std::env::var("VAANI_V6_RUNTIME_TEST_ADAPTER").expect("V6 adapter path");
+        let full_suite = match std::env::var("VAANI_RUNTIME_FULL_SUITES").as_deref() {
+            Ok("1") => true,
+            Err(std::env::VarError::NotPresent) => false,
+            _ => panic!("VAANI_RUNTIME_FULL_SUITES must be 1 or unset"),
+        };
+        let fixtures = [
+            ("contract-heldout", "VAANI_RUNTIME_CONTRACT_FIXTURE", 40),
+            ("real-derived", "VAANI_RUNTIME_REAL_FIXTURE", 40),
+            ("challenge", "VAANI_RUNTIME_CHALLENGE_FIXTURE", 18),
+        ];
+        let mut suite_rows = Vec::new();
+        for (name, variable, limit) in fixtures {
+            let path = std::env::var(variable).expect("fixture path");
+            suite_rows.push((name, load_eval_sample(&path, if full_suite { 0 } else { limit })));
+        }
+
+        for (name, rows) in suite_rows {
+            let v5 = evaluate(&rows, &model, &v5_adapter);
+            let v6 = evaluate(&rows, &model, &v6_adapter);
+            println!(
+                "suite={name} rows={} v5_exact={}/{} v5_accepted={} v5_other_route={} v6_exact={}/{} v6_accepted={} v6_other_route={}",
+                v5.rows,
+                v5.exact,
+                v5.rows,
+                v5.accepted,
+                v5.other_route,
+                v6.exact,
+                v6.rows,
+                v6.accepted,
+                v6.other_route,
+            );
+        }
     }
 }

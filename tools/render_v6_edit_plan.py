@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 EMOJIS = {"LAUGH": "😂", "THUMBS_UP": "👍", "CELEBRATION": "🎉", "HEART": "❤️", "OTHER_SUPPORTED": "🙂"}
+EMOJI_PHRASES = {"LAUGH": ("laughing", "emoji"), "THUMBS_UP": ("thumbs", "up", "emoji"),
+                 "CELEBRATION": ("celebration", "emoji"), "HEART": ("heart", "emoji")}
 PUNCT = {"COMMA": ",", "PERIOD": ".", "QUESTION_MARK": "?", "EXCLAMATION_MARK": "!", "COLON": ":", "SEMICOLON": ";"}
 KNOWN_CASE = {"html": "HTML", "css": "CSS", "mcp": "MCP", "ctc": "CTC", "llm": "LLM", "rnnt": "RNNT", "cuda": "CUDA", "api": "API", "url": "URL", "ct2": "CT2", "neovim": "Neovim"}
 
@@ -57,7 +60,29 @@ def render(plan: dict) -> str:
     if tokens and tokens[0].lower().startswith("case") and tokens[0][4:].isdigit():
         prefix, tokens = tokens[0].capitalize(), tokens[1:]
     if plan.get("emoji_intent", "NONE") != "NONE":
-        return f"{prefix} {EMOJIS.get(plan['emoji_intent'], '🙂')}".strip()
+        intent = plan["emoji_intent"]
+        categories = plan.get("metadata", {}).get("categories", [])
+        if "explicit-formatting" not in categories:
+            return f"{prefix} {EMOJIS.get(intent, '🙂')}".strip()
+        phrase = EMOJI_PHRASES.get(intent)
+        replacement = EMOJIS.get(intent, "🙂")
+        replaced = False
+        if phrase:
+            folded = [token.casefold() for token in tokens]
+            for start in range(len(tokens) - len(phrase) + 1):
+                if tuple(folded[start:start + len(phrase)]) == phrase:
+                    tokens[start:start + len(phrase)] = [replacement]
+                    replaced = True
+                    break
+        if not replaced:
+            return f"{prefix} {replacement}".strip()
+        text = join_tokens(tokens)
+        if text:
+            text = text[:1].upper() + text[1:]
+        mark = PUNCT.get(plan.get("punctuation_after", {}).get(str(len(plan["source_tokens"]) - 1), ""))
+        if mark and not text.endswith(tuple(PUNCT.values())):
+            text += mark
+        return f"{prefix} {text}".strip()
     structure = plan.get("structure", "PROSE")
     if structure == "ORDERED_LIST":
         items, current = [], []
@@ -83,10 +108,17 @@ def render(plan: dict) -> str:
             continue
         kept.append(token)
     if structure == "UNORDERED_LIST":
-        pivot = next((i for i, t in enumerate(kept) if t.lower() in {"need", "needs"}), None)
-        if pivot is not None:
-            head = join_tokens(kept[:pivot + 1]); items = [x for x in kept[pivot + 1:] if x.casefold() != "and"]
-            result = preserve_case(head) + ":\n" + "\n".join(f"- {preserve_case(normalize_token(x))}" for x in items)
+        folded = [t.casefold() for t in kept]
+        if folded[:2] == ["please", "list"]:
+            head_tokens, item_tokens = kept[:2], kept[2:]
+        elif folded[:4] == ["make", "a", "list", "of"]:
+            head_tokens, item_tokens = kept[:3], kept[4:]
+        else:
+            head_tokens = item_tokens = []
+        if head_tokens and item_tokens:
+            items = [x for x in item_tokens if x.casefold() != "and"]
+            head = preserve_case(join_tokens(head_tokens))
+            result = head + ":\n" + "\n".join(f"- {preserve_case(normalize_token(x))}" for x in items)
             return f"{prefix} {result}".strip()
     text = join_tokens(kept)
     if text: text = text[:1].upper() + text[1:]
@@ -116,11 +148,28 @@ def render(plan: dict) -> str:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(); ap.add_argument("path", type=Path); args = ap.parse_args()
-    for line in args.path.read_text().splitlines():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", type=Path, required=True)
+    ap.add_argument("--report", type=Path, required=True)
+    args = ap.parse_args()
+    rows = exact = 0
+    digest = hashlib.sha256()
+    for line in args.input.read_text(encoding="utf-8").splitlines():
         if line.strip():
             row = json.loads(line)
-            print(json.dumps({"id": row.get("id"), "rendered": render(row), "target": row.get("target_text")}, ensure_ascii=False))
+            rows += 1
+            digest.update(hashlib.sha256(str(row.get("id", "")).encode("utf-8")).digest())
+            exact += int(render(row) == row.get("target_text"))
+    report = {
+        "schema_version": 1,
+        "rows": rows,
+        "exact": exact,
+        "exact_rate": exact / max(1, rows),
+        "evaluated_row_ids_sha256": digest.hexdigest(),
+    }
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.report.write_text(json.dumps(report, sort_keys=True) + "\n", encoding="utf-8")
+    print(json.dumps(report, sort_keys=True))
 
 
 if __name__ == "__main__": main()

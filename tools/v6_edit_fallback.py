@@ -9,7 +9,7 @@ try:
 except ImportError:
     from v6_semantic_fallback import classify
 
-TOKEN = re.compile(r"https?://[^\s]+|/[^\s]+|[A-Za-z0-9_][A-Za-z0-9_.-]*|[^\w\s]")
+TOKEN = re.compile(r"https?://[^\s]+(?<![.,!?;:])|/[^\s]+(?<![.,!?;:])|[A-Za-z0-9_](?:[A-Za-z0-9_-]|\.(?=[A-Za-z0-9]))*|[^\w\s]")
 FILLERS = {"uh", "um", "erm", "hmm", "mmm"}
 FUNCTION_DUPES = {"to", "the", "a", "an", "is", "are", "of"}
 WH = {"who", "what", "where", "when", "why", "how", "which"}
@@ -55,6 +55,10 @@ def plan(source: str) -> dict:
 
 
 if __name__ == "__main__":
-    import argparse, json
-    ap = argparse.ArgumentParser(); ap.add_argument("text"); args = ap.parse_args()
-    print(json.dumps(plan(args.text), ensure_ascii=False))
+    # Transcript text may arrive only through a transient stdin buffer; it must
+    # never appear in argv or a diagnostic message.
+    import json
+    import sys
+
+    text = sys.stdin.buffer.read().decode("utf-8")
+    print(json.dumps(plan(text), ensure_ascii=False))

@@ -17,7 +17,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -27,17 +26,53 @@ import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+/**
+ * Final STT evidence supplied by the Android backend.
+ *
+ * The platform recognizer does not expose word timing or confidence. The
+ * bundled whisper.cpp binding exposes segment timings only. Those absences are
+ * represented as empty collections rather than invented values, so V6 can use
+ * available timing evidence without treating it as universal.
+ */
+data class SttSegmentEvidence(
+    val segmentId: Int,
+    val startMs: Long,
+    val endMs: Long,
+    val text: String,
+)
+
+data class SttFinalEvidence(
+    val text: String,
+    val backend: String,
+    val segments: List<SttSegmentEvidence> = emptyList(),
+)
+
 interface SttSession {
-    fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit = {})
+    fun start(onReady: () -> Unit, onResult: (SttFinalEvidence) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit = {})
     fun stop()
     fun cancel()
+}
+
+/**
+ * Reject callbacks from an STT attempt that has been cancelled or superseded.
+ *
+ * Native cancellation is cooperative: an audio or decode callback can already
+ * be queued when the UI begins another attempt.  The receiving service owns a
+ * fence and must check it before formatting or inserting anything.
+ */
+internal class SttSessionFence {
+    private var generation = 0L
+
+    @Synchronized fun begin(): Long = ++generation
+    @Synchronized fun invalidate(): Long = ++generation
+    @Synchronized fun isCurrent(candidate: Long): Boolean = candidate == generation
 }
 
 /** Android's installed on-device recognizer is the usable no-network STT baseline. */
 class OnDeviceStt(private val context: Context) : SttSession {
     private var recognizer: SpeechRecognizer? = null
 
-    override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
+    override fun start(onReady: () -> Unit, onResult: (SttFinalEvidence) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
         if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             onError("Microphone permission is not granted")
             return
@@ -50,7 +85,10 @@ class OnDeviceStt(private val context: Context) : SttSession {
             speech.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) = onReady()
                 override fun onResults(results: Bundle) {
-                    onResult(results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
+                    onResult(SttFinalEvidence(
+                        text = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty(),
+                        backend = "android-on-device",
+                    ))
                 }
                 override fun onError(error: Int) = onError("Speech recognition error ($error)")
                 override fun onBeginningOfSpeech() = Unit
@@ -83,7 +121,7 @@ class NativeWhisperStt(
     private var recording = false
     private var job: Job? = null
 
-    override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
+    override fun start(onReady: () -> Unit, onResult: (SttFinalEvidence) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
         if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             onError("Microphone permission is not granted")
             return
@@ -122,7 +160,16 @@ class NativeWhisperStt(
                     val model = Whisper.loadModel(context, modelFile.absolutePath)
                     try {
                         val result = Whisper.transcribe(model, wav.absolutePath, WhisperConfig(language = language, threads = 2))
-                        withContext(Dispatchers.Main) { onResult(result.text.trim()) }
+                        val segments = result.segments.mapIndexed { index, segment ->
+                            SttSegmentEvidence(index, segment.startMs, segment.endMs, segment.text)
+                        }
+                        withContext(Dispatchers.Main) {
+                            onResult(SttFinalEvidence(
+                                text = result.text.trim(),
+                                backend = "whisper.cpp",
+                                segments = segments,
+                            ))
+                        }
                     } finally { Whisper.releaseModel(model) }
                 } finally { wav.delete() }
             } catch (error: Throwable) {
@@ -152,7 +199,6 @@ class NativeWhisperStt(
         recorder?.release()
         recorder = null
         job?.cancel()
-        scope.cancel()
     }
 
     private fun writeWav(file: File, pcm: ByteArray) {

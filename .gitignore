@@ -39,3 +39,6 @@ __pycache__/
 graphify-out/
 .codex/
 .github/
+# Firebase Android secrets - never commit
+android/app/google-services.json
+**/google-services.json

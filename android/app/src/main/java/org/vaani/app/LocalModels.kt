@@ -8,16 +8,21 @@ data class ModelStatus(val sttAvailable: Boolean, val formatterAvailable: Boolea
     val ready: Boolean get() = sttAvailable && formatterAvailable
 }
 
-enum class ModelKind(val directory: String, val filename: String) {
-    STT("stt", "ggml-base.bin"),
-    FORMATTER("formatter", "model.gguf"),
-    FORMATTER_V6("formatter", "model.v6tg"),
+enum class ModelKind(val directory: String, val filename: String, val runtime: String) {
+    STT("stt", "ggml-base.bin", "whisper-ggml"),
+    /** Staged separately from Base; selection remains gated on V6 qualification. */
+    STT_V6("stt", "ggml-v6.bin", "whisper-ggml"),
+    FORMATTER("formatter", "model.gguf", "llama-gguf"),
+    FORMATTER_V6("formatter", "model.v6tg", "vaani-v6-tagger"),
 }
 
 /** Models are user-installed local files; weights are deliberately never bundled in Git. */
 class LocalModels(context: Context) {
     private val root = File(context.filesDir, "models").also { it.mkdirs() }
     fun sttModelFile(): File? = modelFile(ModelKind.STT)
+
+    /** A downloaded V6 Whisper candidate is never silently promoted over Base. */
+    fun v6SttModelFile(): File? = modelFile(ModelKind.STT_V6)
 
     fun formatterModelFile(): File? = modelFile(ModelKind.FORMATTER)
 
@@ -30,6 +35,7 @@ class LocalModels(context: Context) {
             File(root, "stt/ggml-base.bin"),
             File(root, "stt/model.bin"),
         )
+        ModelKind.STT_V6 -> listOf(File(root, "stt/ggml-v6.bin"))
         ModelKind.FORMATTER -> listOf(
             File(root, "formatter/model.gguf"),
             File(root, "formatter/model.bin"),

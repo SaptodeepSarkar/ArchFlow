@@ -91,3 +91,229 @@ training runs or promotion claims.
   host conversion/load/decode compatibility. It does not compare WER or
   timestamps, quantize the model, install Android assets, or measure Android
   memory, latency, or accuracy.
+
+### Reproduced f16 export follow-up (2026-09-26)
+
+- **Changed variable:** artifact reproduction only; the fused source
+  Safetensors/checkpoint and the pinned whisper.cpp converter path remain the
+  authority. CT2 input remains excluded.
+- **Actual result:** the checkpoint-derived tokenizer vocabulary matched the
+  retained compatible Whisper vocabulary exactly (50,258 ordinary tokens). A
+  f16 GGML export was produced at 487,601,984 bytes, SHA-256
+  `0300fec7628fed6c86e5a6cb1f500af0983a733dca55fff8437bdd34452b7f91`.
+  The CPU CLI built from whisper.cpp `a44e078` loaded and decoded a short
+  licensed AMI probe with output suppressed.
+- **Decision:** retain as host compatibility evidence only. The frozen
+  100-clip HF-versus-export WER/timing comparison, quantization comparison,
+  Android ABI installation, and physical-device memory/latency measurements
+  remain required before any Android STT replacement.
+
+## Licensed real-derived pilot 003 (blocked before execution, 2026-09-24)
+
+- **Hypothesis:** a deterministic non-overlapping third AMI batch (offset 50)
+  broadens real disfluency coverage without contaminating pilots 001/002.
+- **Changed variable:** candidate offset only; source release, model, decoder,
+  schema, and 25-clip cap unchanged.
+- **Dataset/split (planned):** AMI ES2002a ranked candidate offset 50, at most
+  25 clips / 300 s; `needs_human_review`, `split=null` only.
+- **Resource estimate:** same 300 s / 1 GiB disk / 10-minute CPU budget as
+  pilots 001/002. CPU `int8` preselected (CUDA failed before decoding before).
+- **Abort condition (triggered):** the authorized precondition — already-cached
+  AMI manual-annotation v1.6.2 package plus ES2002a Mix-Headset audio under
+  `/tmp/vaani-v6-ami-pilot/` — is not met. `/tmp` no longer contains the pilot
+  directory, the combined review queue, or the challenge file, and a
+  repository-wide search found no surviving AMI annotation/audio artifact
+  (`dialogueActs`, `ES2002a`, `ami-*` all absent outside `node_modules`/`.git`).
+  Re-acquiring the pinned AMI files would be a fresh download, which the
+  bounded authorization forbids, so no STT ran and no manifest was produced.
+- **Safe verifications completed instead (no downloads, no training):**
+  deterministic 18-case challenge regenerated to `/tmp` (hard-coded cases,
+  eval-only); surviving 48-row synthetic seed re-validated with challenge
+  exclusion — 0 errors, 48 `needs_human_review`, 0 collisions; splitter still
+  yields train 0 / dev 0 / test 0. Frozen CT2 model and faster-whisper 1.2.1
+  (Cozy venvs) confirmed present, so the only missing input is the AMI source
+  package. Wall time and peak RSS: not captured, none claimed.
+- **Decision:** pilot 003 retained as planned-but-unexecuted; approved counts
+  unchanged at 0/0/0. Next step needs an explicit re-acquisition authorization
+  for the pinned AMI annotation/audio files (or a decision to source offset-50
+  equivalents elsewhere) before any STT ingest is attempted.
+
+## Synthetic control-candidate scale check (2026-09-25)
+
+- **Status:** completed as a review-queue and schema-scale check only; no
+  formatter training or promotion was run.
+- **Hypothesis:** the deterministic source-grounded control generator can
+  populate a 50,000-row synthetic queue without challenge contamination or
+  cross-group template leakage.
+- **Changed variable:** corpus size only: 50,001 control edit-plan rows were
+  generated with seed `20260925`; one phrase colliding with the frozen
+  18-case challenge was excluded before v2 conversion.
+- **Actual result:** `tools/import_v6_control_candidates.py` produced 50,000
+  `synthetic` rows in `/tmp/v6-foundation-synthetic-50000.jsonl`. The
+  foundation validator reported 50,000 rows, 0 errors, 0 train/dev/test rows,
+  and 50,000 `needs_human_review` rows. The source edit-plan input separately
+  passed its validator with 50,001 rows and 0 errors.
+- **Leakage control:** conversion derives `group_id` from the same token
+  bucket used by the foundation validator, so source pairs that the validator
+  compares for near-duplication cannot be assigned to distinct later splits.
+  The importer accepts a frozen evaluation manifest and excludes matching raw
+  sources before writing output.
+- **Decision:** retain the queue outside Git as deterministic synthetic review
+  proposals. It counts toward neither the 50,000 approved synthetic target
+  nor any training split until risk-stratified human review accepts rows.
+
+## AMI 50k source acquisition (started 2026-09-25)
+
+- **Status:** source acquisition running; no real-derived formatter row is
+  approved or eligible for training.
+- **Source and terms:** fresh AMI public manual annotation v1.6.2 from the
+  University of Edinburgh source, SHA-256
+  `b56e5babb2496b8795deeeda7e71178d7fbc9963f94276cf2a3f4b56ebbc9f9d`.
+  The official download page states CC BY 4.0 for the signals and
+  transcription.
+- **Inventory:** the locally extracted annotations have 139 meetings, 687
+  word-transcript files, and 66,533 eligible dialogue-act spans after the
+  existing 3--30 lexical-token / <=15-second source filter. A deterministic
+  round-robin selector wrote a 50,000-slice source-only plan spanning all 139
+  meetings, plus 139 official Mix-Headset WAV URLs.
+- **Current boundary:** the plan is stored only under the non-Git V6 data
+  workspace. Each planned row still needs source-audio slicing, frozen V5
+  final-STT inference with real metadata, semantic target review, and
+  leakage-safe splitting. Source transcript text is not formatter ground
+  truth, and no training was started.
+
+## Fresh AMI target-STT pilot (2026-09-25)
+
+- **Status:** completed as a 25-row source/STT/review-pipeline verification;
+  all rows remain `needs_human_review`, unsplit, and untrained.
+- **Input:** fresh ES2002a Mix-Headset WAV from the new official acquisition,
+  SHA-256 `9c76866990fcc8b84006dc32d273ad99df439090b748ebe72103bb78c3216ee7`.
+  The bounded dialogue-act selector chose 25 priority-cue source spans.
+- **Target STT:** deployed Cozy CT2 via faster-whisper 1.2.1 on CPU `int8`.
+  The output has 25 schema-valid rows, 80.320 seconds of selected source
+  audio, 229 genuine word records, and 27 actual segment metadata records.
+- **Review triage:** 13/25 rows are `reference_content_mismatch` at the 0.85
+  LCS risk threshold and are critical review priority; the remaining 12 are
+  normal priority. This flags risk only and did not alter targets or approve
+  any row.
+- **Decision:** retain the review queue in the non-Git V6 workspace. The next
+  audio batches must follow this same source → final-STT → triage → human
+  review path; a source reference must not be copied into a formatter target.
+
+## AMI scale-ingestion continuation (updated 2026-09-26)
+
+- **Current revalidated output:** 29,092 schema-valid `real_derived`
+  candidates, with 285,536 genuine word records and 32,077 segment metadata
+  records. The non-Git scale manifest, plan, and 139 complete WAVs are present.
+- **Validation:** the restored deterministic 18-case evaluation artifact and
+  the 29,092-row manifest validate with zero structural or challenge-collision
+  errors. No row entered a training split or received automated approval.
+- **Review triage:** 17,267/29,092 rows meet the lexical
+  `reference_content_mismatch` risk flag; the other 11,825 remain normal
+  priority. This is a review priority, not a quality score.
+- **Quality gate:** empty/no-speech hypotheses are excluded by
+  `tools/ingest_v6_ami_scale.py`; duplicate raw-STT hypotheses keep only the
+  first source instance.
+- **GPU transition:** CUDA probing reported one RTX 3050 device, but the
+  CTranslate2 wheel required CUDA 12's `libcublas.so.12`, while the default
+  toolkit exposed CUDA 13. Using the local CUDA-12 compatibility runtime at
+  `/usr/local/lib/ollama/cuda_v12` plus system cuDNN 9 passed a real Cozy
+  smoke transcription. The first full `cuda` / `float16` batch retained 65
+  rows (10 empty hypotheses excluded). Future rows record `device` and
+  `compute_type` in STT metadata. After overnight source acquisition, 1,297
+  manifest rows carry explicit CUDA/float16 metadata; 3,915 older rows were
+  generated by the preceding CPU/int8 batches. Six one-hour GPU batches added
+  535/604, 577/684, 568/708, 605/789, 620/838, and 538/774 candidates from
+  selected slices, respectively. Recent passes added 559/820 (136 empty, 121
+  exact and four near duplicates filtered), 478/767 (143 empty, 141 exact,
+  five near duplicates), and 569/884 (151 empty, 159 exact, five near
+  duplicates). The newest two-hour batch added 1,445 candidates from 1,844
+  selected slices (187 empty, 207 exact duplicates, and five near duplicates
+  filtered), followed by 1,458 candidates from 1,946 selected slices (226
+  empty, 254 exact duplicates, and eight near duplicates filtered).
+- **Offline guard:** the ingester now sets `HF_HUB_OFFLINE=1` and passes
+  `local_files_only=True` to faster-whisper. A real CUDA batch passed under
+  that guard, preventing remote revision substitution or Hub traffic.
+- **Cross-group duplicate gate:** validator caught one near-duplicate across
+  speakers. The later instance was removed from the non-Git review manifest;
+  the ingester now filters cross-group raw-STT near-duplicates at the same
+  0.90 token-similarity threshold before writing each subsequent manifest.
+- **Latest GPU pass (2026-09-26):** selected 2,000 slices (7,199.821 audio
+  seconds) using CUDA `float16`; retained 1,442 additional candidates while
+  excluding 254 empty hypotheses, 292 exact duplicates, and 12 cross-group
+  near duplicates. Total GPU/float16 rows: 10,691; prior CPU/int8 rows: 3,915.
+  The resulting 14,606-row manifest passed schema/challenge validation with
+  zero errors. All candidates remain `needs_human_review`; none was trained.
+- **Following GPU pass:** selected 2,000 slices (7,090.892 audio seconds)
+  using CUDA `float16`; retained 1,367 candidates while excluding 288 empty
+  hypotheses, 329 exact duplicates, and 16 cross-group near duplicates. The
+  15,973-row manifest validates with zero errors; no rows were approved or
+  trained.
+- **Third consecutive GPU pass:** selected 2,000 slices (6,832.395 audio
+  seconds) using CUDA `float16`; retained 1,301 new candidates while excluding
+  312 empty hypotheses, 368 exact duplicates, and 19 near duplicates. The
+  17,274-row manifest validates with zero errors; all rows remain unreviewed.
+- **Fourth GPU pass:** selected 2,000 slices (6,610.394 audio seconds) using
+  CUDA `float16`; retained 1,218 new candidates while excluding 349 empty
+  hypotheses, 412 exact duplicates, and 21 near duplicates. The resulting
+  18,492-row manifest validates with zero errors and remains review-only.
+- **Fifth GPU pass:** selected 2,000 slices (6,373.357 audio seconds) using
+  CUDA `float16`; retained 1,164 new candidates while excluding 371 empty
+  hypotheses, 444 exact duplicates, and 21 near duplicates. This run exercised
+  the new transcript-free skip ledger and persisted 836 skipped source IDs.
+  The 19,656-row manifest validates with zero errors; all candidates remain
+  unreviewed.
+- **Sixth GPU pass:** with the skip ledger loaded, selected 2,000 later slices
+  (6,308.149 audio seconds) using CUDA `float16`; retained 1,892 candidates
+  while excluding 35 empty hypotheses, 69 exact duplicates, and four near
+  duplicates. The ledger now contains 944 source-ID outcomes. The resulting
+  21,548-row manifest validates with zero errors; all rows remain unreviewed.
+- **Seventh GPU pass:** resumed after an interrupted terminal handle and
+  completed on CUDA `float16`. It retained 1,932 candidates, increasing the
+  manifest to 23,480 rows. The ID-only skip ledger rose from 1,022 to 1,090
+  entries. Revalidation found zero structural or challenge-collision errors;
+  all rows remain `needs_human_review`.
+- **Eighth GPU pass:** retained 1,888 further CUDA `float16` candidates and
+  advanced the ID-only skip ledger to 1,202 entries. The resulting 25,368-row
+  manifest validates with zero structural or challenge-collision errors; all
+  candidates remain `needs_human_review`.
+- **Ninth GPU pass:** selected 2,000 further source slices on CUDA `float16`;
+  1,872 retained candidates advanced the manifest to 27,240 rows and the
+  ID-only skip ledger to 1,330 entries. The manifest revalidates with zero
+  structural or challenge-collision errors; 23,325 rows carry explicit
+  CUDA/float16 metadata and the preceding 3,915 rows lack that legacy field.
+  All candidates remain `needs_human_review`; none entered a split or training.
+- **Tenth GPU pass:** selected 2,000 further source slices on CUDA `float16`;
+  1,852 retained candidates advanced the manifest to 29,092 rows and the
+  ID-only skip ledger to 1,478 entries. The manifest revalidates with zero
+  structural or challenge-collision errors; 25,177 rows carry explicit
+  CUDA/float16 metadata and 3,915 legacy rows lack device/compute fields. All
+  candidates remain `needs_human_review`; none entered a split or training.
+
+## Codex session 01a0d4ac continuation and reconciliation (2026-09-25)
+
+- **Prior session:** Codex session `01a0d4ac-56d9-7e21-b411-8f461cbd228f`
+  (`Train V6 LLM: 50k real + 50k synth`) ran 2026-09-24/25, ending at run 19/20
+  of a serial decoder loop with a claimed 2,324 committed + 2,364 uncommitted
+  rows. No training, approval, split, or push occurred — correctly, per the V6
+  human-review gate.
+- **Initial surviving evidence (revalidated 2026-09-25):** 48-row foundation
+  seed; 50,000-row synthetic control queue; 50-row AMI pilot; one verified
+  ES2002a WAV; and the AMI v1.6.2 annotation zip + CC BY 4.0 provenance.
+  These were the files visible before the later workspace-state refresh.
+- **Durability fix:** the volatile `/tmp/v6-foundation-synthetic-50000.jsonl`,
+  control corpus, challenge, and seed-verified files were copied to
+  `~/.cache/vaani-v6-training/synthetic/` (non-Git). The synthetic queue is
+  also deterministically regenerable via
+  `tools/build_v6_formatter_dataset.py --count 50000 --seed 20260925` plus
+  `tools/import_v6_control_candidates.py`.
+- **Later state refresh:** the scale plan, 139 complete WAVs, and a 25,368-row
+  real-derived manifest became visible again and validate against the restored
+  challenge artifact with zero errors. The current dataset-status record uses
+  that stronger evidence. Approved counts and train/dev/test counts remain
+  0/0/0.
+- **Decision:** no model trained or pushed; training stays blocked on blinded
+  human review (`V6_REVIEW_PROTOCOL.md` + `tools/apply_v6_reviews.py`). Next
+  operations are bounded CPU `int8` ingestion from the retained source plan,
+  human review before any split/training, and an MDC credential for Common
+  Voice plus a legal decision for SLR104 before those sources are touched.
