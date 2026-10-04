@@ -61,6 +61,20 @@ non-English text efficiently. [OpenAI Whisper model card](https://github.com/ope
 
 ## Current Android evidence
 
+Environment check on 2026-09-30 found an Android emulator attached
+(`emulator-5554`, x86_64); it is not a physical arm64 phone. The complete
+Android unit suite was recompiled and rerun (21 tests, zero failures), including
+V6 tokenizer, local inference, and tagger tests. This validates JVM behavior,
+not native STT accuracy, physical-device memory/latency, or V6 model quality.
+No V6 STT artifact has been installed or selected.
+
+Availability recheck on 2026-10-03: `adb devices -l` returned no attached
+devices. The earlier emulator check above is historical; currently there is
+neither an emulator for app-integration smoke tests nor a physical arm64 device
+for resource/latency qualification. Recheck device availability before
+planning an Android runtime test; do not treat host export tests as device
+qualification.
+
 `NativeWhisperStt` uses 16-kHz mono PCM, writes a private temporary WAV, and
 runs the user-installed model via the ARM64 `whisper-android` binding. That
 binding is a thin `whisper.cpp` wrapper; its API returns final text and actual
@@ -84,6 +98,39 @@ Whisper artifacts. [whisper.cpp README](https://github.com/ggml-org/whisper.cpp/
 and its [Android sample](https://github.com/ggml-org/whisper.cpp/blob/master/examples/whisper.android/README.md)
 is a useful API/build reference. This is portability evidence, not an Android
 performance claim for Vaani.
+
+## Contextual vocabulary API check — 2026-10-04
+
+The Android app pins `dev.ffmpegkit-maintained:whisper-android:1.0.0` in
+`android/app/build.gradle.kts`. Inspection of the resolved AAR's public JVM
+API confirms `WhisperConfig` exposes only `language`, `translate`, `threads`,
+`maxSegmentLength`, and `printTimestamps`; it has no `initial_prompt`,
+hotword, or decoder-context parameter. The upstream package documents the
+same file-backed `Whisper.transcribe(model, audioPath, config)` interface
+([upstream API](https://github.com/ffmpegkit-maintained/whisper)). Therefore
+the current Android path cannot use a user vocabulary to bias Whisper's
+acoustic decoding.
+
+Android's `PersonalizationStore` currently applies spoken-alias to canonical
+spelling replacements after recognition and formatting in
+`VoiceOverlayService` / `VaaniImeService`. That is useful for a user-known
+term, but it is a deterministic spelling correction, not an STT vocabulary
+gain. Keep those two measurements separate.
+
+The first Linux human-speech diagnostic (32 fixed AMI dev rows) compared the
+same V5 CT2 model with the global mobile technical-term pack off/on. WER moved
+from 17.9028% to 25.5754%; that suite had no annotated protected terms, so it
+cannot measure whether relevant names improve. This is a warning against
+blindly applying a broad global list, not a rejection of targeted hints. The
+full evidence and privacy-safe reports are recorded in
+[`V6_STT_TRAINING.md`](V6_STT_TRAINING.md). Next, use a human-speech suite with
+annotated, held-out relevant terms plus ordinary-speech negatives; test
+bounded/relevance-filtered prompts and report WER, term recall, and false
+substitutions together. If that clears the gate, port by extending or
+replacing the Android JNI binding; pass hints in-memory, never through
+argv/logs, and retain opt-in per-user vocabulary semantics. Do not change
+Android model selection based on the diagnostic: mobile prompting needs its
+own fixed-audio and physical-device qualification.
 
 ## Conversion and qualification gates
 
@@ -130,16 +177,83 @@ performance claim for Vaani.
   tokenizer, WER, timing, memory, and latency gates still decide promotion.
 - The existing 923 MiB float export is a format/load/decode sanity result only.
   It is not a mobile artifact and must not be installed or benchmarked as one.
-- Fine-tuning, quantization, or a different Whisper architecture is not
-  authorized by this document until the dataset's human-review gate is met.
+- Fine-tuning, quantization, or a different Whisper architecture must be
+  backed by license/provenance checks, speaker-isolated splits, and automated
+  held-out quality and regression gates. The active V6 path does not require
+  per-row user review: ambiguous or mismatched examples are automatically
+  excluded and are never silently promoted as gold.
 
 ## Immediate next experiment
 
-Run the frozen fused-checkpoint export through the existing 100-clip
-license-cleared suite on host first, capturing text plus segment timing. Only
-if the exported float artifact is numerically sane should a Q8/Q5 Android
-candidate be made and measured on physical hardware.
+The fresh-base, 1,500-step context-heldout candidate completed, but failed its
+vocabulary gate (candidate WER 15.54% vs. 11.86% base; protected-term accuracy
+66.05% vs. 74.07%). Its paired AMI-dev comparison also failed the protected-term
+gate: WER improved from 34.69% to 26.92%, but protected-term accuracy fell from
+33.33% to 11.11% on nine supported terms. It remains quarantined.
+
+The fresh-base 5% vocabulary-sampling candidate has now completed its paired
+evaluation. It improved normalized WER on vocabulary holdout (11.67% to 6.64%),
+AMI dev (34.69% to 23.72%), and ICSI dev (15.78% to 8.43%), but protected-term
+accuracy remained 73.46% on vocabulary holdout (below the 99% requirement) and
+regressed on AMI (33.33% to 22.22%) and ICSI (63.79% to 55.17%). It is
+rejected. The fresh-base 20% sampling follow-up has also completed. On the
+seen-term context holdout, WER improved from 11.6698% to 3.5104%, but protected-
+term accuracy reached only 83.33% (135/162), below the 99% gate. On all 3,121
+AMI dev examples, WER improved from 34.6903% to 25.6326% while protected-term
+accuracy fell from 33.33% (3/9) to 22.22% (2/9). On the 861-row ICSI dev subset,
+WER improved from 15.7783% to 11.4888%, while protected-term accuracy fell
+from 63.79% (37/58) to 58.62% (34/58). The candidate is rejected because it
+regresses protected terms on both speech suites and misses the vocabulary gate;
+do not export or integrate it. The separate ICSI test split remains untouched.
+
+The expanded 12-frame / two-voice synthetic context pack is staged in the
+builder but has not yet been generated. Its clips can test lexical/context
+coverage, not Indian accents or spontaneous speech. After the active formatter
+training releases the local CPU/GPU, generate the expanded pack and retrain a
+fresh-base STT candidate; retain AMI and ICSI dev gates, and add qualified
+Indian-English speech rather than treating synthetic American English as a
+substitute. Export is still gated on every applicable WER and protected-term
+criterion passing.
+
+After training-set development gates pass, pass the exact base checkpoint,
+candidate adapter, and all applicable passing aggregate reports to the exporter.
+It fuses those exact weights transiently, then run the existing license-cleared
+host suite against the resulting float artifact, capturing text plus segment
+timing. Only if the exported float artifact is numerically sane should a
+Q8/Q5 Android candidate be measured on a physical arm64 device. The attached
+emulator can check loading and application integration only; it cannot qualify
+physical memory, latency, or accent accuracy.
 
 `tools/eval_v6_android_stt_export.py` is the aggregate-only host evaluator for
 that step. It holds reference/hypothesis text in memory, reports only WER,
 runtime, duration, and aggregate edit counts, and refuses a short frozen slice.
+Its report includes model and source-manifest hashes; any decode failure now
+leaves an aggregate failure report and exits nonzero, so a partial suite cannot
+be mistaken for a valid WER result. Model hashing is streamed to keep memory
+bounded for large Whisper artifacts.
+
+## Reproducible candidate exporter — 2026-10-02
+
+`tools/export_v6_stt_android.py` now merges the exact evaluated PEFT adapter
+into its HF Whisper base and packages it into a float16 GGML artifact plus an
+Android-slot Q5_0 artifact. It verifies that every supplied passing
+qualification report names the same base and adapter hashes, checks the
+tokenizer ID map against `config.vocab_size`, and requires distinct passing
+`vocab-heldout` and `ami-dev` suite reports (suite IDs are emitted by the paired
+comparison pipeline). It stages converter compatibility files without
+modifying the source, and requires clean source checkouts at the
+previously exercised whisper.cpp converter revision
+`a44e07845931421bb6f3447ce0010ed9dc76a118` and OpenAI Whisper mel-filter
+revision `86098128c0b4f24f0e2aa2994de830614b474227`. Artifacts and a hash
+manifest are written atomically outside Git; conversion output never contains
+audio, references, or hypotheses.
+
+The export script has unit coverage for tokenizer IDs, full-checkpoint
+requirements, report/hash binding, and failed qualification reports. Its
+tokenizer preflight was checked against the existing fused V5 Whisper
+checkpoint: 50,258 BPE tokens plus added tokens resolve to exactly 51,865 IDs,
+matching the checkpoint configuration. The script has **not** been run on the
+active V6 candidate; its merge, conversion, and quantization remain gated on
+passing all paired STT evaluations.
+Even a successful export is only a host artifact candidate, not proof of
+Android WER, metadata parity, memory, or latency.
