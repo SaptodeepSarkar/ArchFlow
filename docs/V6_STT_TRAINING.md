@@ -5,14 +5,21 @@
 No V6 STT model-training process is running. Earlier STT training attempts
 described below are historical: candidates that failed WER or protected-term
 gates remain quarantined, and the deployed recognizer remains V5. The
-synthetic-vocabulary audio builder that could supply a future experiment is
-SIGSTOP-paused at the user's request while research and pipeline safeguards
-are completed. Its output contains 682 WAVs plus the SQLite manifest (683
-files total). The strengthened validator checked all 682 rows: zero audio
-errors, zero untracked files, mono PCM16 at 24 kHz, durations 1.728–4.075 s.
+synthetic-vocabulary audio builder is running on CPU in a bounded user scope
+(2 GiB maximum memory, no swap, 30-minute segments). The recent live count
+was 1,283 committed rows; generation is not a model-training job. An earlier
+validator checked 682 rows: zero audio errors, zero untracked files, mono
+PCM16 at 24 kHz, durations 1.728–4.075 s. Revalidate the complete pack after
+generation before relying on any current integrity claim.
 This remains a partial build against a 1,896-clip target, not a complete
 vocabulary set. Do not infer V6 STT readiness or training progress from these
 files.
+
+Use `bash pipelines/stt/prepare-v6-vocab.sh --help` for the expanded pack's
+guarded preparation entry point. It validates every audio file, requires the
+full 79-term × 12-template × 2-voice grid, and requires prior heldout IDs to
+remain excluded. It refuses an existing destination or a destination inside
+the Git worktree. It does not train or promote a model.
 
 Status: the 1,500-step context-holdout candidate finished from the clean
 Whisper-small base, failed its vocabulary and protected-term gates, and is
