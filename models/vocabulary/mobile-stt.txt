@@ -1,0 +1,43 @@
+# Vaani's Android/mobile Whisper and local-inference vocabulary.
+# Select this opt-in pack with tools/vocabulary-pack.py; it is not a default.
+Android
+Kotlin
+Jetpack Compose
+TensorFlow Lite
+LiteRT
+NNAPI
+ONNX Runtime
+ONNX
+GGML
+GGUF
+whisper.cpp
+CTranslate2
+faster-whisper
+Whisper small
+Whisper base
+Hugging Face
+PyTorch
+LoRA
+PEFT
+int8_float16
+Q4_0
+Q5_0
+Q8_0
+quantization
+model export
+decoder hotwords
+hotwords
+contextual biasing
+word-level timestamps
+end-of-transcript
+end-of-speech
+real-time factor
+WER
+CER
+Hinglish
+Indian English
+Common Voice
+Mozilla Data Collective
+AMI Corpus
+V6
+Vaani
