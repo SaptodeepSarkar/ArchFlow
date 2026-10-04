@@ -7,17 +7,21 @@ outside Git.
 
 ## Findings
 
-### Mozilla Common Voice Spontaneous Speech 4.0 — English
+### Mozilla Common Voice Spontaneous Speech 5.0 — English
 
-The official Mozilla Data Collective catalog lists the English 4.0 release as
-CC0-1.0, ASR audio in MP3, approximately 497.82 MB. This is a directly relevant
-small source for spontaneous English phenomena (fillers, restarts, repetitions),
-but it is not specifically Indian English. It can provide a modest, legally
-clear source contribution after the account holder has accepted the applicable
-MDC terms and pinned the exact release/datasheet. Do not use the MDC catalog
-entry as proof that the local account has accepted terms or acquired the files.
+The official Mozilla Data Collective datasheet lists the English 5.0 release
+as CC0-1.0, ASR audio in MP3, 519.05 MB. The datasheet reports 5,898 clips
+(18.6 hours total; 8.39 hours validated), but only 1,569 validated clips are in
+the train split; the 548 dev and 357 test clips must remain out of training.
+Examples include fillers, restarts, repetitions, and hesitation. This is a
+directly relevant source for spontaneous English, but it is not specifically
+Indian English. The release disallows speaker identification and re-hosting.
+Acquire only after the account holder has accepted applicable MDC terms and
+checked permitted local/off-platform processing; pin the exact release and
+manifest. The datasheet is not proof that the local account accepted terms or
+acquired the files.
 
-Source: [Mozilla Data Collective spontaneous-speech catalog](https://commonvoice.mozilla.org/fr/datasets).
+Source: [Mozilla Data Collective Spontaneous Speech 5.0 English datasheet](https://mozilladatacollective.com/datasets/cmu5nqn1h00vwmi07b4dbk085).
 
 ### NPTEL2020 Indian-English Speech Dataset
 
