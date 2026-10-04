@@ -103,7 +103,11 @@ pub fn encrypt_record<T: Serialize>(
     metadata: &SyncEnvelopeMetadata,
     value: &T,
 ) -> Result<EncryptedEnvelope, SyncCryptoError> {
-    if record_id.is_empty() || record_id.len() > 128 || metadata.writer_device_id.is_empty() || metadata.writer_device_id.len() > 128 {
+    if record_id.is_empty()
+        || record_id.len() > 128
+        || metadata.writer_device_id.is_empty()
+        || metadata.writer_device_id.len() > 128
+    {
         return Err(SyncCryptoError::InvalidEnvelope);
     }
     let serialized = serde_json::to_vec(value).map_err(|_| SyncCryptoError::Serialize)?;
@@ -164,11 +168,15 @@ pub fn decrypt_record<T: for<'a> Deserialize<'a>>(
             Nonce::from_slice(&nonce),
             aes_gcm::aead::Payload {
                 msg: &ciphertext,
-                aad: associated_data(&envelope.record_id, &SyncEnvelopeMetadata {
-                    logical_clock: envelope.logical_clock,
-                    writer_device_id: envelope.writer_device_id.clone(),
-                    revision: envelope.revision,
-                }).as_bytes(),
+                aad: associated_data(
+                    &envelope.record_id,
+                    &SyncEnvelopeMetadata {
+                        logical_clock: envelope.logical_clock,
+                        writer_device_id: envelope.writer_device_id.clone(),
+                        revision: envelope.revision,
+                    },
+                )
+                .as_bytes(),
             },
         )
         .map_err(|_| SyncCryptoError::Decrypt)?;
@@ -181,7 +189,10 @@ pub fn decrypt_record<T: for<'a> Deserialize<'a>>(
 }
 
 fn associated_data(record_id: &str, metadata: &SyncEnvelopeMetadata) -> String {
-    format!("{AAD_PREFIX}{record_id}:{}:{}:{}", metadata.logical_clock, metadata.writer_device_id, metadata.revision)
+    format!(
+        "{AAD_PREFIX}{record_id}:{}:{}:{}",
+        metadata.logical_clock, metadata.writer_device_id, metadata.revision
+    )
 }
 
 #[cfg(test)]
@@ -202,7 +213,11 @@ mod tests {
             &key,
             "record-1",
             42,
-            &SyncEnvelopeMetadata { logical_clock: 1, writer_device_id: "device".into(), revision: 1 },
+            &SyncEnvelopeMetadata {
+                logical_clock: 1,
+                writer_device_id: "device".into(),
+                revision: 1,
+            },
             &vec!["my github", "https://example.test"],
         )
         .unwrap();
@@ -214,12 +229,22 @@ mod tests {
             Err(SyncCryptoError::Decrypt)
         );
         let mut envelope = encrypt_record(
-            &key, "record-1", 42,
-            &SyncEnvelopeMetadata { logical_clock: 1, writer_device_id: "device".into(), revision: 1 },
+            &key,
+            "record-1",
+            42,
+            &SyncEnvelopeMetadata {
+                logical_clock: 1,
+                writer_device_id: "device".into(),
+                revision: 1,
+            },
             &vec!["safe"],
-        ).unwrap();
+        )
+        .unwrap();
         envelope.logical_clock = 2;
-        assert_eq!(decrypt_record::<Vec<String>>(&key, &envelope), Err(SyncCryptoError::Decrypt));
+        assert_eq!(
+            decrypt_record::<Vec<String>>(&key, &envelope),
+            Err(SyncCryptoError::Decrypt)
+        );
     }
 
     #[test]
@@ -248,8 +273,18 @@ mod tests {
             }
         });
         let key = RecoveryKey::generate().unwrap();
-        let envelope =
-            encrypt_record(&key, "android-rule-1", 1727000000000, &SyncEnvelopeMetadata { logical_clock: 1727000000000, writer_device_id: "android-device".into(), revision: 1 }, &android_record).unwrap();
+        let envelope = encrypt_record(
+            &key,
+            "android-rule-1",
+            1727000000000,
+            &SyncEnvelopeMetadata {
+                logical_clock: 1727000000000,
+                writer_device_id: "android-device".into(),
+                revision: 1,
+            },
+            &android_record,
+        )
+        .unwrap();
         let clear: PersonalizationRecord = decrypt_record(&key, &envelope).unwrap();
         assert_eq!(clear.id(), "android-rule-1");
     }

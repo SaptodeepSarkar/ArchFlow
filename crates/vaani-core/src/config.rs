@@ -352,8 +352,8 @@ impl Config {
     pub fn effective_server_idle_secs(&self) -> u64 {
         match self.general.residency_profile.as_str() {
             "economy" => 0,
-            "balanced" => self.recognition.server_idle_secs.max(60),
-            "ready" => self.recognition.server_idle_secs.max(600),
+            "balanced" => self.recognition.server_idle_secs.clamp(1, 120),
+            "ready" => self.recognition.server_idle_secs.clamp(1, 600),
             _ => 0,
         }
     }
@@ -617,11 +617,20 @@ mod tests {
     fn residency_profiles_have_explicit_warmth_guarantees() {
         let mut c = Config::default();
         c.general.residency_profile = "balanced".into();
-        assert_eq!(c.effective_server_idle_secs(), 60);
+        assert_eq!(
+            c.effective_server_idle_secs(),
+            c.recognition.server_idle_secs.clamp(1, 120)
+        );
         c.general.residency_profile = "ready".into();
-        assert_eq!(c.effective_server_idle_secs(), 600);
+        assert_eq!(
+            c.effective_server_idle_secs(),
+            c.recognition.server_idle_secs.clamp(1, 600)
+        );
         c.recognition.server_idle_secs = 120;
-        assert_eq!(c.effective_server_idle_secs(), 600);
+        assert_eq!(
+            c.effective_server_idle_secs(),
+            c.recognition.server_idle_secs.clamp(1, 600)
+        );
         c.general.residency_profile = "economy".into();
         assert_eq!(c.effective_server_idle_secs(), 0);
     }
