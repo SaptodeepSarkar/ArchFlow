@@ -12,6 +12,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class CompareWhisperEvalsTest(unittest.TestCase):
+    def test_optional_qualification_exit_preserves_rejected_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, candidate, report = root / "base.json", root / "candidate.json", root / "report.json"
+            self.write(base, 20.0, 90.0)
+            self.write(candidate, 22.0, 90.0)
+            command = ["python3", str(ROOT / "tools/compare_v6_whisper_evals.py"),
+                       "--base", str(base), "--candidate", str(candidate),
+                       "--report", str(report), "--require-promotion"]
+            result = subprocess.run(command, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(json.loads(report.read_text())["promotion_eligible"])
+            self.write(candidate, 18.0, 90.0)
+            result = subprocess.run(command, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(json.loads(report.read_text())["promotion_eligible"])
+
     def write(self, path: Path, wer: float, protected: float, digest: str = "same") -> None:
         path.write_text(json.dumps({"evaluated_row_ids_sha256": digest, "rows": 100,
                                     "normalized_wer_percent": wer,

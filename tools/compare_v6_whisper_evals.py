@@ -80,6 +80,8 @@ def main() -> None:
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--suite", help="stable evaluation suite identifier for qualification evidence")
+    parser.add_argument("--require-promotion", action="store_true",
+                        help="return failure when the completed comparison rejects the candidate")
     parser.add_argument("--minimum-wer-improvement", type=float, default=0.0,
                         help="required positive percentage-point WER improvement")
     parser.add_argument("--maximum-protected-term-drop", type=float, default=0.0,
@@ -184,6 +186,8 @@ def main() -> None:
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(output, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(output, sort_keys=True))
+    if args.require_promotion and not promoted:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

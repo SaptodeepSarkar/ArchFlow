@@ -109,6 +109,7 @@ if any(claimed.get(key) != value for key, value in current.items()):
     raise SystemExit("refusing a different model or decoder: the frozen public test is complete")
 done = json.loads(receipt_path.read_text(encoding="utf-8"))
 print("one-shot evaluation already completed; comparison report: " + done["comparison_report"])
+raise SystemExit(0 if done.get("promotion_eligible") is True else 1)
 PY
   exit 0
 fi
@@ -150,10 +151,15 @@ done
 # Distinct model hashes are expected here; the frozen source manifest, selected
 # IDs, and decoder settings must match exactly. This benchmark is run once only
 # after the candidate and decoding configuration have been frozen.
+comparison_status=0
 "$python_bin" "$repo_root/tools/compare_v6_whisper_evals.py" \
   --base "$out_abs/base.json" --candidate "$out_abs/candidate.json" \
   --report "$out_abs/comparison.json" --allow-model-mismatch \
-  --minimum-wer-improvement 0 --maximum-protected-term-drop 0
+  --minimum-wer-improvement 0 --maximum-protected-term-drop 0 \
+  --require-promotion || comparison_status=$?
+if ((comparison_status > 1)) || { ((comparison_status != 0)) && [[ ! -s "$out_abs/comparison.json" ]]; }; then
+  exit "$comparison_status"
+fi
 
 "$python_bin" - "$out_abs" "$receipt" <<'PY'
 import json
@@ -179,3 +185,4 @@ with receipt.open("x", encoding="utf-8") as handle:
 PY
 
 printf 'Aggregate-only one-shot reports saved at %s\n' "$out_abs"
+exit "$comparison_status"
