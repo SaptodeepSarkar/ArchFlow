@@ -870,7 +870,7 @@ pub fn transcribe(
                     ms += result["ms"].as_u64().unwrap_or(0);
                 }
                 let refs: Vec<&str> = parts.iter().map(String::as_str).collect();
-                let text = vaani_core::transcript::polish(&vaani_core::reconcile::reconcile(&refs));
+                let text = vaani_core::reconcile::reconcile(&refs);
                 Ok(Transcript {
                     is_silence: text.trim().is_empty(),
                     text,
@@ -912,7 +912,7 @@ pub fn transcribe(
         }
         if !failed {
             let refs: Vec<&str> = parts.iter().map(|s| s.as_str()).collect();
-            let t = vaani_core::transcript::polish(&vaani_core::reconcile::reconcile(&refs));
+            let t = vaani_core::reconcile::reconcile(&refs);
             let empty = t.is_empty();
             return Ok(Transcript {
                 text: t,

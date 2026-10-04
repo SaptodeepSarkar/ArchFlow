@@ -35,6 +35,7 @@ package() {
   install -Dm755 crates/vaani-worker/fw-server.py "$pkgdir/usr/bin/fw-server.py"
   install -Dm755 training/cleanup-llm/scripts/vaani_inject.py "$pkgdir/usr/bin/vaani_inject.py"
   install -Dm755 training/cleanup-llm/scripts/llm-server.py "$pkgdir/usr/bin/llm-server.py"
+  install -Dm644 training/cleanup-llm/scripts/formatter_protocol.py "$pkgdir/usr/bin/formatter_protocol.py"
   install -Dm644 packaging/vaanid.service "$pkgdir/usr/lib/systemd/user/vaanid.service"
   install -Dm644 packaging/vaani.desktop "$pkgdir/usr/share/applications/vaani.desktop"
   install -Dm644 packaging/hyprland/vaani.conf "$pkgdir/usr/share/vaani/hyprland/vaani.conf"

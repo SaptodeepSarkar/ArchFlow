@@ -8,7 +8,8 @@
 //! Backends: whisper.cpp CLI for ggml .bin files; faster-whisper (CT2 dir)
 //! for fine-tuned models such as cozy-stt. --prompt carries user-configured
 //! vocabulary (names/terms) to bias recognition; transcripts never travel
-//! via argv. Filler words (uh/um/...) are stripped from every backend output.
+//! via argv. Recognized fillers and repetitions remain in the raw transcript;
+//! final formatting belongs to the controller's formatter stage.
 //! Never dynamically loads CUDA into the idle controller — CUDA only here,
 //! only if the user selected a GPU build (env VAANI_CUDA=1 + cuda binary).
 
@@ -148,7 +149,7 @@ fn main() {
     };
 
     emit_ok(
-        &vaani_core::transcript::polish(&text),
+        &text,
         &language,
         false,
         backend,

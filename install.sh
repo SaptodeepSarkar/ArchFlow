@@ -23,6 +23,7 @@ install -m755 crates/vaani-worker/fw-transcribe.py "$bin_root/fw-transcribe.py"
 install -m755 crates/vaani-worker/fw-server.py "$bin_root/fw-server.py"
 install -m755 training/cleanup-llm/scripts/vaani_inject.py "$bin_root/vaani_inject.py"
 install -m755 training/cleanup-llm/scripts/llm-server.py "$bin_root/llm-server.py"
+install -m644 training/cleanup-llm/scripts/formatter_protocol.py "$bin_root/formatter_protocol.py"
 python3 - "$bin_root/vaanid" "$config_root/systemd/user/vaanid.service" <<'PY'
 import pathlib, sys
 binary = sys.argv[1].replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%')

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Resident cleanup-LLM sidecar for Vaani’s always-on formatter.
 
-Loads Qwen3-0.6B + the LoRA adapter once (~8 s cold) and stays resident, so
+Loads the configured local base + LoRA adapter once and stays resident, so
 every finish/inject answers in ~1-2 s instead of paying a reload per call.
 The controller reaps this process after configured idle seconds (economy:
 no VRAM held while you are not dictating).
@@ -13,36 +13,21 @@ Protocol (pipes, newline JSON; transcripts never logged):
   stdout {"id": N, "text": "..."}  or  {"id": N, "error": "..."}
 First stdout line after startup is {"ready": true}.
 
-Keep SYSTEM in sync with scripts/vaani_inject.py (same v1 contract).
+Shared prompt and generation limits live in formatter_protocol.py.
 """
 
 import json
 import os
 import sys
+from formatter_protocol import (
+    IN_TAG, OUT_TAG, adapter_has_trainable_token_rows, align_token_embeddings,
+    initialize_v6_token_embeddings, max_new_tokens_v5, v6_requires_copy_fallback,
+    max_new_tokens_v6, prompt_v5, prompt_v6,
+)
 
 # Fully local: never touch the network (hub checks add seconds per load).
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-
-SYSTEM = (
-    "You are Vaani cleanup LLM v1, a source-grounded transcript formatter. "
-    "Fix grammar, punctuation, capitalization, sentence boundaries, filler "
-    "words, false starts, duplicates, and common spelling mistakes. Preserve "
-    "intended content words, names, numbers, dates, quantities, units, code, "
-    "paths, negation, profanity, pronouns, and the original language. Do not add, "
-    "remove, reorder, translate, expand, summarize, or reinterpret content. "
-    "Make a list only from items actually spoken: use '- ' by default, '• ' "
-    "only when the speaker says dotted or dot bullets, and numbered lines "
-    "only for a spoken sequence or order. Build a Markdown table only when "
-    "the transcript gives explicit columns and rows; never invent cells. "
-    "Add a short title only when the "
-    "transcript explicitly provides one. A bare formatting command with no "
-    "spoken items is prose, not a list. Treat a requested emoji as decoration; "
-    "never make the emoji name itself a list item. Map an explicitly spoken emoji "
-    "request to exactly that emoji and add no other emoji. If unsure, return "
-    "the input unchanged."
-)
-
 
 def main() -> None:
     args = sys.argv[1:]
@@ -54,12 +39,16 @@ def main() -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from peft import PeftModel
 
-    tok = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+    tok_path = adapter_dir if os.path.isfile(os.path.join(adapter_dir, "tokenizer.json")) else model_dir
+    tok = AutoTokenizer.from_pretrained(tok_path, trust_remote_code=True)
     if not tok.pad_token:
         tok.pad_token = tok.eos_token
     base = AutoModelForCausalLM.from_pretrained(
         model_dir, dtype=torch.bfloat16, trust_remote_code=True
     ).to("cuda")
+    v6 = tok.convert_tokens_to_ids(IN_TAG) != tok.unk_token_id and tok.convert_tokens_to_ids(OUT_TAG) != tok.unk_token_id
+    align_token_embeddings(base, tok, force=adapter_has_trainable_token_rows(adapter_dir))
+    initialize_v6_token_embeddings(base, tok)
     if os.path.isdir(adapter_dir):
         model = PeftModel.from_pretrained(base, adapter_dir)
     else:
@@ -84,23 +73,22 @@ def main() -> None:
             if not text.strip():
                 sys.stdout.write(json.dumps({"id": jid, "text": text}) + "\n")
             else:
-                prompt = (
-                    f"<|im_start|>system\n{SYSTEM}<|im_end|>\n"
-                    f"<|im_start|>user\n{text}<|im_end|>\n"
-                    f"<|im_start|>assistant\n"
-                )
+                prompt = prompt_v6(text) if v6 else prompt_v5(text)
                 ids = tok(prompt, return_tensors="pt").to("cuda")
                 with torch.no_grad():
                     out = model.generate(
                         **ids,
-                        max_new_tokens=min(512, max(64, len(text) * 2)),
+                        max_new_tokens=max_new_tokens_v6(ids["input_ids"].shape[1]) if v6 else max_new_tokens_v5(text),
                         do_sample=False,
                     )
                 gen = tok.decode(out[0][ids["input_ids"].shape[1]:], skip_special_tokens=True).strip()
-                sys.stdout.write(json.dumps({"id": jid, "text": gen if gen else text}) + "\n")
+                if v6 and v6_requires_copy_fallback(text, gen):
+                    gen = text
+                sys.stdout.write(json.dumps({"id": jid, "text": gen if gen else text, "protocol": "v6" if v6 else "v5"}) + "\n")
         except Exception as e:  # never wedge the controller: report, keep serving
             sys.stdout.write(json.dumps({"id": jid, "error": str(e)[:200], "text": text}) + "\n")
         sys.stdout.flush()
 
 
-main()
+if __name__ == "__main__":
+    main()

@@ -15,7 +15,7 @@ systemctl --user daemon-reload 2>/dev/null || true
 for file in \
   vaani vaanid vaani-worker vaani-desktop vaani-linux llama-cli vaani-whisper-session vaani-llama-session \
   whisper-cli whisper-cli-cuda vad-speech-segments \
-  fw-transcribe.py fw-server.py vaani_inject.py llm-server.py; do
+  fw-transcribe.py fw-server.py vaani_inject.py llm-server.py formatter_protocol.py; do
   rm -f "$bin_root/$file"
 done
 rm -f "$config_root/hypr/vaani.conf" "$config_root/hypr/vaani.lua"

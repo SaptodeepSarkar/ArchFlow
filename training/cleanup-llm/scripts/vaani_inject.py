@@ -15,6 +15,11 @@ import argparse
 import os
 import sys
 import json
+from formatter_protocol import (
+    IN_TAG, OUT_TAG, adapter_has_trainable_token_rows, align_token_embeddings,
+    initialize_v6_token_embeddings, max_new_tokens_v5, max_new_tokens_v6,
+    prompt_v5, prompt_v6, v6_requires_copy_fallback,
+)
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -45,12 +50,15 @@ SYSTEM = (
 
 
 def load_model(model_dir, adapter_dir):
-    tok = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+    tok_path = adapter_dir if os.path.isfile(os.path.join(adapter_dir, "tokenizer.json")) else model_dir
+    tok = AutoTokenizer.from_pretrained(tok_path, trust_remote_code=True)
     if not tok.pad_token:
         tok.pad_token = tok.eos_token
     base = AutoModelForCausalLM.from_pretrained(
         model_dir, torch_dtype=torch.bfloat16, trust_remote_code=True
     ).to("cuda")
+    align_token_embeddings(base, tok, force=adapter_has_trainable_token_rows(adapter_dir))
+    initialize_v6_token_embeddings(base, tok)
     model = PeftModel.from_pretrained(base, adapter_dir) if os.path.isdir(adapter_dir) else base
     model.config.use_cache = True
     model.eval()
@@ -58,20 +66,18 @@ def load_model(model_dir, adapter_dir):
 
 
 def clean(tok, model, text):
-    prompt = (
-        f"<|im_start|>system\n{SYSTEM}<|im_end|>\n"
-        f"<|im_start|>user\n{text}<|im_end|>\n"
-        f"<|im_start|>assistant\n"
-    )
+    v6 = tok.convert_tokens_to_ids(IN_TAG) != tok.unk_token_id and tok.convert_tokens_to_ids(OUT_TAG) != tok.unk_token_id
+    prompt = prompt_v6(text) if v6 else prompt_v5(text)
     ids = tok(prompt, return_tensors="pt").to("cuda")
     with torch.no_grad():
         out = model.generate(
             **ids,
-            max_new_tokens=min(512, max(64, len(text) * 2)),
+            max_new_tokens=max_new_tokens_v6(ids["input_ids"].shape[1]) if v6 else max_new_tokens_v5(text),
             do_sample=False,
             temperature=0.0,
         )
-    return tok.decode(out[0][ids["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+    generated = tok.decode(out[0][ids["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+    return text if v6 and v6_requires_copy_fallback(text, generated) else generated
 
 
 def main():

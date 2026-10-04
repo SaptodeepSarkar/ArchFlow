@@ -16,7 +16,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parent.parent
 BINARIES = ("vaanid", "vaani", "vaani-worker", "vaani-desktop", "vaani-linux")
 RUNTIMES = ("whisper-cli", "llama-cli", "vaani-whisper-session", "vaani-llama-session")
-SCRIPTS = {"fw-transcribe.py": "crates/vaani-worker/fw-transcribe.py", "fw-server.py": "crates/vaani-worker/fw-server.py", "vaani_inject.py": "training/cleanup-llm/scripts/vaani_inject.py", "llm-server.py": "training/cleanup-llm/scripts/llm-server.py"}
+SCRIPTS = {"fw-transcribe.py": "crates/vaani-worker/fw-transcribe.py", "fw-server.py": "crates/vaani-worker/fw-server.py", "vaani_inject.py": "training/cleanup-llm/scripts/vaani_inject.py", "llm-server.py": "training/cleanup-llm/scripts/llm-server.py", "formatter_protocol.py": "training/cleanup-llm/scripts/formatter_protocol.py"}
 MAX_BUNDLE = 8 * 1024**3
 
 def digest(path):
