@@ -69,6 +69,23 @@ training loss, step count, and host GPU throughput are not release gates.
 
 ## V6-specific training design
 
+### Production-path formatter evaluation
+
+The ignored Rust test
+`llm_sup::tests::v5_v6_paired_frozen_runtime_evaluation` compares the local
+V5/V6 adapters through `llm_cleanup` and its production semantic guard without
+insertion or configuration writes. It defaults to a deterministic small sample
+for diagnostics. Set `VAANI_RUNTIME_FULL_SUITES=1` to evaluate every row from
+the three supplied frozen fixtures; other explicit values are rejected.
+Provide paths using `VAANI_V6_RUNTIME_TEST_MODEL`,
+`VAANI_V5_RUNTIME_TEST_ADAPTER`, `VAANI_V6_RUNTIME_TEST_ADAPTER`,
+`VAANI_RUNTIME_CONTRACT_FIXTURE`, `VAANI_RUNTIME_REAL_FIXTURE`, and
+`VAANI_RUNTIME_CHALLENGE_FIXTURE`. Run with `--ignored --nocapture
+--test-threads=1`; only aggregate exact-match and route counts are printed.
+The full-suite run is inference only and does not authorize resuming training.
+Its exact-match/route metrics alone cannot qualify semantic fidelity, Android
+resources, or insertion behavior.
+
 ### Formatter / LLM
 
 - **Keep V5 and deterministic safety behavior as frozen controls.** Compare a

@@ -37,15 +37,24 @@ pub(crate) fn semantic_ok(raw: &str, cleaned: &str) -> bool {
             .collect()
     };
     let fillers = ["uh", "um", "erm", "hmm", "mmm"];
-    let expected: Vec<String> = words(raw)
-        .into_iter()
-        .filter(|word| !fillers.contains(&word.as_str()))
-        .collect();
+    let source = words(raw);
     let actual = words(cleaned);
-    // Exact equality after the permitted filler removal also rejects appended
-    // or inserted hallucinated words; punctuation and casing are already
-    // discarded by `words`.
-    actual == expected
+    // Each source filler may either remain in place or be omitted. Requiring
+    // every filler to disappear rejects meaningful hesitation and even a
+    // safe V6 copy-fallback; non-filler words must still match exactly and in
+    // order, with no inserted content.
+    let (mut source_index, mut actual_index) = (0, 0);
+    while source_index < source.len() {
+        if actual.get(actual_index) == Some(&source[source_index]) {
+            source_index += 1;
+            actual_index += 1;
+        } else if fillers.contains(&source[source_index].as_str()) {
+            source_index += 1;
+        } else {
+            return false;
+        }
+    }
+    actual_index == actual.len()
 }
 
 /// A source-preserving fallback for when a generative rewrite is rejected.
@@ -226,9 +235,13 @@ mod tests {
     #[test]
     fn content_guard_rejects_invention_and_reordering() {
         assert!(semantic_ok("uh open the browser", "Open the browser."));
+        assert!(semantic_ok("um i think so", "Um, I think so."));
+        assert!(semantic_ok("um i think so", "I think so."));
+        assert!(semantic_ok("the word um matters", "The word um matters."));
         assert!(!semantic_ok("open the browser", "Open Firefox."));
         assert!(!semantic_ok("send the report", "The report sends."));
         assert!(!semantic_ok("open the browser", "Open the browser safely."));
+        assert!(!semantic_ok("uh open the browser", "um open the browser."));
     }
 
     #[test]
