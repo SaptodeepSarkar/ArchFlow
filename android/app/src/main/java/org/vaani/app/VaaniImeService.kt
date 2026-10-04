@@ -17,6 +17,7 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -25,6 +26,9 @@ class VaaniImeService : InputMethodService() {
     private var stt: SttSession? = null
     private lateinit var status: TextView
     private var active = false
+    private val sessions = DictationSessionGate()
+    private var formatting: Job? = null
+    private var ownership: Long? = null
     private val formatScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -42,18 +46,18 @@ class VaaniImeService : InputMethodService() {
             // Android may give an IME only a compact strip above navigation;
             // keep both status and the primary action inside that strip.
             setPadding(dp(12), dp(6), dp(12), dp(6))
-            setBackgroundColor(Color.rgb(12, 16, 32))
+            setBackgroundColor(Color.rgb(250, 250, 247))
         }
         status = TextView(this).apply {
             text = "Vaani is ready"
-            setTextColor(Color.rgb(255, 247, 241))
+            setTextColor(Color.rgb(32, 43, 54))
             textSize = 15f
             gravity = Gravity.CENTER
         }
         val dictate = Button(this).apply {
             text = "Hold to speak"
-            setTextColor(Color.rgb(255, 247, 241))
-            setBackgroundColor(Color.rgb(82, 107, 255))
+            setTextColor(Color.rgb(32, 43, 54))
+            setBackgroundColor(Color.rgb(228, 242, 255))
             contentDescription = "Hold to speak, release to insert"
             setOnTouchListener { _, event ->
                 when (event.actionMasked) {
@@ -70,52 +74,103 @@ class VaaniImeService : InputMethodService() {
     }
 
     private fun startDictation() {
+        if (active) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             status.text = "Microphone permission is required in Vaani"
             return
         }
+        cancelSession()
+        ownership = ActiveDictation.ownership.claim {
+            cancelSession()
+            if (::status.isInitialized) status.text = "Cancelled"
+        }
+        val token = sessions.begin()
+        val connection = currentInputConnection
+        val delivery = FieldPolicy.deliveryFor(currentInputEditorInfo)
         active = true
         status.text = "Listening… release to finish"
-        stt = SttFactory.create(this).also { engine ->
-            engine.start(
-                onReady = { status.post { status.text = "Listening… release to finish" } },
-                onResult = { raw -> formatScope.launch {
-                    deliver(PersonalizationStore(this@VaaniImeService).render(LocalInference.format(this@VaaniImeService, raw)))
-                } },
-                onError = { message -> status.post { status.text = message; active = false } },
-            )
+        fun failed(message: String) {
+            status.post {
+                if (sessions.isListening(token)) {
+                    cancelSession()
+                    status.text = message
+                }
+            }
         }
+        try {
+            val engine = SttFactory.create(this)
+            stt = engine
+            engine.start(
+                onReady = { status.post {
+                    if (sessions.isListening(token)) status.text = "Listening… release to finish"
+                } },
+                onResult = { raw -> status.post {
+                    if (!sessions.acceptResult(token)) return@post
+                    stt?.cancel()
+                    stt = null
+                    formatting = formatScope.launch {
+                        val text = PersonalizationStore(this@VaaniImeService).render(LocalInference.format(this@VaaniImeService, raw))
+                        if (!sessions.isCurrent(token)) return@launch
+                        deliver(text, delivery) { value ->
+                            connection != null && connection === currentInputConnection && connection.commitText(value, 1)
+                        }
+                    }
+                } },
+                onError = { message -> failed(message) },
+            )
+        } catch (_: Exception) { failed("Speech input could not start") }
     }
 
     private fun stopDictation() { if (active) stt?.stop() }
-    private fun cancelDictation() { stt?.cancel(); active = false; status.text = "Cancelled" }
 
-    private fun deliver(text: String) {
-        stt?.cancel(); active = false
-        val delivery = FieldPolicy.deliveryFor(currentInputEditorInfo)
+    private fun cancelSession() {
+        sessions.invalidate()
+        formatting?.cancel()
+        formatting = null
+        stt?.cancel()
+        stt = null
+        active = false
+        ActiveDictation.ownership.release(ownership)
+        ownership = null
+    }
+
+    private fun cancelDictation() { cancelSession(); status.text = "Cancelled" }
+
+    private fun deliver(text: String, delivery: Delivery, commit: (String) -> Boolean) {
+        active = false
+        ActiveDictation.ownership.release(ownership)
+        ownership = null
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         val result = TextDelivery.deliver(
             text = text,
             delivery = delivery,
-            commit = { value -> currentInputConnection?.commitText(value, 1) == true },
+            commit = commit,
             copy = { value -> clipboard.setPrimaryClip(ClipData.newPlainText("Vaani dictation", value)) },
         )
-        status.post {
-            status.text = when (result) {
+        status.text = when (result) {
                 DeliveryResult.INSERTED -> "Inserted"
                 DeliveryResult.COPIED -> "Copied — paste into this field"
                 DeliveryResult.EMPTY -> "No speech detected"
             }
-        }
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
-        stt?.cancel(); active = false
+        cancelSession()
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        cancelSession()
+        super.onFinishInputView(finishingInput)
+    }
+
+    override fun onFinishInput() {
+        cancelSession()
+        super.onFinishInput()
     }
 
     override fun onDestroy() {
-        stt?.cancel()
+        cancelSession()
         formatScope.cancel()
         super.onDestroy()
     }

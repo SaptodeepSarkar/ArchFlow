@@ -4,13 +4,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Firebase is an opt-in synchronization feature. A local-only APK must build
-// without a private google-services.json; when a release configuration is
-// supplied, apply the plugin and enable the generated resource values.
-if (file("google-services.json").isFile) {
-    apply(plugin = "com.google.gms.google-services")
-}
-
 android {
     namespace = "org.vaani.app"
     compileSdk = 35
@@ -27,6 +20,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true; buildConfig = true }
+    packaging { resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF" }
 }
 
 kotlin { jvmToolchain(17) }
@@ -43,14 +37,8 @@ dependencies {
     // Native, file-backed on-device engines. Model weights are never bundled.
     implementation("dev.ffmpegkit-maintained:whisper-android:1.0.0")
     implementation("dev.ffmpegkit-maintained:llama-android:0.1.1")
-    implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
-    implementation("com.google.firebase:firebase-auth")
-    implementation("com.google.firebase:firebase-firestore")
-    implementation("com.google.firebase:firebase-messaging")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
-    implementation("androidx.credentials:credentials:1.3.0")
-    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
-    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.6")
     testImplementation("junit:junit:4.13.2")

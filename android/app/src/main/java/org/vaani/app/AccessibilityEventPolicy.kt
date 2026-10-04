@@ -17,7 +17,12 @@ internal object AccessibilityEventPolicy {
         AccessibilityEvent.TYPE_VIEW_CLICKED,
         AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED,
         AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+        AccessibilityEvent.TYPE_WINDOWS_CHANGED,
         AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> true
         else -> false
     }
+
+    fun shouldRefreshKeyboardBounds(eventType: Int): Boolean =
+        eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
+            eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
 }

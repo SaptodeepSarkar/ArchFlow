@@ -15,6 +15,9 @@ import dev.ffmpegkit.whisper.Whisper
 import dev.ffmpegkit.whisper.WhisperConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -26,6 +29,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.coroutineContext
 
 interface SttSession {
     fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit = {})
@@ -36,6 +41,7 @@ interface SttSession {
 /** Android's installed on-device recognizer is the usable no-network STT baseline. */
 class OnDeviceStt(private val context: Context) : SttSession {
     private var recognizer: SpeechRecognizer? = null
+    private val sessions = DictationSessionGate()
 
     override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
         if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -46,30 +52,48 @@ class OnDeviceStt(private val context: Context) : SttSession {
             onError("On-device speech is unavailable. Install an offline speech service first.")
             return
         }
-        recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context).also { speech ->
-            speech.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) = onReady()
-                override fun onResults(results: Bundle) {
+        cancel()
+        val token = sessions.begin()
+        val speech = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+        recognizer = speech
+        speech.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) { if (sessions.isListening(token)) onReady() }
+            override fun onResults(results: Bundle) {
+                if (sessions.acceptResult(token)) {
+                    releaseRecognizer()
                     onResult(results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
                 }
-                override fun onError(error: Int) = onError("Speech recognition error ($error)")
-                override fun onBeginningOfSpeech() = Unit
-                override fun onBufferReceived(buffer: ByteArray?) = Unit
-                override fun onEndOfSpeech() = Unit
-                override fun onEvent(eventType: Int, params: Bundle?) = Unit
-                override fun onPartialResults(partialResults: Bundle?) = Unit
-                override fun onRmsChanged(rmsdB: Float) = onRms(((rmsdB + 2f) / 12f).coerceIn(0f, 1f))
-            })
-            speech.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-            })
-        }
+            }
+            override fun onError(error: Int) {
+                if (sessions.acceptResult(token)) {
+                    releaseRecognizer()
+                    onError("Speech recognition error ($error)")
+                }
+            }
+            override fun onBeginningOfSpeech() = Unit
+            override fun onBufferReceived(buffer: ByteArray?) = Unit
+            override fun onEndOfSpeech() = Unit
+            override fun onEvent(eventType: Int, params: Bundle?) = Unit
+            override fun onPartialResults(partialResults: Bundle?) = Unit
+            override fun onRmsChanged(rmsdB: Float) {
+                if (sessions.isListening(token)) onRms(((rmsdB + 2f) / 12f).coerceIn(0f, 1f))
+            }
+        })
+        speech.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+        })
     }
 
     override fun stop() = recognizer?.stopListening() ?: Unit
-    override fun cancel() { recognizer?.cancel(); recognizer?.destroy(); recognizer = null }
+    override fun cancel() { sessions.invalidate(); releaseRecognizer() }
+
+    private fun releaseRecognizer() {
+        val owned = recognizer ?: return
+        recognizer = null
+        try { owned.cancel() } finally { owned.destroy() }
+    }
 }
 
 /** File-backed whisper.cpp session used when a user-installed model pack exists. */
@@ -79,8 +103,8 @@ class NativeWhisperStt(
     private val language: String = OnboardingState.writingLanguage(context),
 ) : SttSession {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var recorder: AudioRecord? = null
-    private var recording = false
+    private val recorder = AtomicReference<OwnedResource<AudioRecord>?>(null)
+    @Volatile private var recording = false
     private var job: Job? = null
 
     override fun start(onReady: () -> Unit, onResult: (String) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
@@ -91,55 +115,70 @@ class NativeWhisperStt(
         if (!modelFile.isFile) { onError("Embedded STT model is missing"); return }
         val minimum = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING)
         if (minimum <= 0) { onError("Audio input is unavailable"); return }
-        val audio = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE, CHANNEL_CONFIG, ENCODING, minimum * 2)
-        if (audio.state != AudioRecord.STATE_INITIALIZED) { audio.release(); onError("Audio input could not start"); return }
-        recorder = audio
         recording = true
-        onReady()
         job = scope.launch {
-            val pcm = ByteArrayOutputStream()
-            val buffer = ByteArray(minimum)
+            var owned: OwnedResource<AudioRecord>? = null
             try {
-                audio.startRecording()
-                val started = System.currentTimeMillis()
-                while (recording && System.currentTimeMillis() - started < MAX_RECORDING_MS) {
-                    val read = audio.read(buffer, 0, buffer.size)
+                coroutineContext.ensureActive()
+                val audio = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE, CHANNEL_CONFIG, ENCODING, minimum * 2)
+                owned = OwnedResource(audio) { input ->
+                    try { input.runCatching { stop() } } finally { input.release() }
+                }
+                recorder.set(owned)
+                coroutineContext.ensureActive()
+                check(audio.state == AudioRecord.STATE_INITIALIZED)
+                if (!recording) return@launch
+                owned.useIfOpen { it.startRecording() }
+                withContext(Dispatchers.Main) { onReady() }
+                val pcm = ByteArrayOutputStream()
+                val buffer = ByteArray(minimum)
+                val started = android.os.SystemClock.elapsedRealtime()
+                var lastRms = 0L
+                while (recording && android.os.SystemClock.elapsedRealtime() - started < MAX_RECORDING_MS) {
+                    coroutineContext.ensureActive()
+                    // Nonblocking read keeps close/cancel from waiting for a microphone read.
+                    val read = owned.useIfOpen { it.read(buffer, 0, buffer.size, AudioRecord.READ_NON_BLOCKING) } ?: break
+                    check(read >= 0) { "Audio read failed" }
                     if (read > 0) {
                         pcm.write(buffer, 0, read)
-                        onRms(rmsLevel(buffer, read))
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastRms >= 50L) {
+                            lastRms = now
+                            val level = rmsLevel(buffer, read)
+                            withContext(Dispatchers.Main) { onRms(level) }
+                        }
                     }
+                    delay(10)
                 }
-                audio.stop()
-                audio.release()
-                recorder = null
+                owned.close()
+                recorder.compareAndSet(owned, null)
+                coroutineContext.ensureActive()
                 if (pcm.size() < MIN_AUDIO_BYTES) {
                     withContext(Dispatchers.Main) { onError("No speech detected") }
                     return@launch
                 }
                 val wav = File.createTempFile("vaani-stt-", ".wav", context.cacheDir)
-                writeWav(wav, pcm.toByteArray())
                 try {
-                    val model = Whisper.loadModel(context, modelFile.absolutePath)
-                    try {
+                    writeWav(wav, pcm.toByteArray())
+                    coroutineContext.ensureActive()
+                    ModelLifecycle.stt.use(ModelLifecycle.identity(modelFile), ModelLifecycle.ttl(context),
+                        load = { Whisper.loadModel(context, modelFile.absolutePath) }) { model ->
+                        coroutineContext.ensureActive()
                         val result = Whisper.transcribe(model, wav.absolutePath, WhisperConfig(language = language, threads = 2))
+                        coroutineContext.ensureActive()
                         withContext(Dispatchers.Main) { onResult(result.text.trim()) }
-                    } finally { Whisper.releaseModel(model) }
+                    }
                 } finally { wav.delete() }
-            } catch (error: Throwable) {
-                // Keep logs diagnostic-only: never write audio or recognised
-                // text.  The exception class is enough to distinguish an
-                // AudioRecord/ABI/model failure on a physical device.
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                coroutineContext.ensureActive()
                 Log.w("VaaniStt", "Native STT session failed: ${error.javaClass.simpleName}")
                 withContext(Dispatchers.Main) { onError("Embedded STT failed") }
             } finally {
-                // AudioRecord can throw before the normal post-loop cleanup.
-                // Always release the microphone promptly; a cancelled session
-                // must not retain an audio input or its associated power use.
-                if (recorder === audio) {
-                    recorder = null
-                    audio.runCatching { stop() }
-                    audio.release()
-                }
+                owned?.close()
+                recorder.compareAndSet(owned, null)
+                recording = false
             }
         }
     }
@@ -148,11 +187,9 @@ class NativeWhisperStt(
 
     override fun cancel() {
         recording = false
-        recorder?.runCatching { stop() }
-        recorder?.release()
-        recorder = null
         job?.cancel()
         scope.cancel()
+        recorder.getAndSet(null)?.close()
     }
 
     private fun writeWav(file: File, pcm: ByteArray) {

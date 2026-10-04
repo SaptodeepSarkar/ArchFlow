@@ -5,7 +5,7 @@ import android.net.Uri
 import java.io.File
 
 data class ModelStatus(val sttAvailable: Boolean, val formatterAvailable: Boolean) {
-    val ready: Boolean get() = sttAvailable && formatterAvailable
+    val ready: Boolean get() = sttAvailable
 }
 
 enum class ModelKind(val directory: String, val filename: String) {
@@ -37,7 +37,7 @@ class LocalModels(context: Context) {
         ModelKind.FORMATTER_V6 -> listOf(File(root, "formatter/model.v6tg"))
     }.firstOrNull { it.isFile && it.length() > 0L }
 
-    fun status() = ModelStatus(sttModelFile() != null, formatterModelFile() != null)
+    fun status() = ModelStatus(sttModelFile() != null, formatterModelFile() != null || v6FormatterFile() != null)
     fun installPath(kind: ModelKind): File = File(root, kind.directory).also { it.mkdirs() }
 }
 
@@ -46,9 +46,18 @@ object ModelInstaller {
         val destination = File(LocalModels(context).installPath(kind), kind.filename)
         val temporary = File(destination.parentFile, ".${destination.name}.part")
         context.contentResolver.openInputStream(uri)?.use { input ->
-            temporary.outputStream().use { output -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
+            temporary.outputStream().use { output -> val buffer=ByteArray(DEFAULT_BUFFER_SIZE); var total=0L
+                while(true) { val count=input.read(buffer);if(count<0) break;total+=count;require(total<=4L*1024*1024*1024) { "Model exceeds supported size" };output.write(buffer,0,count) } }
         } ?: error("The selected file could not be opened")
-        check(temporary.length() > 0L) { "The selected model file is empty" }
+        check(temporary.length() in 4..4L*1024*1024*1024) { "Invalid model size" }
+        val magic=temporary.inputStream().use {input ->ByteArray(4).also {check(input.read(it)==4)}}
+        when(kind) {
+            ModelKind.STT -> check(String(magic) in setOf("lmgg","ggml")) { "Expected whisper.cpp GGML" }
+            ModelKind.FORMATTER -> check(String(magic)=="GGUF") { "Expected GGUF" }
+            ModelKind.FORMATTER_V6 -> V6Tagger.load(temporary.readBytes())
+        }
+        if(destination.exists()) destination.copyTo(File(destination.parentFile,"${destination.name}.previous"),overwrite=true)
+        ModelLifecycle.unload()
         check(temporary.renameTo(destination)) { "The selected model file could not be installed" }
         destination
     }.onFailure {

@@ -16,6 +16,15 @@ class AccessibilityEventPolicyTest {
         assertTrue(AccessibilityEventPolicy.shouldRefreshFocusedField(AccessibilityEvent.TYPE_VIEW_FOCUSED))
         assertTrue(AccessibilityEventPolicy.shouldRefreshFocusedField(AccessibilityEvent.TYPE_VIEW_CLICKED))
         assertTrue(AccessibilityEventPolicy.shouldRefreshFocusedField(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED))
+        assertTrue(AccessibilityEventPolicy.shouldRefreshFocusedField(AccessibilityEvent.TYPE_WINDOWS_CHANGED))
         assertFalse(AccessibilityEventPolicy.shouldRefreshFocusedField(AccessibilityEvent.TYPE_ANNOUNCEMENT))
+    }
+
+    @Test fun typing_and_content_events_do_not_scan_all_interactive_windows() {
+        assertFalse(AccessibilityEventPolicy.shouldRefreshKeyboardBounds(AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED))
+        assertFalse(AccessibilityEventPolicy.shouldRefreshKeyboardBounds(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED))
+        assertFalse(AccessibilityEventPolicy.shouldRefreshKeyboardBounds(AccessibilityEvent.TYPE_VIEW_CLICKED))
+        assertTrue(AccessibilityEventPolicy.shouldRefreshKeyboardBounds(AccessibilityEvent.TYPE_WINDOWS_CHANGED))
+        assertTrue(AccessibilityEventPolicy.shouldRefreshKeyboardBounds(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED))
     }
 }

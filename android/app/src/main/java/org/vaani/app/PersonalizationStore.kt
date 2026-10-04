@@ -17,7 +17,7 @@ class PersonalizationStore(context: Context) {
     data class Replacement(val id: String, val source: String, val target: String)
     data class Snapshot(val vocabulary: List<Vocabulary>, val snippets: List<Snippet>, val replacements: List<Replacement>)
 
-    private val preferences = context.getSharedPreferences("vaani_personalization_v1", Context.MODE_PRIVATE)
+    private val preferences = EncryptedPreferences.get(context)
 
     fun snapshot(): Snapshot = Snapshot(readVocabulary(), readSnippets(), readReplacements())
 
@@ -26,7 +26,7 @@ class PersonalizationStore(context: Context) {
         val alias = spokenAlias.trim().takeIf { it.isNotEmpty() }?.let { valid(it, MAX_TERM) }
         val now = System.currentTimeMillis()
         val items = vocabularyArray()
-        items.put(JSONObject().apply {
+        items.put(stamp(JSONObject().apply {
             put("schema_version", 1)
             put("entity", "vocabulary")
             put("id", UUID.randomUUID().toString())
@@ -35,7 +35,7 @@ class PersonalizationStore(context: Context) {
             put("category", category?.take(MAX_CATEGORY))
             put("created_at_ms", now)
             put("updated_at_ms", now)
-        })
+        }))
         preferences.edit().putString(VOCABULARY_KEY, items.toString()).apply()
     }
 
@@ -44,7 +44,7 @@ class PersonalizationStore(context: Context) {
         val to = valid(target, MAX_TARGET)
         val now = System.currentTimeMillis()
         val items = replacementArray()
-        items.put(JSONObject().apply {
+        items.put(stamp(JSONObject().apply {
             put("schema_version", 1)
             put("entity", "replacement")
             put("id", UUID.randomUUID().toString())
@@ -52,12 +52,21 @@ class PersonalizationStore(context: Context) {
             put("target", to)
             put("created_at_ms", now)
             put("updated_at_ms", now)
-        })
+        }))
         preferences.edit().putString(REPLACEMENTS_KEY, items.toString()).apply()
     }
 
     fun removeVocabulary(id: String) = remove(VOCABULARY_KEY, vocabularyArray(), id)
     fun removeReplacement(id: String) = remove(REPLACEMENTS_KEY, replacementArray(), id)
+    fun removeSnippet(id: String) = remove(SNIPPETS_KEY, snippetArray(), id)
+    fun addSnippet(trigger: String, text: String) {
+        val now=System.currentTimeMillis();val items=snippetArray()
+        items.put(stamp(JSONObject().apply { put("id",UUID.randomUUID().toString());put("entity","snippet");put("schema_version",1);put("trigger",valid(trigger,MAX_SOURCE));put("value",valid(text,2048));put("created_at_ms",now);put("updated_at_ms",now) }))
+        preferences.edit().putString(SNIPPETS_KEY,items.toString()).apply()
+    }
+    fun deviceId(): String = preferences.getString("device_id", "").ifEmpty {UUID.randomUUID().toString().also {preferences.edit().putString("device_id",it).apply()} }
+    fun mergeBatch(records: List<JSONObject>) = preferences.transaction { records.forEach(::mergeSyncedRecord) }
+
 
     /** Versioned records whose JSON shape matches Rust PersonalizationRecord. */
     fun syncRecords(deviceId: String): List<JSONObject> = buildList {
@@ -76,7 +85,7 @@ class PersonalizationStore(context: Context) {
                     put("writer_device_id", value.optString("writer_device_id", deviceId))
                     put("updated_at_ms", value.optLong("updated_at_ms"))
                     put("deleted_at_ms", value.opt("deleted_at_ms"))
-                    put("value", if (value.has("deleted_at_ms")) JSONObject.NULL else value)
+                    put("value", if (value.has("deleted_at_ms") && !value.isNull("deleted_at_ms")) JSONObject.NULL else value)
                 }
                 add(JSONObject().put(kind.replaceFirstChar(Char::uppercase), record))
             }
@@ -145,7 +154,7 @@ class PersonalizationStore(context: Context) {
         repeat(items.length()) { index ->
             items.optJSONObject(index)?.takeIf { it.optString("id") == id }?.apply {
                 put("deleted_at_ms", System.currentTimeMillis())
-                put("updated_at_ms", System.currentTimeMillis())
+                put("updated_at_ms", System.currentTimeMillis());stamp(this)
             }
         }
         preferences.edit().putString(key, items.toString()).apply()
@@ -155,7 +164,7 @@ class PersonalizationStore(context: Context) {
         val items = vocabularyArray()
         repeat(items.length()) { index ->
             val item = items.optJSONObject(index) ?: return@repeat
-            if (item.has("deleted_at_ms")) return@repeat
+            if (item.has("deleted_at_ms") && !item.isNull("deleted_at_ms")) return@repeat
             val canonical = item.optString("canonical").trim()
             if (canonical.isEmpty()) return@repeat
             val aliases = item.optJSONArray("spoken_aliases")?.let { array ->
@@ -169,7 +178,7 @@ class PersonalizationStore(context: Context) {
         val items = replacementArray()
         repeat(items.length()) { index ->
             val item = items.optJSONObject(index) ?: return@repeat
-            if (item.has("deleted_at_ms")) return@repeat
+            if (item.has("deleted_at_ms") && !item.isNull("deleted_at_ms")) return@repeat
             val source = item.optString("source").trim()
             val target = item.optString("target").trim()
             if (source.isNotEmpty() && target.isNotEmpty()) add(Replacement(item.optString("id"), source, target))
@@ -180,17 +189,21 @@ class PersonalizationStore(context: Context) {
         val items = snippetArray()
         repeat(items.length()) { index ->
             val item = items.optJSONObject(index) ?: return@repeat
-            if (item.has("deleted_at_ms")) return@repeat
+            if (item.has("deleted_at_ms") && !item.isNull("deleted_at_ms")) return@repeat
             val trigger = item.optString("trigger").trim()
             val value = item.optString("value").trim()
             if (trigger.isNotEmpty() && value.isNotEmpty()) add(Snippet(item.optString("id"), trigger, value))
         }
     }
 
+    private fun stamp(record: JSONObject): JSONObject {
+        val maxClock=listOf(vocabularyArray(),snippetArray(),replacementArray()).maxOf { array -> (0 until array.length()).maxOfOrNull { array.optJSONObject(it)?.optLong("logical_clock",array.optJSONObject(it)?.optLong("updated_at_ms") ?: 0) ?: 0 } ?: 0 }
+        record.put("logical_clock",maxClock+1);record.put("revision",record.optLong("revision",0)+1);record.put("writer_device_id",deviceId());return record
+    }
     private fun vocabularyArray() = readArray(VOCABULARY_KEY)
     private fun snippetArray() = readArray(SNIPPETS_KEY)
     private fun replacementArray() = readArray(REPLACEMENTS_KEY)
-    private fun readArray(key: String) = runCatching { JSONArray(preferences.getString(key, "[]")) }.getOrDefault(JSONArray())
+    private fun readArray(key: String) = JSONArray(preferences.getString(key, "[]"))
 
     private fun valid(value: String, max: Int): String {
         val clean = value.trim()
