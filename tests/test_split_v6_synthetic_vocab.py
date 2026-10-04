@@ -161,6 +161,35 @@ class SplitSyntheticVocabularyTest(unittest.TestCase):
                 row["challenge_tags"] == ["synthetic_vocab_seen_term_new_context"]
                 for row in heldout
             ))
+            # Expanding the template grid must not admit previously held-out
+            # contexts to training when the frozen suite is supplied.
+            connection = sqlite3.connect(source)
+            for term_index in range(10):
+                term = f"VocabTerm{term_index}"
+                term_hash = hashlib.sha256(term.encode()).hexdigest()
+                for template_index, template in enumerate(TEMPLATES[3:], 3):
+                    for voice in ("voice_a", "voice_b"):
+                        audio = root / f"{term_index}-{template_index}-{voice}.wav"
+                        audio.write_bytes(f"audio:{term_index}:{template_index}:{voice}".encode())
+                        identity = hashlib.sha256(str(audio).encode()).hexdigest()
+                        connection.execute("INSERT INTO examples VALUES (?,?,?,?,?,?,?,?,?,?)", (
+                            identity, str(audio), template.format(term=term), "test-pack", term_hash,
+                            template_index, voice, 24000,
+                            hashlib.sha256(audio.read_bytes()).hexdigest(), "synthetic fixture"))
+            connection.commit(); connection.close()
+            expanded = root / "expanded"
+            result = subprocess.run([
+                "python3", str(ROOT / "tools/split_v6_synthetic_vocab.py"),
+                "--manifest", str(source), "--out-dir", str(expanded),
+                "--strategy", "seen-term-context", "--freeze-heldout", str(out / "heldout.jsonl"),
+                "--expected-terms", "10", "--expected-templates", "12", "--expected-voices", "2",
+            ], text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["frozen_example_ids"], 20)
+            connection = sqlite3.connect(expanded / "train.sqlite3")
+            expanded_ids = {row[0] for row in connection.execute("SELECT id FROM examples")}
+            connection.close()
+            self.assertFalse(expanded_ids & {row["example_id"] for row in heldout})
 
 
 if __name__ == "__main__":

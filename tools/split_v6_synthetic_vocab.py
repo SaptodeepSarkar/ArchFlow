@@ -67,6 +67,8 @@ def main() -> None:
     parser.add_argument("--expected-terms", type=int)
     parser.add_argument("--expected-templates", type=int)
     parser.add_argument("--expected-voices", type=int)
+    parser.add_argument("--freeze-heldout", type=Path, action="append", default=[],
+                        help="Existing heldout JSONL whose contexts/terms must stay out of training")
     args = parser.parse_args()
     if any(value is not None and value <= 0 for value in
            (args.expected_terms, args.expected_templates, args.expected_voices)):
@@ -92,6 +94,20 @@ def main() -> None:
     if len(hashes) < 2:
         raise SystemExit("at least two distinct terms are required")
     validate_grid(rows, args.expected_terms, args.expected_templates, args.expected_voices)
+    frozen_ids = set()
+    for path in args.freeze_heldout:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            identity = json.loads(line).get("example_id")
+            if not isinstance(identity, str) or not identity:
+                raise SystemExit(f"missing frozen example ID at line {number}")
+            frozen_ids.add(identity)
+    if frozen_ids - {row["id"] for row in rows}:
+        raise SystemExit("frozen held-out examples are absent from the source manifest")
+    frozen_terms = {row["term_sha256"] for row in rows if row["id"] in frozen_ids}
+    frozen_contexts = {(row["term_sha256"], int(row["template_index"]))
+                       for row in rows if row["id"] in frozen_ids}
     heldout = set()
     heldout_template: dict[str, int] = {}
     template_indices = sorted({int(row["template_index"]) for row in rows})
@@ -101,7 +117,7 @@ def main() -> None:
         holdout_count = max(1, round(len(hashes) * args.holdout_percent / 100))
         ranked = sorted(hashes, key=lambda value: hashlib.sha256(
             f"{args.protocol}\0{value}".encode("ascii")).hexdigest())
-        heldout = set(ranked[:holdout_count])
+        heldout = set(ranked[:holdout_count]) | frozen_terms
     else:
         # Vocabulary terms must be represented in train when measuring whether
         # acoustically fine-tuning teaches those terms. Hold out one complete
@@ -120,7 +136,8 @@ def main() -> None:
     for row in rows:
         fields = tuple(row[key] for key in row.keys())
         is_eval = (row["term_sha256"] in heldout if args.strategy == "term-disjoint"
-                   else int(row["template_index"]) == heldout_template[row["term_sha256"]])
+                   else (int(row["template_index"]) == heldout_template[row["term_sha256"]]
+                         or (row["term_sha256"], int(row["template_index"])) in frozen_contexts))
         index = int(row["template_index"])
         if index not in TEMPLATES:
             raise SystemExit("input contains an unknown synthetic template")
@@ -166,6 +183,7 @@ def main() -> None:
     print(json.dumps({
         "protocol": args.protocol,
         "strategy": args.strategy,
+        "frozen_example_ids": len(frozen_ids),
         "source_manifest_sha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
         "train_terms": len(hashes) - len(heldout) if args.strategy == "term-disjoint" else len(hashes),
         "heldout_terms": len(heldout) if args.strategy == "term-disjoint" else len(heldout_template),
