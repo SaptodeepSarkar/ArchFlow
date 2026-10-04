@@ -518,6 +518,21 @@ fn gguf_cleanup(text: &str, cfg: &Config) -> Option<String> {
     if !model.is_file() || text.trim().is_empty() {
         return None;
     }
+    let prompt=format!("Format this text conservatively. Keep the same content words in the same order. Return only the formatted text.\n{text}\n");
+    if let Ok(output) = crate::native_models::with_session(
+        crate::native_models::Kind::Formatter,
+        &model,
+        cfg.effective_server_idle_secs(),
+        |worker| worker.request(serde_json::json!({"prompt":prompt}), None),
+    ) {
+        if let Some(candidate) = output["text"].as_str() {
+            let candidate = candidate.trim();
+            if crate::cleanup::semantic_ok(text, candidate) {
+                return Some(candidate.to_owned());
+            }
+        }
+        return None;
+    }
     let mut child = std::process::Command::new("llama-cli")
         .args([
             "-m",
@@ -525,6 +540,8 @@ fn gguf_cleanup(text: &str, cfg: &Config) -> Option<String> {
             "-f",
             "/dev/stdin",
             "--no-display-prompt",
+            "--no-conversation",
+            "--no-escape",
             "--simple-io",
             "--no-warmup",
             "-n",

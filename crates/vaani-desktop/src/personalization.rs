@@ -105,7 +105,7 @@ impl PersonalizationRepository {
                 SyncEntityKind::Vocabulary,
                 id.clone(),
                 1,
-                1,
+                self.storage.next_clock()?,
                 self.device_id.clone(),
                 now,
                 VocabularyEntry {
@@ -132,7 +132,7 @@ impl PersonalizationRepository {
                 SyncEntityKind::Snippet,
                 id.clone(),
                 1,
-                1,
+                self.storage.next_clock()?,
                 self.device_id.clone(),
                 now,
                 Snippet {
@@ -158,7 +158,7 @@ impl PersonalizationRepository {
                 SyncEntityKind::Replacement,
                 id.clone(),
                 1,
-                1,
+                self.storage.next_clock()?,
                 self.device_id.clone(),
                 now,
                 Replacement {

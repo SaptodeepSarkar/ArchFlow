@@ -152,8 +152,11 @@ pub async fn run() -> anyhow::Result<()> {
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 let idle = s.lock().await.cfg.effective_server_idle_secs();
                 if idle > 0 {
-                    worker_sup::reap_idle_servers(idle);
-                    llm_sup::reap_idle_llm(idle);
+                    // Account for this legacy reaper's 30-second cadence so
+                    // retained backends stay within the 120-second ceiling.
+                    let threshold = idle.saturating_sub(30);
+                    worker_sup::reap_idle_servers(threshold);
+                    llm_sup::reap_idle_llm(threshold);
                 }
             }
         });
@@ -416,6 +419,7 @@ fn request_name(kind: &RequestKind) -> &'static str {
         RequestKind::RecoverPending => "recover_pending",
         RequestKind::DiscardPending => "discard_pending",
         RequestKind::Subscribe => "subscribe",
+        RequestKind::UnloadModels => "unload_models",
         RequestKind::MicTest { .. } => "mic_test",
         RequestKind::ConfigSet { .. } => "config_set",
         RequestKind::ConfigGet => "config_get",
@@ -673,6 +677,20 @@ async fn dispatch(
                     ..resp_ok(&rid, &g.session, None, None)
                 },
             }
+        }
+        RequestKind::UnloadModels => {
+            tokio::task::spawn_blocking(|| {
+                crate::native_models::unload();
+                worker_sup::reap_idle_servers(0);
+                llm_sup::reap_idle_llm(0);
+            });
+            let g = shared.lock().await;
+            resp_ok(
+                &rid,
+                &g.session,
+                Some("Unload requested; active inference finishes safely first".into()),
+                None,
+            )
         }
         RequestKind::PersonalizationExport => {
             let g = shared.lock().await;
@@ -2004,7 +2022,15 @@ async fn doctor() -> serde_json::Value {
     checks.insert("pw-record", serde_json::json!(bin("pw-record")));
     checks.insert("wl-copy", serde_json::json!(bin("wl-copy")));
     checks.insert("hyprctl", serde_json::json!(bin("hyprctl")));
-    checks.insert("quickshell", serde_json::json!(bin("quickshell")));
+    checks.insert("vaani-linux", serde_json::json!(bin("vaani-linux")));
+    checks.insert(
+        "native-stt-retention",
+        serde_json::json!(bin("vaani-whisper-session")),
+    );
+    checks.insert(
+        "native-formatter-retention",
+        serde_json::json!(bin("vaani-llama-session")),
+    );
     checks.insert(
         "whisper-cli",
         serde_json::json!(bin("whisper-cli") || bin("whisper-cpp")),

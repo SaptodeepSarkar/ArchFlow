@@ -260,6 +260,8 @@ impl<S: SyncStorage, P: SyncProvider> SyncCoordinator<S, P> {
 pub struct JsonlStorage {
     path: PathBuf,
     encryption_key: Option<[u8; 32]>,
+    _file_lock: Option<std::fs::File>,
+    mutation: Mutex<()>,
     outbox_path: PathBuf,
     device_id: String,
     state: Mutex<Vec<PersonalizationRecord>>,
@@ -289,6 +291,30 @@ impl JsonlStorage {
         device_id: String,
         encryption_key: Option<[u8; 32]>,
     ) -> Result<Self, EngineError> {
+        let file_lock = if encryption_key.is_some() {
+            use fs2::FileExt;
+            let lock_path = path.with_extension("storage.lock");
+            if let Some(parent) = lock_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|_| storage_error("cannot create private data directory"))?;
+            }
+            let mut options = std::fs::OpenOptions::new();
+            options.create(true).write(true).truncate(false);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let lock = options
+                .open(lock_path)
+                .map_err(|_| storage_error("cannot open data lock"))?;
+            lock.try_lock_exclusive().map_err(|_| {
+                storage_error("Personalization is in use; retry after the other operation finishes")
+            })?;
+            Some(lock)
+        } else {
+            None
+        };
         let records = if path.exists() {
             read_records(&path, encryption_key.as_ref())?
         } else {
@@ -319,6 +345,8 @@ impl JsonlStorage {
             write_records(&outbox_path, &outbox, encryption_key.as_ref())?;
         }
         Ok(Self {
+            _file_lock: file_lock,
+            mutation: Mutex::new(()),
             encryption_key,
             path,
             outbox_path,
@@ -340,6 +368,10 @@ impl JsonlStorage {
     }
 
     pub fn merge_batch(&self, incoming: &[PersonalizationRecord]) -> Result<(), EngineError> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| storage_error("mutation lock poisoned"))?;
         let mut records = self.records()?;
         for record in incoming {
             if let Some(slot) = records.iter_mut().find(|r| same_record(r, record)) {
@@ -390,6 +422,10 @@ impl StorageProvider for JsonlStorage {
     }
 
     fn upsert(&self, record: PersonalizationRecord) -> Result<(), EngineError> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| storage_error("mutation lock poisoned"))?;
         let queued = record.clone();
         let mut records = self
             .state
@@ -614,6 +650,8 @@ mod tests {
         migrated.merge_batch(&[record.clone(), record]).unwrap();
         assert_eq!(migrated.records().unwrap().len(), 1);
         assert!(migrated.next_clock().unwrap() > 500);
+        assert!(JsonlStorage::open_with_key(path.clone(), "other".into(), Some([7; 32])).is_err());
+        drop(migrated);
         assert!(JsonlStorage::open_with_key(path.clone(), "local".into(), Some([8; 32])).is_err());
         std::fs::remove_file(&path).unwrap();
         std::fs::remove_file(path.with_extension("outbox.jsonl")).unwrap();

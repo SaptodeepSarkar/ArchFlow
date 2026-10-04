@@ -103,6 +103,15 @@ impl Bundle {
             let data = serde_json::to_value(record)?;
             let body = data.as_object().unwrap().values().next().unwrap();
             anyhow::ensure!(body["schema_version"] == 1, "record schema");
+            let value = &body["value"];
+            anyhow::ensure!(
+                value.is_null() == !body["deleted_at_ms"].is_null(),
+                "invalid deletion state"
+            );
+            if !value.is_null() {
+                anyhow::ensure!(value["id"] == body["id"], "payload identity mismatch");
+            }
+
             anyhow::ensure!(
                 body["writer_device_id"]
                     .as_str()

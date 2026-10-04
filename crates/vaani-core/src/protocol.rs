@@ -60,6 +60,7 @@ pub enum RequestKind {
         value: String,
     },
     ConfigReload,
+    UnloadModels,
     /// Add a canonical spelling plus an optional phrase Vaani may hear.
     PersonalizationAddVocabulary {
         canonical: String,

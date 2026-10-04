@@ -1,4 +1,7 @@
+mod models_page;
 mod overlay;
+mod personalization_page;
+mod settings_page;
 use adw::prelude::*;
 use gtk::{glib, Orientation};
 use serde_json::Value;
@@ -11,7 +14,7 @@ use std::{
     },
 };
 use vaani_core::protocol::{PersonalizationEntity, RequestKind};
-use vaani_local::{ipc, models, pairing, settings};
+use vaani_local::{ipc, pairing, settings};
 #[derive(Clone)]
 enum Update {
     Status(String),
@@ -19,6 +22,7 @@ enum Update {
     Received(pairing::Bundle),
     ReceiveError(String),
     Personalization(Value),
+    Scanned(String),
 }
 fn data_dir() -> std::path::PathBuf {
     std::env::var_os("XDG_DATA_HOME")
@@ -62,6 +66,12 @@ fn button(text: &str, parent: &gtk::Box) -> gtk::Button {
     parent.append(&b);
     b
 }
+fn add_page(stack: &gtk::Stack, page: &gtk::Box, name: &str, title: &str) {
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroll.set_child(Some(page));
+    stack.add_titled(&scroll, Some(name), title);
+}
 fn main() {
     if std::env::args().any(|arg| arg == "--overlay") {
         overlay::run();
@@ -91,7 +101,21 @@ fn build(app: &adw::Application) {
         .build();
     let outer = gtk::Box::new(Orientation::Vertical, 0);
     let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&label("Vaani")));
+    let brand = gtk::Box::new(Orientation::Horizontal, 8);
+    let stream = gtk::gio::MemoryInputStream::from_bytes(&glib::Bytes::from_static(
+        include_bytes!("../../../brand/vaani-mark.svg"),
+    ));
+    if let Ok(mark) = gtk::gdk_pixbuf::Pixbuf::from_stream_at_scale(
+        &stream,
+        28,
+        28,
+        true,
+        None::<&gtk::gio::Cancellable>,
+    ) {
+        brand.append(&gtk::Picture::for_pixbuf(&mark));
+    }
+    brand.append(&label("Vaani"));
+    header.set_title_widget(Some(&brand));
     outer.append(&header);
     let content = gtk::Box::new(Orientation::Horizontal, 0);
     let stack = gtk::Stack::new();
@@ -165,165 +189,10 @@ fn build(app: &adw::Application) {
             })
         });
     }
-    stack.add_titled(&home, Some("home"), "Home");
-    let prefs = column();
-    prefs.append(&label("Settings are loaded from your existing file. Saving validates values and preserves comments and unknown fields."));
-    let language = gtk::DropDown::from_strings(&["en", "hi", "bn"]);
-    prefs.append(&label("Writing language"));
-    prefs.append(&language);
-    let profile = gtk::DropDown::from_strings(&["economy", "balanced", "ready"]);
-    prefs.append(&label("Model retention"));
-    prefs.append(&profile);
-    let retention = gtk::SpinButton::with_range(1.0, 120.0, 1.0);
-    prefs.append(&label(
-        "Idle retention in seconds (Economy always unloads immediately)",
-    ));
-    prefs.append(&retention);
-    let delivery = gtk::DropDown::from_strings(&["automatic", "copy-only", "review"]);
-    prefs.append(&label("Text delivery"));
-    prefs.append(&delivery);
-    let stt_model =
-        gtk::DropDown::from_strings(&["tiny", "base", "base.en", "small", "cozy", "v5"]);
-    prefs.append(&label("Installed speech model"));
-    prefs.append(&stt_model);
-    let formatter_path = entry("Optional formatter model path", &prefs);
-    let loaded = Rc::new(RefCell::new(None::<String>));
-    let path = vaani_core::config::Config::config_path();
-    let load = button("Reload settings", &prefs);
-    let load_fields = {
-        let loaded = loaded.clone();
-        let language = language.clone();
-        let profile = profile.clone();
-        let retention = retention.clone();
-        let delivery = delivery.clone();
-        let stt_model = stt_model.clone();
-        let formatter_path = formatter_path.clone();
-        let status = status.clone();
-        let path = path.clone();
-        move || {
-            match settings::read(&path){Ok((text,cfg))=>{language.set_selected(["en","hi","bn"].iter().position(|v|*v==cfg.recognition.language).unwrap_or(0) as u32);profile.set_selected(["economy","balanced","ready"].iter().position(|v|*v==cfg.general.residency_profile).unwrap_or(0) as u32);retention.set_value(cfg.recognition.server_idle_secs.clamp(1,120) as f64);delivery.set_selected(["automatic","copy-only","review"].iter().position(|v|*v==cfg.insertion.mode).unwrap_or(0) as u32);stt_model.set_selected(["tiny","base","base.en","small","cozy","v5"].iter().position(|v|*v==cfg.recognition.model).unwrap_or(1) as u32);formatter_path.set_text(&cfg.cleanup.model_path);*loaded.borrow_mut()=Some(text);status.set_text("Settings loaded");},Err(_)=>status.set_text("Settings missing or malformed. Preserve the file; install/start Vaani or repair it before saving.")}
-        }
-    };
-    load_fields();
-    load.connect_clicked(move |_| load_fields());
-    let save = button("Save settings", &prefs);
-    let t = tx.clone();
-    save.connect_clicked(move |_| {
-        let Some(expected) = loaded.borrow().clone() else {
-            return;
-        };
-        let updates = vec![
-            (
-                "recognition.model",
-                ["tiny", "base", "base.en", "small", "cozy", "v5"][stt_model.selected() as usize]
-                    .to_string(),
-            ),
-            ("cleanup.model_path", formatter_path.text().to_string()),
-            (
-                "recognition.language",
-                ["en", "hi", "bn"][language.selected() as usize].to_string(),
-            ),
-            (
-                "general.residency_profile",
-                ["economy", "balanced", "ready"][profile.selected() as usize].to_string(),
-            ),
-            (
-                "recognition.server_idle_secs",
-                retention.value_as_int().to_string(),
-            ),
-            (
-                "insertion.mode",
-                ["automatic", "copy-only", "review"][delivery.selected() as usize].to_string(),
-            ),
-        ];
-        let path = path.clone();
-        task(t.clone(), move || {
-            settings::update_many(&path, &expected, &updates)?;
-            let message = if ipc::request(RequestKind::ConfigReload).is_ok() {
-                "Settings saved; model changes apply next session"
-            } else {
-                "Settings saved; start or restart the daemon to load them"
-            };
-            Ok(Update::Status(message.into()))
-        });
-    });
-    stack.add_titled(&prefs, Some("settings"), "Settings");
-    let personal = column();
-    personal.append(&label("Vocabulary, snippets, links and replacements are encrypted locally. Links are snippets with a spoken trigger."));
-    let kind = gtk::DropDown::from_strings(&["Vocabulary", "Snippet / link", "Replacement"]);
-    personal.append(&kind);
-    let first = entry("Canonical spelling or spoken trigger", &personal);
-    let second = entry(
-        "Heard as, snippet value / URL, or replacement text",
-        &personal,
-    );
-    let list = gtk::Box::new(Orientation::Vertical, 6);
-    let scroll = gtk::ScrolledWindow::builder()
-        .child(&list)
-        .vexpand(true)
-        .build();
-    personal.append(&scroll);
-    let t = tx.clone();
-    let refresh = button("Refresh personalization", &personal);
-    refresh.connect_clicked(move |_| {
-        task(t.clone(), || {
-            Ok(Update::Personalization(
-                ipc::request(RequestKind::PersonalizationGet)?
-                    .data
-                    .unwrap_or_default(),
-            ))
-        })
-    });
-    let add = button("Add", &personal);
-    let t = tx.clone();
-    add.connect_clicked(move |_| {
-        let first = first.text().to_string();
-        let second = second.text().to_string();
-        let index = kind.selected();
-        task(t.clone(), move || {
-            let request = match index {
-                0 => RequestKind::PersonalizationAddVocabulary {
-                    canonical: first,
-                    spoken_alias: Some(second),
-                    category: Some("personal".into()),
-                },
-                1 => RequestKind::PersonalizationAddSnippet {
-                    trigger: first,
-                    value: second,
-                },
-                _ => RequestKind::PersonalizationAddReplacement {
-                    source: first,
-                    target: second,
-                },
-            };
-            ipc::request(request)?;
-            Ok(Update::Personalization(
-                ipc::request(RequestKind::PersonalizationGet)?
-                    .data
-                    .unwrap_or_default(),
-            ))
-        });
-    });
-    stack.add_titled(&personal, Some("personal"), "Personalize");
-    let model_page = column();
-    model_page.append(&label("Install a verified model catalog entry. Your existing models remain compatible. Downloads are cached; offline installs verify the same checksums. Installing never loads a model into memory."));
-    let manifest = entry(
-        "Local catalog JSON path (array of model entries)",
-        &model_page,
-    );
-    let asset_id = entry("Model ID from catalog", &model_page);
-    let pack_path = entry(
-        "Offline asset file path (leave blank to download)",
-        &model_page,
-    );
-    let cancel = Arc::new(AtomicBool::new(false));
-    let install = button("Install verified model", &model_page);
-    let t = tx.clone();
-    let flag = cancel.clone();
-    install.connect_clicked(move |_|{let manifest=manifest.text().to_string();let id=asset_id.text().to_string();let local=pack_path.text().to_string();let flag=flag.clone();flag.store(false,Ordering::Relaxed);let feedback=t.clone();task(t.clone(),move||{let assets:Vec<models::Asset>=serde_json::from_slice(&std::fs::read(manifest)?)?;let asset=assets.into_iter().find(|a|a.id==id).ok_or_else(||anyhow::anyhow!("Model ID not in catalog"))?;let root=data_dir();let progress=move|n|{let _=feedback.try_send(Update::Status(format!("Downloaded {n} bytes")));};let path=if local.is_empty(){models::download(&asset,&root,&flag,progress)?}else{models::install(&asset,std::fs::File::open(local)?,&root,&flag,progress)?};Ok(Update::Status(format!("Verified model installed: {}. Select its model name in settings or use the documented backend configuration.",path.display())))});});
-    let cancel_button = button("Cancel download", &model_page);
-    cancel_button.connect_clicked(move |_| cancel.store(true, Ordering::Relaxed));
-    stack.add_titled(&model_page, Some("models"), "Models");
+    add_page(&stack, &home, "home", "Home");
+    settings_page::build(&stack, &status, &tx);
+    let list = personalization_page::build(&stack, &tx);
+    models_page::build(&stack, &tx);
     let devices = column();
     devices.append(&label("Open both apps on the same reachable local network. Receive displays a two-minute, single-use invitation. Compare the certificate fingerprint before sending. Transfers require approval before merging."));
     let host = entry("This device's local IPv4 address", &devices);
@@ -336,6 +205,47 @@ fn build(app: &adw::Application) {
     code.set_wrap_mode(gtk::WrapMode::Char);
     devices.append(&code);
     let invite = entry("Paste the other device's VAANI1 invitation", &devices);
+    let scan = button("Scan pairing QR from image", &devices);
+    let t = tx.clone();
+    scan.connect_clicked(move |_| {
+        let dialog = gtk::FileChooserNative::new(
+            Some("Choose pairing QR image"),
+            None::<&gtk::Window>,
+            gtk::FileChooserAction::Open,
+            Some("Scan"),
+            Some("Cancel"),
+        );
+        let t = t.clone();
+        dialog.connect_response(move |dialog, response| {
+            if response == gtk::ResponseType::Accept {
+                if let Some(path) = dialog.file().and_then(|f| f.path()) {
+                    task(t.clone(), move || {
+                        anyhow::ensure!(
+                            std::fs::metadata(&path)?.len() <= 8 * 1024 * 1024,
+                            "QR image exceeds limit"
+                        );
+                        let mut reader = image::ImageReader::open(path)?.with_guessed_format()?;
+                        let mut limits = image::Limits::default();
+                        limits.max_image_width = Some(4096);
+                        limits.max_image_height = Some(4096);
+                        limits.max_alloc = Some(64 * 1024 * 1024);
+                        reader.limits(limits);
+                        let mut image = rqrr::PreparedImage::prepare(reader.decode()?.to_luma8());
+                        for grid in image.detect_grids() {
+                            if let Ok((_, text)) = grid.decode() {
+                                if pairing::Invitation::parse(&text).is_ok() {
+                                    return Ok(Update::Scanned(text));
+                                }
+                            }
+                        }
+                        anyhow::bail!("No valid Vaani pairing QR found")
+                    });
+                }
+            }
+            dialog.destroy();
+        });
+        dialog.show();
+    });
     let send = button("Send all personalization", &devices);
     let import_preferences =
         gtk::CheckButton::with_label("Include portable language and retention preferences");
@@ -373,12 +283,17 @@ fn build(app: &adw::Application) {
     });
     let stop = button("Close receive session", &devices);
     let flag = receive_cancel.clone();
-    let busy = receive_busy.clone();
     stop.connect_clicked(move |_| {
         flag.store(true, Ordering::Relaxed);
-        *busy.borrow_mut() = false;
+    });
+    let flag = receive_cancel.clone();
+    stack.connect_visible_child_name_notify(move |stack| {
+        if stack.visible_child_name().as_deref() != Some("devices") {
+            flag.store(true, Ordering::Relaxed);
+        }
     });
     let t = tx.clone();
+    let invite_ui = invite.clone();
     send.connect_clicked(move |_| {
         let text = invite.text().to_string();
         let include = import_preferences.is_active();
@@ -420,7 +335,7 @@ fn build(app: &adw::Application) {
             Ok(Update::Status("Received personalization merged. Reload Settings to view any approved preference changes.".into()))
         });
     });
-    stack.add_titled(&devices, Some("devices"), "Devices");
+    add_page(&stack, &devices, "devices", "Devices");
     let t = tx.clone();
     let approve_ui = approve.clone();
     let pending_ui = pending.clone();
@@ -428,6 +343,10 @@ fn build(app: &adw::Application) {
         while let Ok(update) = rx.recv().await {
             match update {
                 Update::Status(message) => status.set_text(&message),
+                Update::Scanned(text) => {
+                    invite_ui.set_text(&text);
+                    status.set_text("QR decoded. Compare fingerprints before sending.");
+                }
                 Update::ReceiveError(message) => {
                     *receive_busy.borrow_mut() = false;
                     status.set_text(&message);
