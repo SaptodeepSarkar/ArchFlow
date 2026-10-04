@@ -585,6 +585,41 @@ mod tests {
     }
 
     #[test]
+    fn encrypted_migration_preserves_records_and_import_clock() {
+        let path =
+            std::env::temp_dir().join(format!("vaani-migration-{}.jsonl", uuid::Uuid::new_v4()));
+        let source = JsonlStorage::open(&path, "old-device").unwrap();
+        let record = PersonalizationRecord::Vocabulary(SyncRecord::live(
+            SyncEntityKind::Vocabulary,
+            "stable".into(),
+            1,
+            500,
+            "remote".into(),
+            1,
+            VocabularyEntry {
+                id: "stable".into(),
+                canonical: "private-term".into(),
+                spoken_aliases: vec![],
+                category: None,
+                created_at_ms: 1,
+                updated_at_ms: 1,
+            },
+        ));
+        source.upsert(record.clone()).unwrap();
+        drop(source);
+        let migrated =
+            JsonlStorage::open_with_key(path.clone(), "local".into(), Some([7; 32])).unwrap();
+        assert_eq!(migrated.records().unwrap().len(), 1);
+        assert!(!String::from_utf8_lossy(&std::fs::read(&path).unwrap()).contains("private-term"));
+        migrated.merge_batch(&[record.clone(), record]).unwrap();
+        assert_eq!(migrated.records().unwrap().len(), 1);
+        assert!(migrated.next_clock().unwrap() > 500);
+        assert!(JsonlStorage::open_with_key(path.clone(), "local".into(), Some([8; 32])).is_err());
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(path.with_extension("outbox.jsonl")).unwrap();
+    }
+
+    #[test]
     fn tombstones_are_explicit_and_older_remote_values_do_not_win() {
         let local = PersonalizationRecord::Vocabulary(SyncRecord::live(
             SyncEntityKind::Vocabulary,
