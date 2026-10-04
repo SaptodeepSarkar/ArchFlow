@@ -1,12 +1,28 @@
-const demo = document.querySelector('#demo-button');
-const label = document.querySelector('.stage-top span:nth-child(2)');
-const timer = document.querySelector('.timer');
-let active = true;
-
-demo.addEventListener('click', () => {
-  active = !active;
-  label.textContent = active ? 'VAANI IS LISTENING' : 'VAANI IS PAUSED';
-  timer.textContent = active ? '00:14' : '00:14 · PAUSED';
-  demo.querySelector('.mic').textContent = active ? '●' : '▶';
-  document.querySelector('.wave').style.opacity = active ? '1' : '.22';
+// A deterministic word sketch. It never requests microphone access or runs inference.
+const examples = {
+  message: [
+    "hey um let’s take the long way home",
+    "Hey, let’s take the long way home.",
+  ],
+  idea: [
+    "what if we made a little room for the unexpected",
+    "What if we made a little room for the unexpected?",
+  ],
+  reminder: [
+    "remember to bring the notebook not the laptop",
+    "Remember to bring the notebook, not the laptop.",
+  ],
+};
+const spoken = document.getElementById("spoken");
+const written = document.getElementById("written");
+document.querySelectorAll("[data-example]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const example = examples[button.dataset.example];
+    if (!example || !spoken || !written) return;
+    spoken.textContent = example[0];
+    written.textContent = example[1];
+    document.querySelectorAll("[data-example]").forEach((item) => {
+      item.setAttribute("aria-pressed", String(item === button));
+    });
+  });
 });
