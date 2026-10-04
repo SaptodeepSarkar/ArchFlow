@@ -41,7 +41,32 @@ evaluation design only, then audit a small training pilot for caption quality
 before considering scale. Preserve source/video IDs and exclude duplicate or
 overlapping evaluation material.
 
-Source: [AI4Bharat NPTEL2020 repository](https://github.com/AI4Bharat/NPTEL2020-Indian-English-Speech-Dataset).
+Additional license check: NPTEL's current official homepage describes its
+materials as Creative Commons Attribution-ShareAlike and also displays “CC BY -
+NC - SA”; the dataset README does not identify a version or resolve this
+noncommercial restriction. YouTube's own help distinguishes its standard
+license from CC BY and says YouTube cannot grant rights to a creator's video.
+This reinforces **do not admit** the NPTEL crawl or derivatives to Vaani's
+intended model release unless NPTEL/each rights holder provides an applicable
+commercial-training and redistribution grant.
+
+Sources: [AI4Bharat NPTEL2020 repository](https://github.com/AI4Bharat/NPTEL2020-Indian-English-Speech-Dataset), [NPTEL official site](https://www.nptel.org.in/), [YouTube license guidance](https://support.google.com/youtube/answer/2797468).
+
+### SPIRE-SIES — spontaneous Indian English
+
+The IISc SPIRE portal describes SPIRE-SIES as 170+ hours / 1,607 speakers of
+spontaneous Indian English and requires a three-step access form. Its paper
+reports 170.83 hours collected but only about 23 hours of generated-and-
+validated transcripts, so supervised ASR scale is much smaller than the audio
+headline. The portal's general terms do not grant a dataset license: they say
+use of site materials is not allowed except as specifically authorized. No
+dataset-specific license, model-training grant, commercial-use permission, or
+redistribution right was visible during this audit. Mark it **deferred** until
+SPIRE Lab supplies written terms and authorized access; do not submit a form or
+download data on the user's behalf because the form requests personal/contact
+information and a purpose statement.
+
+Sources: [SPIRE-SIES access page](https://spiredatasets.ee.iisc.ac.in/spiresiescorpus), [SPIRE-SIES paper](https://arxiv.org/abs/2312.00698), [SPIRE portal terms](https://spiredatasets.ee.iisc.ac.in/termsandconditions).
 
 ### IndicVoices
 
@@ -77,10 +102,13 @@ Source: [AI4Bharat IndicVoices-R repository](https://github.com/AI4Bharat/IndicV
 2. Ask the NPTEL dataset maintainers or rights holder to identify the exact
    Creative Commons version and confirm rights for model training, derived
    transcripts, and commercial distribution. Until answered, keep it excluded.
-3. Inspect IndicVoices' official English/code-switch configuration and terms
+3. Request SPIRE-SIES dataset-specific license, commercial-training,
+   redistribution, transcript-split, and speaker-ID terms from SPIRE Lab before
+   access; keep it deferred until then.
+4. Inspect IndicVoices' official English/code-switch configuration and terms
    without downloading; admit only explicitly licensed, transcribed examples
    after source/speaker deduplication and train/dev/test separation.
-4. Do not let any of these sources replace the V6 frozen qualification sets.
+5. Do not let any of these sources replace the V6 frozen qualification sets.
    Run the same intended Whisper backend on admitted audio, retain source
    reference separately from formatter targets, and report source-wise WER.
 
