@@ -4,9 +4,9 @@ set -uo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 python_bin=${PYTHON:-python3}
-synthetic_dir= real_dir= challenge= hard_eval= model= adapter= v5_adapter= out=
+synthetic_dir= real_dir= challenge= independent_challenge= hard_eval= model= adapter= v5_adapter= out=
 usage() {
-  printf '%s\n' 'usage: evaluate-v6-seq2seq-all.sh --synthetic-dir PATH --real-dir PATH --challenge PATH --hard-eval PATH --model PATH --adapter PATH --v5-adapter PATH --out NEW_OUTSIDE_REPO_DIR'
+  printf '%s\n' 'usage: evaluate-v6-seq2seq-all.sh --synthetic-dir PATH --real-dir PATH --challenge PATH --independent-challenge PATH --hard-eval PATH --model PATH --adapter PATH --v5-adapter PATH --out NEW_OUTSIDE_REPO_DIR'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -14,6 +14,7 @@ while [[ $# -gt 0 ]]; do
     --synthetic-dir) synthetic_dir=$2; shift 2 ;;
     --real-dir) real_dir=$2; shift 2 ;;
     --challenge) challenge=$2; shift 2 ;;
+    --independent-challenge) independent_challenge=$2; shift 2 ;;
     --hard-eval) hard_eval=$2; shift 2 ;;
     --model) model=$2; shift 2 ;;
     --adapter) adapter=$2; shift 2 ;;
@@ -24,10 +25,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-for name in synthetic_dir real_dir challenge hard_eval model adapter v5_adapter out; do
+for name in synthetic_dir real_dir challenge independent_challenge hard_eval model adapter v5_adapter out; do
   [[ -n "${!name}" ]] || { usage >&2; exit 64; }
 done
-for path in "$synthetic_dir" "$real_dir" "$challenge" "$hard_eval" "$model" "$adapter" "$v5_adapter"; do
+for path in "$synthetic_dir" "$real_dir" "$challenge" "$independent_challenge" "$hard_eval" "$model" "$adapter" "$v5_adapter"; do
   [[ -e "$path" ]] || { printf 'missing input: %s\n' "$path" >&2; exit 66; }
 done
 for split in test; do
@@ -41,7 +42,7 @@ case "$out_abs/" in
   "$repo_root/"*) printf 'reports must stay outside the Git worktree: %s\n' "$out_abs" >&2; exit 73 ;;
 esac
 [[ ! -e "$out_abs" ]] || { printf 'refusing to overwrite report directory: %s\n' "$out_abs" >&2; exit 73; }
-mkdir -p "$out_abs"
+mkdir -p "$out_abs" || exit 73
 
 failures=()
 eval_script="$repo_root/tools/eval_v6_seq2seq.py"
@@ -82,6 +83,7 @@ run_suite challenge "$challenge"
 run_suite hard-eval "$hard_eval"
 run_suite mixed-heldout-test "$synthetic_dir/test.jsonl" "$real_dir/test.jsonl"
 run_suite real-test "$real_dir/test.jsonl"
+run_suite independent-challenge "$independent_challenge"
 
 printf 'Aggregate reports written to %s\n' "$out_abs"
 if ((${#failures[@]})); then

@@ -37,3 +37,19 @@ make train-formatter ARGS="--model /path/to/base --out /path/to/run --correction
 The wrappers are intentionally narrow. Add a new trainer behind a new wrapper
 only after documenting its input schema, provenance requirements, evaluation,
 and export target here.
+
+## V6 formatter qualification
+
+`formatter/evaluate-v6-seq2seq-all.sh --help` describes the separate paired
+evaluation entry point. It runs V5 and V6 on the diagnostic challenge, hard
+evaluation, mixed heldout, real heldout, and independent challenge suites.
+An early failure does not skip later suites; any execution or gate failure
+still makes the entire command fail. Output must be a new directory outside
+the repository. The updated evaluator records row-level guard coverage.
+
+The independent challenge must be frozen, excluded from training and replay,
+and not used to choose this candidate. Supplying a path alone does not prove
+that independence: verify its provenance and source overlap before running.
+Previously inspected diagnostic suites remain useful regression tests, but
+are insufficient alone for promotion. A green formatter evaluation is not
+an STT or Android memory/latency qualification.
