@@ -5,11 +5,11 @@
 help:
 	@printf '%s\n' \
 	  'Vaani targets:' \
-	  '  make desktop-debug     Build the Linux/QML desktop application' \
+	  '  make desktop-debug     Build the Linux GTK4 desktop application' \
 	  '  make desktop-release   Build release binaries for install/package' \
 	  '  make android-debug     Build app-debug.apk' \
 	  '  make android-release   Build an unsigned release APK' \
-	  '  make install-desktop   Install the built Linux/QML application locally' \
+	  '  make install-desktop   Install the built Linux GTK4 application locally' \
 	  '  make test-desktop      Run the Rust workspace tests' \
 	  '  make test-android      Run Android JVM unit tests' \
 	  '  make data-check        Validate the shared formatter dataset when present' \
@@ -18,9 +18,11 @@ help:
 
 desktop-debug:
 	cargo build --workspace
+	cargo build -p vaani-local --features native-ui
 
 desktop-release:
 	cargo build --workspace --release
+	cargo build --release -p vaani-local --features native-ui
 
 android-debug:
 	cd android && ./gradlew assembleDebug

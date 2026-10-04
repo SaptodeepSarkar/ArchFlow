@@ -12,10 +12,11 @@ elif [ -n "${1:-}" ]; then
 fi
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}"
 data_root="${XDG_DATA_HOME:-$HOME/.local/share}"
-bin_root="$HOME/.local/bin"
+bin_root="${VAANI_BIN_ROOT:-$HOME/.local/bin}"
 cargo build --locked --release --workspace
-mkdir -p "$bin_root" "$config_root/systemd/user" "$config_root/hypr" "$config_root/vaani" "$data_root/applications" "$config_root/quickshell/vaani/assets" "$data_root/vaani"
-for binary in vaanid vaani vaani-worker vaani-desktop; do
+cargo build --locked --release -p vaani-local --features native-ui
+mkdir -p "$bin_root" "$config_root/systemd/user" "$config_root/hypr" "$config_root/vaani" "$data_root/applications" "$data_root/icons/hicolor/scalable/apps" "$data_root/vaani"
+for binary in vaanid vaani vaani-worker vaani-desktop vaani-linux; do
   install -m755 "target/release/$binary" "$bin_root/$binary"
 done
 install -m755 crates/vaani-worker/fw-transcribe.py "$bin_root/fw-transcribe.py"
@@ -35,9 +36,8 @@ binary = sys.argv[1].replace('\\', '\\\\').replace('"', '\\"')
 entry = pathlib.Path('packaging/vaani.desktop').read_text().replace('vaani-desktop', '"' + binary + '"')
 pathlib.Path(sys.argv[2]).write_text(entry)
 PY
-install -m644 ui/*.qml "$config_root/quickshell/vaani/"
-install -m644 ui/assets/*.png "$config_root/quickshell/vaani/assets/"
-install -m644 config.example.toml "$data_root/vaani/"
+install -m644 brand/vaani-mark.svg "$data_root/icons/hicolor/scalable/apps/vaani.svg"
+install -m644 config.example.toml models/linux-models.json "$data_root/vaani/"
 # Give a first install an editable, private config without replacing any
 # existing choices on reinstall. The daemon also has this guard for package
 # installs that do not use this script.
@@ -56,4 +56,4 @@ if ! command -v wtype >/dev/null 2>&1 && [ ! -x "$bin_root/wtype" ]; then
 fi
 systemctl --user daemon-reload || true
 systemctl --user try-restart vaanid.service || true
-printf '%s\n' 'Installed Vaani. Caelestia is optional.' 'Next: add ~/.local/bin to PATH, run ./tools/setup-stt.sh, then:' '  systemctl --user enable --now vaanid.service' '  vaani doctor' 'See README.md for compositor shortcuts and system package installation.'
+printf '%s\n' 'Installed native Vaani GTK4/libadwaita. A Secret Service keyring is required for personalization.' 'Next: add ~/.local/bin to PATH, run ./tools/setup-stt.sh, then:' '  systemctl --user enable --now vaanid.service' '  vaani doctor' 'See README.md for compositor shortcuts and system package installation.'

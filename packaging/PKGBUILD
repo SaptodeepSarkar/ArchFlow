@@ -3,12 +3,12 @@ pkgname=vaani
 pkgver=1.2.0
 pkgrel=1
 install=vaani.install
-pkgdesc="Local-first voice dictation for Hyprland/Wayland (Rust + whisper.cpp + Quickshell)"
+pkgdesc="Local-first voice dictation for Hyprland/Wayland (Rust + whisper.cpp + GTK4)"
 arch=('x86_64')
 url="https://github.com/SaptodeepSarkar/ArchFlow"
 license=('MIT')
 # Official repo dependencies (verify with `pacman -Si <pkg>`):
-depends=('pipewire' 'wl-clipboard' 'wtype' 'hyprland' 'quickshell' 'qt6-base' 'qt6-declarative' 'curl' 'gcc-libs' 'glibc')
+depends=('pipewire' 'wl-clipboard' 'wtype' 'hyprland' 'gtk4' 'libadwaita' 'gtk4-layer-shell' 'libsecret' 'openssl' 'curl' 'gcc-libs' 'glibc')
 # whisper.cpp is OPTIONAL at runtime (cpu-stub is silence-safe without it).
 # For real transcription: build pinned whisper.cpp per native/worker/README.md
 # or install whisper.cpp from AUR (aur/whisper.cpp) — kept optdepends on purpose.
@@ -21,7 +21,8 @@ sha256sums=('SKIP')  # release tarballs get pinned checksums; VCS builds use --s
 build() {
   cd "ArchFlow-$pkgver"
   # Reproducible build inputs: locked deps via Cargo.lock, pinned toolchain.
-  cargo build --locked --release
+  cargo build --locked --release --workspace
+  cargo build --locked --release -p vaani-local --features native-ui
 }
 
 package() {
@@ -40,24 +41,8 @@ package() {
   install -Dm644 packaging/hyprland/vaani.lua "$pkgdir/usr/share/vaani/hyprland/vaani.lua"
   install -Dm644 config.example.toml "$pkgdir/usr/share/vaani/config.example.toml"
   install -Dm644 models/manifest.toml "$pkgdir/usr/share/vaani/models/manifest.toml"
-  # Quickshell app-owned config (NOT the user's desktop shell):
-  install -Dm644 ui/shell.qml "$pkgdir/usr/share/quickshell/vaani/shell.qml"
-  install -Dm644 ui/Theme.qml "$pkgdir/usr/share/quickshell/vaani/Theme.qml"
-  install -Dm644 ui/SettingsView.qml "$pkgdir/usr/share/quickshell/vaani/SettingsView.qml"
-  install -Dm644 ui/OnboardingView.qml "$pkgdir/usr/share/quickshell/vaani/OnboardingView.qml"
-  install -Dm644 ui/VaaniButton.qml "$pkgdir/usr/share/quickshell/vaani/VaaniButton.qml"
-  install -Dm644 ui/VaaniField.qml "$pkgdir/usr/share/quickshell/vaani/VaaniField.qml"
-  install -Dm644 ui/VaaniMark.qml "$pkgdir/usr/share/quickshell/vaani/VaaniMark.qml"
-  install -Dm644 ui/VaaniSelect.qml "$pkgdir/usr/share/quickshell/vaani/VaaniSelect.qml"
-  install -Dm644 ui/VaaniToggle.qml "$pkgdir/usr/share/quickshell/vaani/VaaniToggle.qml"
-  install -Dm644 ui/assets/onboarding_v2_arrival.png "$pkgdir/usr/share/quickshell/vaani/assets/onboarding_v2_arrival.png"
-  install -Dm644 ui/assets/onboarding_v2_language.png "$pkgdir/usr/share/quickshell/vaani/assets/onboarding_v2_language.png"
-  install -Dm644 ui/assets/onboarding_v2_everywhere.png "$pkgdir/usr/share/quickshell/vaani/assets/onboarding_v2_everywhere.png"
-  install -Dm644 ui/assets/brand_slack.png "$pkgdir/usr/share/quickshell/vaani/assets/brand_slack.png"
-  install -Dm644 ui/assets/brand_whatsapp.png "$pkgdir/usr/share/quickshell/vaani/assets/brand_whatsapp.png"
-  install -Dm644 ui/assets/brand_gmail.png "$pkgdir/usr/share/quickshell/vaani/assets/brand_gmail.png"
-  install -Dm644 ui/assets/brand_notion.png "$pkgdir/usr/share/quickshell/vaani/assets/brand_notion.png"
-  install -Dm644 ui/assets/brand_telegram.png "$pkgdir/usr/share/quickshell/vaani/assets/brand_telegram.png"
-  install -Dm644 ui/assets/brand_canva.png "$pkgdir/usr/share/quickshell/vaani/assets/brand_canva.png"
+  install -Dm755 target/release/vaani-linux "$pkgdir/usr/bin/vaani-linux"
+  install -Dm644 brand/vaani-mark.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/vaani.svg"
+  install -Dm644 models/linux-models.json "$pkgdir/usr/share/vaani/linux-models.json"
   install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
