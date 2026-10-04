@@ -1,3 +1,4 @@
+use crate::ui_components::{actions, card};
 use crate::{add_page, button, column, entry, label, task, Update};
 use adw::prelude::*;
 use std::{cell::RefCell, rc::Rc};
@@ -6,28 +7,78 @@ use vaani_local::{ipc, settings};
 pub fn build(stack: &gtk::Stack, status: &gtk::Label, tx: &async_channel::Sender<Update>) {
     let prefs = column();
     prefs.append(&label("Settings are loaded from your existing file. Saving validates values and preserves comments and unknown fields."));
-    let language = gtk::DropDown::from_strings(&["en", "hi", "bn"]);
-    prefs.append(&label("Writing language"));
-    prefs.append(&language);
-    let profile = gtk::DropDown::from_strings(&["economy", "balanced", "ready"]);
-    prefs.append(&label("Model retention"));
-    prefs.append(&profile);
-    let retention = gtk::SpinButton::with_range(1.0, 120.0, 1.0);
-    prefs.append(&label(
-        "Idle retention in seconds (Economy always unloads immediately)",
-    ));
-    prefs.append(&retention);
-    let delivery = gtk::DropDown::from_strings(&["automatic", "copy-only", "review"]);
-    prefs.append(&label("Text delivery"));
-    prefs.append(&delivery);
+    let recognition = card(
+        "Speech & writing",
+        "Choose the model and language you already have installed.",
+        "",
+    );
+    prefs.append(&recognition);
+    let selection_row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+    selection_row.set_homogeneous(true);
+    recognition.append(&selection_row);
+    let language_field = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    let model_field = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    let language = gtk::DropDown::from_strings(&["English", "Hindi", "Bengali"]);
     let stt_model =
         gtk::DropDown::from_strings(&["tiny", "base", "base.en", "small", "cozy", "v5"]);
-    prefs.append(&label("Installed speech model"));
-    prefs.append(&stt_model);
-    let formatter_path = entry("Optional formatter model path", &prefs);
+    crate::ui_components::field(&model_field, "Installed speech model", &stt_model);
+    crate::ui_components::field(&language_field, "Writing language", &language);
+    selection_row.append(&model_field);
+    selection_row.append(&language_field);
+    let delivery = gtk::DropDown::from_strings(&[
+        "Type into supported fields",
+        "Copy to clipboard",
+        "Review first",
+    ]);
+    crate::ui_components::field(&recognition, "Text delivery", &delivery);
+    recognition.append(&label("Optional formatter model"));
+    let formatter_path = entry("Path to an installed formatter model", &recognition);
+    let residency = card(
+        "Model memory",
+        "Economy unloads after each use. Choose short retention for quicker repeat sessions.",
+        "sky",
+    );
+    prefs.append(&residency);
+    let profile = gtk::DropDown::from_strings(&["economy", "balanced", "ready"]);
+    let profiles = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let mut first = None::<gtk::ToggleButton>;
+    for (index, title) in ["Economy", "Balanced", "Ready"].iter().enumerate() {
+        let button = gtk::ToggleButton::with_label(title);
+        if let Some(group) = &first {
+            button.set_group(Some(group));
+        } else {
+            first = Some(button.clone());
+        }
+        button.add_css_class("retention-choice");
+        let target = profile.clone();
+        button.connect_toggled(move |b| {
+            if b.is_active() {
+                target.set_selected(index as u32);
+            }
+        });
+        let weak = button.downgrade();
+        profile.connect_selected_notify(move |p| {
+            if let Some(b) = weak.upgrade() {
+                b.set_active(p.selected() == index as u32);
+            }
+        });
+        profiles.append(&button);
+    }
+    first.as_ref().unwrap().set_active(true);
+    residency.append(&profiles);
+    let retention = gtk::SpinButton::with_range(1.0, 120.0, 1.0);
+    retention.set_sensitive(false);
+    let idle = retention.clone();
+    profile.connect_selected_notify(move |p| idle.set_sensitive(p.selected() != 0));
+    crate::ui_components::field(
+        &residency,
+        "Idle retention seconds (Economy ignores this value)",
+        &retention,
+    );
     let loaded = Rc::new(RefCell::new(None::<String>));
     let path = vaani_core::config::Config::config_path();
-    let load = button("Reload settings", &prefs);
+    let controls = actions(&prefs);
+    let load = button("Reload settings", &controls);
     let load_fields = {
         let loaded = loaded.clone();
         let language = language.clone();
@@ -44,7 +95,8 @@ pub fn build(stack: &gtk::Stack, status: &gtk::Label, tx: &async_channel::Sender
     };
     load_fields();
     load.connect_clicked(move |_| load_fields());
-    let save = button("Save settings", &prefs);
+    let save = button("Save settings", &controls);
+    save.add_css_class("suggested-action");
     let t = tx.clone();
     let save_status = status.clone();
     save.connect_clicked(move |_| {
@@ -90,7 +142,7 @@ pub fn build(stack: &gtk::Stack, status: &gtk::Label, tx: &async_channel::Sender
             Ok(Update::Status(message.into()))
         });
     });
-    let unload = button("Unload models", &prefs);
+    let unload = button("Unload models", &controls);
     let sender = tx.clone();
     unload.connect_clicked(move |_| {
         task(sender.clone(), || {

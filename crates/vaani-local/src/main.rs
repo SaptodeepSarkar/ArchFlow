@@ -1,7 +1,9 @@
+mod home_page;
 mod models_page;
 mod overlay;
 mod personalization_page;
 mod settings_page;
+mod ui_components;
 use adw::prelude::*;
 use gtk::{glib, Orientation};
 use serde_json::Value;
@@ -42,11 +44,11 @@ fn task(
     });
 }
 fn column() -> gtk::Box {
-    let b = gtk::Box::new(Orientation::Vertical, 12);
-    b.set_margin_top(20);
-    b.set_margin_bottom(20);
-    b.set_margin_start(24);
-    b.set_margin_end(24);
+    let b = gtk::Box::new(Orientation::Vertical, 18);
+    b.set_margin_top(28);
+    b.set_margin_bottom(32);
+    b.set_margin_start(32);
+    b.set_margin_end(32);
     b
 }
 fn label(text: &str) -> gtk::Label {
@@ -63,17 +65,23 @@ fn entry(placeholder: &str, parent: &gtk::Box) -> gtk::Entry {
 }
 fn button(text: &str, parent: &gtk::Box) -> gtk::Button {
     let b = gtk::Button::with_label(text);
+    b.set_halign(gtk::Align::Start);
     parent.append(&b);
     b
 }
 fn add_page(stack: &gtk::Stack, page: &gtk::Box, name: &str, title: &str) {
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    scroll.set_child(Some(page));
+    let clamp = adw::Clamp::builder()
+        .maximum_size(940)
+        .tightening_threshold(720)
+        .child(page)
+        .build();
+    scroll.set_child(Some(&clamp));
     stack.add_titled(&scroll, Some(name), title);
 }
 fn main() {
-    if std::env::args().any(|arg| arg == "--overlay") {
+    if std::env::args().any(|arg| arg == "--overlay" || arg.starts_with("--overlay-preview=")) {
         overlay::run();
         return;
     }
@@ -86,7 +94,7 @@ fn main() {
 fn build(app: &adw::Application) {
     let smoke = std::env::args().any(|a| a == "--smoke-test");
     let css = gtk::CssProvider::new();
-    css.load_from_data("window {background:#fafaf7;color:#202b36;} .suggested-action {background:#226ea8;color:white;} .sidebar {background:#e4f2ff;} entry {border-radius:8px;} .title-1 {color:#226ea8;}");
+    css.load_from_data(include_str!("native.css"));
     gtk::style_context_add_provider_for_display(
         &gtk::gdk::Display::default().expect("display"),
         &css,
@@ -101,111 +109,154 @@ fn build(app: &adw::Application) {
         .build();
     let outer = gtk::Box::new(Orientation::Vertical, 0);
     let header = adw::HeaderBar::new();
-    let brand = gtk::Box::new(Orientation::Horizontal, 8);
-    let stream = gtk::gio::MemoryInputStream::from_bytes(&glib::Bytes::from_static(
-        include_bytes!("../../../brand/vaani-mark.svg"),
-    ));
-    if let Ok(mark) = gtk::gdk_pixbuf::Pixbuf::from_stream_at_scale(
-        &stream,
-        28,
-        28,
-        true,
-        None::<&gtk::gio::Cancellable>,
-    ) {
-        brand.append(&gtk::Picture::for_pixbuf(&mark));
-    }
-    brand.append(&label("Vaani"));
-    header.set_title_widget(Some(&brand));
+    header.set_title_widget(Some(&gtk::Label::new(Some("Vaani"))));
     outer.append(&header);
     let content = gtk::Box::new(Orientation::Horizontal, 0);
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
     stack.set_vexpand(true);
-    let sidebar = gtk::StackSidebar::new();
-    sidebar.set_stack(&stack);
-    sidebar.add_css_class("sidebar");
+    let sidebar = gtk::Box::new(Orientation::Vertical, 8);
+    sidebar.add_css_class("vaani-sidebar");
+    sidebar.set_size_request(204, -1);
+    let brand = gtk::Box::new(Orientation::Horizontal, 10);
+    brand.append(&ui_components::mark(34));
+    let name = label("Vaani");
+    name.add_css_class("brand-name");
+    brand.append(&name);
+    sidebar.append(&brand);
+    let tagline = label("Your voice. Your words.");
+    tagline.add_css_class("muted");
+    sidebar.append(&tagline);
+    let links = gtk::Box::new(Orientation::Vertical, 8);
+    links.set_margin_top(24);
+    sidebar.append(&links);
+    let pages = [
+        (
+            "home",
+            "Home",
+            "go-home-symbolic",
+            "Speak freely.",
+            "Your voice, without the friction.",
+        ),
+        (
+            "personal",
+            "Personalize",
+            "edit-find-symbolic",
+            "Make Vaani sound like you.",
+            "Your spelling. Your phrases. Your everyday shortcuts.",
+        ),
+        (
+            "models",
+            "Models",
+            "folder-download-symbolic",
+            "Make room for your models.",
+            "Choose what runs on your device.",
+        ),
+        (
+            "settings",
+            "Settings",
+            "preferences-system-symbolic",
+            "Tune Vaani to your workflow.",
+            "A few considered choices. No config editing required.",
+        ),
+        (
+            "devices",
+            "Devices",
+            "network-workgroup-symbolic",
+            "Keep your words close.",
+            "Pair nearby devices. Choose what you bring along.",
+        ),
+    ];
+    let page_header = gtk::Box::new(Orientation::Horizontal, 16);
+    page_header.add_css_class("page-heading");
+    let heading_text = gtk::Box::new(Orientation::Vertical, 5);
+    heading_text.set_hexpand(true);
+    let page_title = label(pages[0].3);
+    page_title.add_css_class("page-title");
+    let page_subtitle = label(pages[0].4);
+    page_subtitle.add_css_class("muted");
+    heading_text.append(&page_title);
+    heading_text.append(&page_subtitle);
+    page_header.append(&heading_text);
+    let local = label("LOCAL FIRST");
+    local.add_css_class("local-badge");
+    local.set_wrap(false);
+    local.set_valign(gtk::Align::Center);
+    page_header.append(&local);
+    for (id, title, icon, heading, subtitle) in pages {
+        let b = gtk::Button::new();
+        b.add_css_class("nav-item");
+        let row = gtk::Box::new(Orientation::Horizontal, 12);
+        row.append(&gtk::Image::from_icon_name(icon));
+        row.append(&label(title));
+        b.set_child(Some(&row));
+        links.append(&b);
+        let target = stack.clone();
+        b.connect_clicked(move |_| target.set_visible_child_name(id));
+        let b = b.clone();
+        let title = page_title.clone();
+        let sub = page_subtitle.clone();
+        stack.connect_visible_child_name_notify(move |stack| {
+            if stack.visible_child_name().as_deref() == Some(id) {
+                b.add_css_class("selected");
+                title.set_text(heading);
+                sub.set_text(subtitle);
+            } else {
+                b.remove_css_class("selected");
+            }
+        });
+    }
+    let spacer = gtk::Box::new(Orientation::Vertical, 0);
+    spacer.set_vexpand(true);
+    sidebar.append(&spacer);
+    sidebar.append(&gtk::Separator::new(Orientation::Horizontal));
+    let local_caption = label("LOCAL FIRST");
+    local_caption.add_css_class("caption");
+    sidebar.append(&local_caption);
+    let privacy = label("Audio and raw dictation stay on this device.");
+    privacy.add_css_class("muted");
+    privacy.set_max_width_chars(23);
+    sidebar.append(&privacy);
+    let main_panel = gtk::Box::new(Orientation::Vertical, 0);
+    main_panel.set_hexpand(true);
+    main_panel.append(&page_header);
+    main_panel.append(&stack);
+    let status = label("Open Home to check microphone and models.");
+    status.add_css_class("status-bar");
+    status.set_max_width_chars(72);
+    main_panel.append(&status);
     content.append(&sidebar);
-    content.append(&stack);
+    content.append(&main_panel);
     outer.append(&content);
-    let status = label("Ready. Open Home to check microphone and models.");
-    status.set_margin_start(24);
-    status.set_margin_end(24);
-    status.set_margin_bottom(12);
-    outer.append(&status);
     window.set_content(Some(&outer));
     let (tx, rx) = async_channel::unbounded::<Update>();
-    let home = column();
-    let title = label("Speak naturally. Vaani writes.");
-    title.add_css_class("title-1");
-    home.append(&title);
-    home.append(&label(
-        "Local dictation. Models load only when needed. Economy unloads after use.",
-    ));
-    let dictate = button("Start / finish dictation", &home);
-    dictate.add_css_class("suggested-action");
-    let t = tx.clone();
-    dictate.connect_clicked(move |_| {
-        task(t.clone(), || {
-            ipc::request(RequestKind::Toggle)?;
-            Ok(Update::Status("Dictation request sent".into()))
-        })
-    });
-    for (text, kind) in [
-        ("Cancel", RequestKind::Cancel),
-        ("Copy pending text", RequestKind::CopyPending),
-        ("Check capabilities", RequestKind::Doctor),
-    ] {
-        let b = button(text, &home);
-        let t = tx.clone();
-        b.connect_clicked(move |_| {
-            let kind = kind.clone();
-            task(t.clone(), move || {
-                let response = ipc::request(kind)?;
-                Ok(Update::Status(
-                    response
-                        .data
-                        .map(|d| d.to_string())
-                        .unwrap_or_else(|| "Done".into()),
-                ))
-            })
-        });
-    }
-    for (text, command) in [
-        ("Start background service", "start"),
-        ("Stop background service", "stop"),
-    ] {
-        let b = button(text, &home);
-        let t = tx.clone();
-        b.connect_clicked(move |_| {
-            task(t.clone(), move || {
-                anyhow::ensure!(
-                    std::process::Command::new("systemctl")
-                        .args(["--user", command, "vaanid.service"])
-                        .status()?
-                        .success(),
-                    "Service action failed. Check installation and your user session."
-                );
-                Ok(Update::Status(format!("Service {command} requested")))
-            })
-        });
-    }
-    add_page(&stack, &home, "home", "Home");
+    home_page::build(&stack, &tx);
     settings_page::build(&stack, &status, &tx);
     let list = personalization_page::build(&stack, &tx);
     models_page::build(&stack, &tx);
     let devices = column();
     devices.append(&label("Open both apps on the same reachable local network. Receive displays a two-minute, single-use invitation. Compare the certificate fingerprint before sending. Transfers require approval before merging."));
-    let host = entry("This device's local IPv4 address", &devices);
-    let receive = button("Receive / show pairing QR", &devices);
+    let receive_card = ui_components::card("Receive your words", "Show an expiring invitation for the other device to scan. Keep both devices on a reachable local network.", "sky");
+    devices.append(&receive_card);
+    let host = entry("This device's local IPv4 address", &receive_card);
+    let receive = button("Receive / show pairing QR", &receive_card);
     let picture = gtk::Picture::new();
     picture.set_size_request(240, 240);
-    devices.append(&picture);
+    picture.set_visible(false);
+    receive_card.append(&picture);
     let code = gtk::TextView::new();
     code.set_editable(false);
     code.set_wrap_mode(gtk::WrapMode::Char);
-    devices.append(&code);
-    let invite = entry("Paste the other device's VAANI1 invitation", &devices);
-    let scan = button("Scan pairing QR from image", &devices);
+    code.set_visible(false);
+    receive_card.append(&code);
+    let send_card = ui_components::card(
+        "Send to a nearby device",
+        "Scan the other device’s invitation, compare fingerprints, then choose what to send.",
+        "",
+    );
+    devices.append(&send_card);
+    let invite = entry("Paste the other device's VAANI1 invitation", &send_card);
+    let scan = button("Scan pairing QR from image", &send_card);
     let t = tx.clone();
     scan.connect_clicked(move |_| {
         let dialog = gtk::FileChooserNative::new(
@@ -246,10 +297,10 @@ fn build(app: &adw::Application) {
         });
         dialog.show();
     });
-    let send = button("Send all personalization", &devices);
+    let send = button("Send all personalization", &send_card);
     let import_preferences =
         gtk::CheckButton::with_label("Include portable language and retention preferences");
-    devices.append(&import_preferences);
+    send_card.append(&import_preferences);
     let pending = Rc::new(RefCell::new(None::<pairing::Bundle>));
     let receive_cancel = Arc::new(AtomicBool::new(false));
     let t = tx.clone();
@@ -281,7 +332,7 @@ fn build(app: &adw::Application) {
             let _ = t.send_blocking(update);
         });
     });
-    let stop = button("Close receive session", &devices);
+    let stop = button("Close receive session", &receive_card);
     let flag = receive_cancel.clone();
     stop.connect_clicked(move |_| {
         flag.store(true, Ordering::Relaxed);
@@ -315,8 +366,10 @@ fn build(app: &adw::Application) {
     });
     let apply_preferences =
         gtk::CheckButton::with_label("Apply received portable preferences when approving");
-    devices.append(&apply_preferences);
-    let approve = button("Approve received merge", &devices);
+    let approval_card = ui_components::card("You decide what comes in", "Incoming records stay staged until you approve. Existing IDs and deletions are preserved during merge.", "apricot");
+    devices.append(&approval_card);
+    approval_card.append(&apply_preferences);
+    let approve = button("Approve received merge", &approval_card);
     approve.set_sensitive(false);
     let t = tx.clone();
     let staged = pending.clone();
@@ -352,6 +405,8 @@ fn build(app: &adw::Application) {
                     status.set_text(&message);
                 }
                 Update::Invite(text, svg) => {
+                    picture.set_visible(true);
+                    code.set_visible(true);
                     code.buffer().set_text(&text);
                     let bytes = glib::Bytes::from_owned(svg.into_bytes());
                     let stream = gtk::gio::MemoryInputStream::from_bytes(&bytes);
@@ -381,6 +436,7 @@ fn build(app: &adw::Application) {
                         if let Some(items) = value["personalization"][name].as_array() {
                             for item in items {
                                 let row = gtk::Box::new(Orientation::Horizontal, 8);
+                                row.add_css_class("personal-row");
                                 let l = label(item[field].as_str().unwrap_or("Entry"));
                                 l.set_hexpand(true);
                                 row.append(&l);
@@ -416,6 +472,12 @@ fn build(app: &adw::Application) {
         flag.store(true, Ordering::Relaxed);
         glib::Propagation::Proceed
     });
+    stack.set_visible_child_name("home");
+    if let Some(page) =
+        std::env::args().find_map(|a| a.strip_prefix("--preview-page=").map(str::to_owned))
+    {
+        stack.set_visible_child_name(&page);
+    }
     window.present();
     if smoke {
         let app = app.clone();

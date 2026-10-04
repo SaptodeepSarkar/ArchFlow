@@ -1,5 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Vaani Speakmark">
-  <rect width="128" height="128" rx="32" fill="#DDEEFF"/>
   <path d="M32 43 60 88 89 43" fill="none" stroke="#286D9F" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="89" cy="22" r="7" fill="#C8662C"/>
 </svg>

@@ -3,7 +3,8 @@
 This implementation keeps the Rust dictation engine and Kotlin/Compose Android
 app. Linux now launches `vaani-linux`, a Rust GTK4/libadwaita app; Quickshell is
 not installed or invoked. Historical QML/assets remain in source for reference.
-The original blue/apricot flowing-V mark is `brand/vaani-mark.svg`.
+The Speakmark—a rounded V with a detached speech dot—is `brand/vaani-mark.svg`.
+The shared identity and palette are documented in `brand/README.md`.
 
 ## Build and install
 

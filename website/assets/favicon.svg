@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="15" fill="#526BFF"/>
-  <path d="M14 15h9L32 39.5 41 15h9L32 51 14 15Z" fill="#FFF7F1"/>
-  <circle cx="48" cy="15" r="4" fill="#FF6B4A"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Vaani Speakmark">
+  <rect width="128" height="128" rx="32" fill="#DDEEFF"/>
+  <path d="M32 43 60 88 89 43" fill="none" stroke="#286D9F" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="89" cy="22" r="7" fill="#C8662C"/>
 </svg>

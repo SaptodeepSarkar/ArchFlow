@@ -2,77 +2,541 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Vaani is private, local-first voice dictation for Arch Linux, Hyprland and Wayland. Audio stays on your computer; speed depends on your hardware and selected model." />
-    <meta name="keywords" content="Vaani, local voice dictation, offline dictation Linux, Arch Linux voice to text, Hyprland dictation, Wayland speech to text, private speech recognition" />
-    <meta name="robots" content="index,follow" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vaani — Your voice. Your words.</title>
+    <meta
+      name="description"
+      content="An open-source, local-first dictation app for Linux and Android. Choose your models, keep your words, and bring your personal vocabulary along."
+    />
+    <meta name="theme-color" content="#FFFCF7" />
     <link rel="canonical" href="https://vanni-archflow.vercel.app/" />
+    <meta property="og:title" content="Vaani — Your voice. Your words." />
+    <meta
+      property="og:description"
+      content="A little less typing. A little more you. Local-first dictation for Linux and Android."
+    />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://vanni-archflow.vercel.app/" />
-    <meta property="og:title" content="Vaani — Private local voice dictation for Linux" />
-    <meta property="og:description" content="Speak naturally, write clearly, and keep your audio on your own computer." />
-    <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="assets/favicon.svg" />
-    <title>Vaani — Speak freely. Write clearly.</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="page-glow glow-one"></div><div class="page-glow glow-two"></div>
+    <a class="skip" href="#main">Skip to content</a>
     <header class="nav wrap">
-      <a class="wordmark" href="#top" aria-label="Vaani home"><span class="mark"><img src="assets/favicon.svg" alt="" /></span>vaani</a>
-      <nav aria-label="Main navigation"><a href="#how">How it works</a><a href="#features">Features</a><a href="#privacy">Privacy</a></nav>
-      <a class="button button-small" href="#download">Get Vaani <span>↗</span></a>
+      <a class="wordmark" href="#" aria-label="Vaani home"
+        ><img
+          src="assets/favicon.svg"
+          width="38"
+          height="38"
+          alt=""
+        />vaani<span class="wordmark-dot">.</span></a
+      >
+      <nav aria-label="Main navigation">
+        <a href="#feel">The feeling</a><a href="#devices">Your devices</a
+        ><a href="#principles">Our approach</a>
+      </nav>
+      <a
+        class="nav-source"
+        href="https://github.com/SaptodeepSarkar/ArchFlow/tree/work"
+        >Open source
+        <span aria-hidden="true"
+          ><svg
+            class="arrow-icon"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 12 12 4M4 4h8v8"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            /></svg></span
+      ></a>
     </header>
-
-    <main id="top">
-      <section class="hero wrap">
-        <div class="hero-visual" aria-label="Vaani dictation demonstration">
-          <div class="hero-content"><div class="eyebrow light"><i></i> LOCAL-FIRST VOICE DICTATION</div><h1>Your words,<br /><em>in motion.</em></h1><p>A calm, private way to turn your thoughts into polished text—right where your cursor is.</p><div class="hero-actions"><a class="button button-cobalt" href="#download">Download for Linux <span>↓</span></a><a class="button button-ghost" href="#how"><span class="mic-dot">●</span> See how it works</a></div><small>Built for Arch Linux + Hyprland · Works offline</small></div>
-          <div class="orbit" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-          <div class="voice-line hero-voice"><span class="wave"><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b></span><button id="demo-button" type="button" aria-label="Toggle dictation demo"><span class="mic">●</span></button><span class="timer">00:14</span></div>
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">
+            <span class="status-dot"></span> A SMALL APP FOR BIG THOUGHTS
+          </p>
+          <h1 id="hero-title">
+            A little less typing.<br />A little more <em>you.</em>
+          </h1>
+          <p class="lede">
+            For the message you’ve been putting off. The idea that won’t sit
+            still. The words that come easier out loud.
+          </p>
+          <p class="hero-description">
+            Meet Vaani. Local-first dictation for Linux and Android, with your
+            voice at the center.
+          </p>
+          <div class="actions">
+            <a class="button primary" href="#get"
+              >Find your Vaani
+              <span aria-hidden="true"
+                ><svg
+                  class="arrow-icon"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 12 12 4M4 4h8v8"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg></span></a
+            ><a class="text-link" href="#feel"
+              >Try the word sketch
+              <svg
+                class="arrow-icon"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M8 3v10m-4-4 4 4 4-4"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+            ></a>
+          </div>
+          <div class="hero-meta">
+            <span>Linux + Android</span><span>On-device recognition</span
+            ><span>Open source</span>
+          </div>
+        </div>
+        <div
+          class="thought-board"
+          aria-label="Illustration of a spoken thought becoming a written note"
+        >
+          <span class="margin-note note-one">a thought, out loud</span>
+          <div class="speech-slip">
+            <span class="tiny-label">YOU SAY</span>
+            <p>“hey um let’s take<br />the long way home”</p>
+            <div class="sound" aria-hidden="true">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+          </div>
+          <svg
+            class="pencil-arrow"
+            viewBox="0 0 130 110"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 12C115 0 133 85 54 86M54 86L72 67M54 86L82 98"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <div class="written-note">
+            <div class="note-top">
+              <span class="tiny-label">A NOTE TO SOMEONE</span
+              ><span aria-hidden="true"
+                ><svg
+                  class="arrow-icon"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 12 12 4M4 4h8v8"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+            </div>
+            <p>Hey, let’s take<br />the long way home.</p>
+            <div class="note-bottom">
+              <img
+                src="assets/favicon.svg"
+                width="28"
+                height="28"
+                alt=""
+              /><span>Same thought. Fewer keystrokes.</span>
+            </div>
+          </div>
+          <span class="margin-note note-two">still sounds like you.</span
+          ><span class="board-caption"
+            >A word sketch, not a live recording.</span
+          >
         </div>
       </section>
-
-      <section class="trusted wrap" aria-label="Vaani principles"><p>DESIGNED FOR THOUGHTFUL COMPUTING</p><div><span>Private by default</span><span>Nothing in the cloud</span><span>Made for focus</span></div></section>
-
-      <section class="speed wrap" id="how">
-        <div class="section-intro"><span class="number">01</span><p>YOUR VOICE, AT THE SPEED OF A THOUGHT</p></div>
-        <div class="speed-grid"><h2>Less keyboard.<br /><em>More flow.</em></h2><div><p>Vaani captures the shape of what you mean, then quietly removes the stumbles. Say it naturally. Get text that is ready to use.</p><a class="arrow-link" href="#features">Explore the flow <span>→</span></a></div></div>
-        <div class="compare-card">
-          <div class="metric"><span>Typing</span><strong>45 <small>wpm</small></strong><div class="bar keyboard"></div></div>
-          <div class="divider"></div>
-          <div class="metric active"><span>Speaking with Vaani</span><strong>Your <small>pace</small></strong><div class="bar voice"></div></div>
-          <div class="compare-copy"><p class="rough">“Hey, um, can you maybe move that meeting—actually, Thursday?”</p><p class="clean">“Could we move the meeting to Thursday?”</p></div>
+      <div class="principle-strip">
+        <div class="wrap">
+          <span>Your microphone.</span><span>Your models.</span
+          ><span>Your words.</span><span>Your pace.</span>
+        </div>
+      </div>
+      <section class="feel wrap" id="feel" aria-labelledby="feel-title">
+        <div class="section-heading">
+          <p class="eyebrow">01 / FROM THOUGHT TO TEXT</p>
+          <h2 id="feel-title">
+            Keep the voice.<br /><em>Lose a few keystrokes.</em>
+          </h2>
+          <p>
+            Good dictation should help you write, without deciding what you
+            meant. Recognition can make mistakes. Formatting should stay
+            grounded in the words it receives.
+          </p>
+        </div>
+        <div class="word-sketch">
+          <div class="sketch-toolbar">
+            <span class="tiny-label">THE WORD SKETCH</span>
+            <div class="examples" role="group" aria-label="Choose an example">
+              <button type="button" data-example="message" aria-pressed="true">
+                A message</button
+              ><button type="button" data-example="idea" aria-pressed="false">
+                An idea</button
+              ><button
+                type="button"
+                data-example="reminder"
+                aria-pressed="false"
+              >
+                A reminder
+              </button>
+            </div>
+          </div>
+          <div class="sketch-columns">
+            <div>
+              <span class="tiny-label">SPOKEN WORDS</span>
+              <p id="spoken">hey um let’s take the long way home</p>
+            </div>
+            <span class="sketch-arrow" aria-hidden="true">→</span>
+            <div class="sketch-output">
+              <span class="tiny-label">WITH A LITTLE POLISH</span>
+              <p id="written" aria-live="polite">
+                Hey, let’s take the long way home.
+              </p>
+            </div>
+          </div>
+          <p class="sketch-footnote">
+            <span class="sketch-dot" aria-hidden="true"></span> Illustrative
+            examples. No microphone, model or upload runs in this demo.
+          </p>
         </div>
       </section>
-
-      <section class="local-spec wrap" id="local">
-        <div class="section-intro"><span class="number">02</span><p>LOCAL BY DESIGN · HONEST ABOUT PERFORMANCE</p></div>
-        <div class="local-grid"><div><h2>Runs on your<br /><em>computer, not a cloud.</em></h2><p>Vaani processes audio locally with your chosen recognition model. That keeps dictation private and makes performance a property of your own setup—not a remote server.</p></div><div class="local-details"><article><span>Speed</span><p>Recognition time varies with your CPU or GPU, model size, audio length, and background workload. Smaller models typically respond faster; larger ones may improve accuracy.</p></article><article><span>Baseline</span><p>Arch Linux, Hyprland/Wayland, PipeWire and a modern 64-bit CPU. For comfortable everyday use alongside other apps, 16 GB RAM is recommended.</p></article><article><span>Optional GPU</span><p>Vaani works on CPU. NVIDIA CUDA acceleration is optional; a laptop GPU with about 6 GB VRAM is a practical target for the supported local models.</p></article></div></div>
+      <section
+        class="devices wrap"
+        id="devices"
+        aria-labelledby="devices-title"
+      >
+        <div class="section-heading row-heading">
+          <div>
+            <p class="eyebrow">02 / POCKET, MEET DESK</p>
+            <h2 id="devices-title">
+              Two places.<br /><em>One familiar voice.</em>
+            </h2>
+          </div>
+          <p>
+            Names, everyday phrases and little shortcuts make your vocabulary
+            yours. Bring them along with an approved local-network transfer.
+          </p>
+        </div>
+        <div class="device-grid">
+          <article class="device-card desktop-card">
+            <div class="platform-title">
+              <svg
+                class="platform-symbol"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <rect
+                  x="3"
+                  y="4"
+                  width="18"
+                  height="13"
+                  rx="2"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+                <path
+                  d="M8 21h8m-4-4v4"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                /></svg
+              ><span>VAANI FOR LINUX</span><span class="tag">Desktop</span>
+            </div>
+            <h3>A home on your desktop.</h3>
+            <p>
+              Manage models, vocabulary and settings in a native Linux app.
+              Dictate into supported fields, or copy your text and place it
+              yourself.
+            </p>
+            <div
+              class="desktop-preview"
+              aria-label="Illustrative desktop layout"
+            >
+              <div class="preview-sidebar">
+                <img
+                  src="assets/favicon.svg"
+                  width="30"
+                  height="30"
+                  alt=""
+                /><span class="selected">Home</span><span>Models</span
+                ><span>Words</span><span>Settings</span><span>Devices</span>
+              </div>
+              <div class="preview-content">
+                <span class="tiny-label">YOUR WORDS, AT HOME</span
+                ><strong>Ready when you are.</strong>
+                <div class="preview-wave" aria-hidden="true">▂ ▄ ▆ ▃ ▇ ▄ ▂</div>
+                <span class="preview-state">Illustrative interface</span>
+              </div>
+            </div>
+            <a
+              class="text-link"
+              href="https://github.com/SaptodeepSarkar/ArchFlow/blob/work/docs/NATIVE_APP.md"
+              >Linux setup guide
+              <span aria-hidden="true"
+                ><svg
+                  class="arrow-icon"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 12 12 4M4 4h8v8"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg></span
+            ></a>
+          </article>
+          <article class="device-card mobile-card">
+            <div class="platform-title">
+              <svg
+                class="platform-symbol"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <rect
+                  x="6"
+                  y="2"
+                  width="12"
+                  height="20"
+                  rx="3"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+                <path
+                  d="M10 18h4"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                /></svg
+              ><span>VAANI FOR ANDROID</span><span class="tag">Mobile</span>
+            </div>
+            <h3>For the in-between moments.</h3>
+            <p>
+              Choose the voice bubble or optional keyboard. Download a speech
+              model when you’re ready; a formatter is optional.
+            </p>
+            <div class="phone-preview" aria-label="Illustrative mobile layout">
+              <div class="phone-top">
+                <img
+                  src="assets/favicon.svg"
+                  width="30"
+                  height="30"
+                  alt=""
+                /><strong>vaani.</strong>
+              </div>
+              <span class="tiny-label">YOUR VOICE. YOUR WORDS.</span>
+              <div class="phone-message">
+                A quick thought<br />before I forget…
+              </div>
+              <div class="phone-bottom">
+                <span class="phone-bubble" aria-hidden="true">▂ ▆ ▃ ▅ ▂</span
+                ><span>Illustrative interface</span>
+              </div>
+            </div>
+            <a
+              class="text-link"
+              href="https://github.com/SaptodeepSarkar/ArchFlow/blob/work/android/README.md"
+              >Android build guide
+              <span aria-hidden="true"
+                ><svg
+                  class="arrow-icon"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 12 12 4M4 4h8v8"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg></span
+            ></a>
+          </article>
+        </div>
+        <p class="device-note">
+          The current redesign is available on the
+          <a href="https://github.com/SaptodeepSarkar/ArchFlow/tree/work"
+            >work branch</a
+          >. Physical-device battery, microphone, Wayland and device-pair
+          validation are still pending.
+        </p>
       </section>
-
-      <section class="features wrap" id="features">
-        <div class="section-intro"><span class="number">03</span><p>BUILT AROUND HOW YOU ACTUALLY WORK</p></div>
-        <h2>Just speak.<br /><em>Vaani handles the rest.</em></h2>
-        <div class="feature-grid">
-          <article class="feature feature-wide"><div class="feature-icon lines"><i></i><i></i><i></i></div><h3>It understands the edit.</h3><p>Pause, restart, change your mind. Vaani recognizes the thought behind your words and produces the version you intended.</p><div class="mini-editor"><span class="strike">um, send it next week</span><span class="final-text">Send it next Thursday.</span></div></article>
-          <article class="feature feature-dark"><div class="feature-icon lock">⌁</div><h3>Your words stay yours.</h3><p>Audio and transcription stay on your machine. There is no account, tracking, history, or hidden upload.</p><span class="local-pill">● ON DEVICE</span></article>
-          <article class="feature"><div class="feature-icon cursor-icon">✦</div><h3>Keep your keyboard.</h3><p>A small Vaani bubble floats above the app you already use. Hold it to speak, then paste polished text wherever you write.</p><div class="app-dots"><span>✉</span><span>▤</span><span>&lt;/&gt;</span><span>+</span></div></article>
+      <section
+        class="approach"
+        id="principles"
+        aria-labelledby="approach-title"
+      >
+        <div class="wrap">
+          <div class="section-heading">
+            <p class="eyebrow">03 / A FEW THINGS WE CARE ABOUT</p>
+            <h2 id="approach-title">
+              Small software.<br /><em>Considered choices.</em>
+            </h2>
+          </div>
+          <div class="principles-grid">
+            <article>
+              <span class="principle-number">01</span>
+              <h3>Keep it close.</h3>
+              <p>
+                Speech recognition runs on your device. Model downloads use the
+                network; pairing sends approved personalization directly between
+                devices on a reachable local network.
+              </p>
+            </article>
+            <article>
+              <span class="principle-number">02</span>
+              <h3>Give models a rest.</h3>
+              <p>
+                Economy loads models when needed and releases them after use.
+                Prefer quicker repeat sessions? Choose a short retention window.
+                Actual speed depends on your hardware and model.
+              </p>
+            </article>
+            <article>
+              <span class="principle-number">03</span>
+              <h3>Make room for your words.</h3>
+              <p>
+                Add vocabulary, snippets, links and replacements.
+                Personalization is encrypted locally, and transfers need
+                receiver approval. No account is required.
+              </p>
+            </article>
+          </div>
         </div>
       </section>
-
-      <section class="privacy" id="privacy"><div class="wrap privacy-inner"><div><div class="eyebrow light"><i></i> A QUIETER KIND OF SOFTWARE</div><h2>Private is not<br /><em>a premium feature.</em></h2></div><div class="privacy-copy"><p>Vaani is local-first by design. The microphone is only active while you dictate, and your audio never needs to leave your computer.</p><ul><li><span>✓</span> No account or telemetry</li><li><span>✓</span> No persistent transcript history</li><li><span>✓</span> Your choice of local models</li></ul></div></div></section>
-
-      <section class="steps wrap"><div class="section-intro"><span class="number">04</span><p>ONE SMALL SHORTCUT, A CLEARER WAY TO WRITE</p></div><div class="step-grid"><article><span>01</span><h3>Focus</h3><p>Place your cursor wherever you want to write.</p></article><article><span>02</span><h3>Speak</h3><p>Hold <kbd>SUPER</kbd> + <kbd>H</kbd> and say what’s on your mind.</p></article><article><span>03</span><h3>Continue</h3><p>Vaani delivers clear text and gets out of the way.</p></article></div></section>
-
-      <section class="download wrap" id="download"><div class="download-card"><p class="eyebrow"><i></i> READY WHEN YOU ARE</p><h2>Say hello to<br /><em>your new shortcut.</em></h2><p>Vaani is an open, local-first dictation tool for people who prefer their software quiet and capable.</p><a class="button button-cream" href="https://github.com/SaptodeepSarkar/ArchFlow">Get Vaani for Linux <span>↓</span></a><small>Arch Linux · Hyprland · Wayland</small></div></section>
+      <section class="get wrap" id="get" aria-labelledby="get-title">
+        <div class="get-copy">
+          <p class="eyebrow">OPEN SOURCE. STILL GROWING.</p>
+          <h2 id="get-title">Make room<br />for <em>your voice.</em></h2>
+          <p>
+            Vaani is an independent project, built in the open. Try the current
+            development build, look through the code, or help test what comes
+            next.
+          </p>
+          <div class="actions">
+            <a
+              class="button primary"
+              href="https://github.com/SaptodeepSarkar/ArchFlow/tree/work"
+              >Explore the build
+              <span aria-hidden="true"
+                ><svg
+                  class="arrow-icon"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 12 12 4M4 4h8v8"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg></span></a
+            ><a
+              class="text-link"
+              href="https://github.com/SaptodeepSarkar/ArchFlow/blob/work/docs/TESTING_AGENT_PROMPT.md"
+              >Help test Vaani
+              <span aria-hidden="true"
+                ><svg
+                  class="arrow-icon"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 12 12 4M4 4h8v8"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg></span
+            ></a>
+          </div>
+          <small
+            >Build instructions today. Verified release downloads when
+            published.</small
+          >
+        </div>
+        <div class="get-mark" aria-hidden="true">
+          <img src="assets/favicon.svg" width="210" height="210" alt="" /><span
+            >say it your way.</span
+          >
+        </div>
+      </section>
     </main>
-    <footer class="wrap"><a class="wordmark" href="#top"><span class="mark"><img src="assets/favicon.svg" alt="" /></span>vaani</a><p>Speak freely. Write clearly.</p><a href="https://github.com/SaptodeepSarkar/ArchFlow">GitHub ↗</a></footer>
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Vaani","applicationCategory":"UtilitiesApplication","operatingSystem":"Arch Linux, Linux, Wayland, Hyprland","description":"Private, local-first voice dictation for Linux. Audio is processed on the user's computer.","url":"https://github.com/SaptodeepSarkar/ArchFlow","softwareVersion":"1.0.0","isAccessibleForFree":true}</script>
-    <script src="app.js"></script>
+    <footer class="wrap">
+      <a class="wordmark" href="#" aria-label="Back to top"
+        ><img
+          src="assets/favicon.svg"
+          width="32"
+          height="32"
+          alt=""
+        />vaani<span class="wordmark-dot">.</span></a
+      >
+      <p>Your voice. Your words.</p>
+      <div>
+        <a href="https://github.com/SaptodeepSarkar/ArchFlow/tree/work"
+          >Source
+          <svg
+            class="arrow-icon"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 12 12 4M4 4h8v8"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            /></svg></a
+        ><a href="https://github.com/SaptodeepSarkar/ArchFlow/issues"
+          >Feedback
+          <svg
+            class="arrow-icon"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 12 12 4M4 4h8v8"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            /></svg
+        ></a>
+      </div>
+    </footer>
+    <script src="app.js" defer></script>
   </body>
 </html>

@@ -8,11 +8,14 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import org.vaani.app.features.*
 
@@ -29,15 +32,22 @@ class MainActivity : ComponentActivity() {
                 var page by rememberSaveable { mutableStateOf("Home") }
                 Surface(color = VaaniColor.Paper) {
                     Column(Modifier.fillMaxSize().padding(16.dp)) {
-                        Text(
-                            "Vaani",
-                            style = MaterialTheme.typography.headlineLarge,
-                            color = VaaniColor.Cobalt,
-                        )
-                        Text(
-                            "Your voice. Your device.",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_vaani_launcher),
+                                contentDescription = null,
+                                modifier = Modifier.size(40.dp),
+                            )
+                            Text(
+                                "Vaani",
+                                style = MaterialTheme.typography.headlineLarge,
+                                color = VaaniColor.Blue,
+                            )
+                        }
+                        Text("Your voice. Your words.", style = MaterialTheme.typography.bodyMedium)
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
