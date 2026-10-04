@@ -36,6 +36,16 @@ def normalized(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).casefold()
 
 
+def evaluation_code_sha256() -> str:
+    """Hash the evaluator and its aggregate-reporting dependency together."""
+    digest = hashlib.sha256()
+    for path in (Path(__file__).resolve(), Path(__file__).with_name("v6_eval_aggregate.py")):
+        digest.update(path.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=Path, required=True)
@@ -147,7 +157,7 @@ def main() -> None:
               "target_set_sha256": target_digest.hexdigest(),
               "base_model_sha256": model_sha256(args.model),
               "adapter_sha256": model_sha256(args.adapter) if args.adapter else None,
-              "evaluation_code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              "evaluation_code_sha256": evaluation_code_sha256(),
               "protocol_code_sha256": hashlib.sha256((PROTOCOL_DIR / "formatter_protocol.py").read_bytes()).hexdigest(),
               "exact_rate": exact / len(rows), "normalized_exact_rate": normalized_exact / len(rows),
               "novel_content_tokens": novel_content_tokens,

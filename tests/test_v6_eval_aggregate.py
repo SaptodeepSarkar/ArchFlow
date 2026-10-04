@@ -12,6 +12,22 @@ class V6EvaluationAggregateTest(unittest.TestCase):
         self.assertEqual(row_categories({"metadata": {"categories": []}}), ["uncategorized"])
         self.assertEqual(row_categories({}), ["uncategorized"])
 
+    def test_foundation_schema_labels_are_included_with_categories(self) -> None:
+        row = {"metadata": {"categories": ["filler"]},
+               "labels": [" real_derived ", "meaning_preservation", "filler"]}
+        self.assertEqual(row_categories(row),
+                         ["filler", "meaning_preservation", "real_derived"])
+        self.assertEqual(row_categories({"labels": ["real_derived"]}), ["real_derived"])
+
+    def test_aligned_token_edits_add_length_and_position_slices(self) -> None:
+        row = {"metadata": {"categories": ["filler-context"]},
+               "source_tokens": ["x"] * 8,
+               "token_labels": ["KEEP", "DELETE_FILLER"] + ["KEEP"] * 6}
+        self.assertEqual(row_categories(row), [
+            "edit:DELETE_FILLER", "edit_position:DELETE_FILLER:beginning",
+            "filler-context", "source_length:8",
+        ])
+
     def test_reports_only_aggregate_counts_and_rates(self) -> None:
         groups: dict[str, dict[str, int]] = {}
         row = {"metadata": {"categories": ["repair", "meaning"]},

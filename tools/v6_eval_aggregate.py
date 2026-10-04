@@ -4,8 +4,26 @@ from __future__ import annotations
 
 def row_categories(row: dict) -> list[str]:
     metadata = row.get("metadata")
-    values = metadata.get("categories") if isinstance(metadata, dict) else None
-    if not isinstance(values, list):
+    metadata_values = metadata.get("categories") if isinstance(metadata, dict) else None
+    label_values = row.get("labels")
+    values: list[str] = []
+    for group in (metadata_values, label_values):
+        if isinstance(group, list):
+            values.extend(group)
+    source_tokens = row.get("source_tokens")
+    token_labels = row.get("token_labels")
+    if (isinstance(source_tokens, list) and isinstance(token_labels, list)
+            and source_tokens and len(source_tokens) == len(token_labels)):
+        values.append(f"source_length:{len(source_tokens)}")
+        for index, label in enumerate(token_labels):
+            if not isinstance(label, str) or label == "KEEP":
+                continue
+            values.append(f"edit:{label}")
+            relative_position = index / len(token_labels)
+            position = ("beginning" if relative_position < 0.25 else
+                        "ending" if relative_position >= 0.75 else "middle")
+            values.append(f"edit_position:{label}:{position}")
+    if not values:
         return ["uncategorized"]
     categories = sorted({value.strip() for value in values
                          if isinstance(value, str) and value.strip()})
