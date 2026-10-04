@@ -201,6 +201,7 @@ def main() -> None:
     protected_terms = protected_hits = failures = 0
     failure_types: dict[str, int] = {}
     tag_counts: dict[str, dict[str, int]] = {}
+    vocabulary_slices: dict[str, dict[str, int]] = {}
     audio_seconds = decode_seconds = 0.0
     for row in rows:
         audio = row_audio(row, args.audio_root)
@@ -238,6 +239,20 @@ def main() -> None:
         if score_terms:
             terms = [term for term in score_terms
                      if contains_term(reference, term)]
+            slice_name = "relevant_terms" if terms else "ordinary_speech"
+            counts = vocabulary_slices.setdefault(slice_name, {
+                "rows": 0, "reference_words": 0, "errors": 0,
+                "false_vocabulary_hits": 0, "rows_with_false_vocabulary_hits": 0,
+            })
+            false_hits = sum(
+                contains_term(hypothesis_tokens, term)
+                for term in score_terms if not contains_term(reference, term)
+            )
+            counts["rows"] += 1
+            counts["reference_words"] += len(reference)
+            counts["errors"] += sub + delete + insert
+            counts["false_vocabulary_hits"] += false_hits
+            counts["rows_with_false_vocabulary_hits"] += int(false_hits > 0)
         protected_terms += len(terms)
         protected_hits += sum(contains_term(hypothesis_tokens, term) for term in terms)
 
@@ -285,6 +300,11 @@ def main() -> None:
         "protected_terms": protected_terms,
         "protected_terms_recognized": protected_hits,
         "scored_vocabulary_sha256": score_terms_sha256,
+        "vocabulary_slice_metrics": {
+            name: {**counts, "normalized_wer_percent": round(
+                100 * counts["errors"] / max(counts["reference_words"], 1), 4)}
+            for name, counts in sorted(vocabulary_slices.items())
+        },
         "protected_term_accuracy_percent": (
             round(100 * protected_hits / protected_terms, 4) if protected_terms else None
         ),

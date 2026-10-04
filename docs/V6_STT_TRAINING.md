@@ -581,11 +581,30 @@ promotion gate; the paired aggregate reports, including identical row-set and
 model hashes, remain outside Git under
 `~/.local/share/vaani/v6-data/hotword-ami-dev-20261004/`.
 
-The attempted CUDA run could not decode because the evaluation environment's
-CTranslate2 backend requires `libcublas.so.12` while this host provides CUDA
-13's `libcublas.so.13`; the diagnostic was therefore run on CPU. The evaluator
+The initial CUDA run could not decode because the evaluation environment's
+CTranslate2 backend requires `libcublas.so.12` while the default host search
+path exposes CUDA 13's `libcublas.so.13`; the diagnostic was therefore run on CPU. The evaluator
 now records aggregate exception-class counts (not exception messages) so
 backend failures remain diagnosable without risking content disclosure.
+
+A later check found an existing compatible CUDA 12 library directory at
+`/usr/local/lib/ollama/cuda_v12`. Setting `LD_LIBRARY_PATH` for the evaluator
+process only enabled a successful real-audio GPU smoke test; no system
+libraries were installed or changed. A full paired ICSI-dev GPU comparison
+is running with English, beam 5, `int8_float16`, identical model/row/scoring
+vocabulary hashes, and the engineering pack off/on. Training remains paused.
+The completed CPU baseline covered all 861 rows (34 minutes of human speech),
+with 13.1569% WER, no failures, and 2/5 relevant term-row hits. Five supported
+term-row pairs are too few for a broad vocabulary-quality claim. The GPU
+result must be compared only with the matching GPU baseline, not this CPU run.
+
+The evaluator now reports separate relevant-term and ordinary-speech WER
+slices, plus counts of vocabulary terms present in hypotheses but absent in
+their references. These are term-row presence counts, not repeated acoustic
+occurrence counts, and are diagnostics rather than proof of hallucination.
+All output remains aggregate-only. Any partial decode failure writes a
+diagnostic report but exits nonzero; paired comparisons reject it. Scoring
+vocabulary hashes must match even when decoder-hotword differences are allowed.
 
 ## Self-authored vocabulary-audio pipeline
 

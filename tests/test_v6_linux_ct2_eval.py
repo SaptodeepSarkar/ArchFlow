@@ -172,6 +172,12 @@ class LinuxCt2EvalTests(unittest.TestCase):
             self.assertEqual(report["protected_terms_recognized"], 1)
             self.assertFalse(report["decoder"]["hotwords_enabled"])
             self.assertEqual(len(report["scored_vocabulary_sha256"]), 64)
+            slices = report["vocabulary_slice_metrics"]
+            self.assertEqual(slices["relevant_terms"]["rows"], 1)
+            self.assertEqual(slices["relevant_terms"]["false_vocabulary_hits"], 0)
+            self.assertEqual(slices["ordinary_speech"]["rows"], 1)
+            self.assertEqual(slices["ordinary_speech"]["false_vocabulary_hits"], 1)
+            self.assertEqual(slices["ordinary_speech"]["rows_with_false_vocabulary_hits"], 1)
             self.assertNotIn("LLM", serialized)
             self.assertNotIn("meeting", serialized)
             self.assertNotIn(str(audio), serialized)
