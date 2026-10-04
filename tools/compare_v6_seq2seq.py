@@ -30,6 +30,13 @@ def main() -> None:
     v5, v6 = load(args.v5), load(args.v6)
     if v5["rows"] != v6["rows"] or v5["source_set_sha256"] != v6["source_set_sha256"]:
         raise SystemExit("V5 and V6 reports do not cover the same ordered source set")
+    for field in ("target_set_sha256", "base_model_sha256", "evaluation_code_sha256",
+                  "protocol_code_sha256"):
+        if not v5.get(field) or v5.get(field) != v6.get(field):
+            raise SystemExit(f"V5 and V6 reports lack matching {field}")
+    if (v5.get("protocol") != "v5" or v6.get("protocol") != "v6"
+            or not v5.get("adapter_sha256") or not v6.get("adapter_sha256")):
+        raise SystemExit("paired qualification requires trained V5 and V6 adapter provenance")
     exact_delta = v6["exact_rate"] - v5["exact_rate"]
     normalized_delta = v6["normalized_exact_rate"] - v5["normalized_exact_rate"]
     fallback_count = v6.get("copy_guard_fallbacks", 0)
@@ -59,6 +66,12 @@ def main() -> None:
         "suite": args.suite,
         "rows": v5["rows"],
         "source_set_sha256": v5["source_set_sha256"],
+        "target_set_sha256": v5["target_set_sha256"],
+        "base_model_sha256": v5["base_model_sha256"],
+        "v5_adapter_sha256": v5["adapter_sha256"],
+        "v6_adapter_sha256": v6["adapter_sha256"],
+        "evaluation_code_sha256": v5["evaluation_code_sha256"],
+        "protocol_code_sha256": v5["protocol_code_sha256"],
         "v5_exact_rate": v5["exact_rate"],
         "v6_exact_rate": v6["exact_rate"],
         "exact_rate_delta": exact_delta,

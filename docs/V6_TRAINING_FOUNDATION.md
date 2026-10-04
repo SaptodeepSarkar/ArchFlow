@@ -92,6 +92,11 @@ Supply the trained V5 control explicitly; omitting it must fail before training
 or evaluation. Earlier offline comparisons against the unadapted base do not
 prove improvement over the trained V5 product model. The full Rust comparison
 already uses an explicit V5 adapter, so it is not affected by this correction.
+New offline formatter reports also hash the ordered gold targets, base model,
+adapter artifacts, evaluator code, and shared protocol code. The paired gate
+requires matching targets/base/code and explicit trained V5/V6 adapter
+provenance. Legacy reports without these fields remain historical diagnostics,
+not promotion evidence; they must be regenerated with the corrected controls.
 
 ### Formatter / LLM
 

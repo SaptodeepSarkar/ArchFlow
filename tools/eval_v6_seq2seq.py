@@ -13,6 +13,7 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from v6_eval_aggregate import add_category_result, category_report
+from eval_v6_linux_ct2 import model_sha256
 
 PROTOCOL_DIR = Path(__file__).resolve().parents[1] / "training/cleanup-llm/scripts"
 sys.path.insert(0, str(PROTOCOL_DIR))
@@ -85,10 +86,12 @@ def main() -> None:
     outputs_missing_target_content = 0
     category_metrics: dict[str, dict[str, int]] = {}
     source_digest = hashlib.sha256()
+    target_digest = hashlib.sha256()
     with torch.inference_mode():
         for row_index, row in enumerate(rows, 1):
             source, target = fields(row)
             source_digest.update(hashlib.sha256(source.encode("utf-8")).digest())
+            target_digest.update(hashlib.sha256(target.encode("utf-8")).digest())
             prefix = prompt_v6(source) if protocol == "v6" else prompt_v5(source)
             encoded = tokenizer(prefix, return_tensors="pt").to(device)
             max_new = args.max_new_tokens or (
@@ -139,8 +142,13 @@ def main() -> None:
                                   "novel_content_tokens": novel_content_tokens,
                                   "token_order_violations": raw_token_order_violations}),
                       file=sys.stderr, flush=True)
-    report = {"schema_version": 1, "rows": len(rows),
+    report = {"schema_version": 2, "rows": len(rows),
               "source_set_sha256": source_digest.hexdigest(),
+              "target_set_sha256": target_digest.hexdigest(),
+              "base_model_sha256": model_sha256(args.model),
+              "adapter_sha256": model_sha256(args.adapter) if args.adapter else None,
+              "evaluation_code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              "protocol_code_sha256": hashlib.sha256((PROTOCOL_DIR / "formatter_protocol.py").read_bytes()).hexdigest(),
               "exact_rate": exact / len(rows), "normalized_exact_rate": normalized_exact / len(rows),
               "novel_content_tokens": novel_content_tokens,
               "outputs_with_novel_content": outputs_with_novel_content,

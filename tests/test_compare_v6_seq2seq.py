@@ -11,7 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class CompareSeq2SeqTest(unittest.TestCase):
     def run_compare(self, v5: dict, v6: dict,
-                    max_fallback: float | None = None) -> tuple[subprocess.CompletedProcess, dict]:
+                    max_fallback: float | None = None,
+                    add_provenance: bool = True) -> tuple[subprocess.CompletedProcess, dict]:
+        if add_provenance:
+            common = {"target_set_sha256": "targets", "base_model_sha256": "base",
+                      "evaluation_code_sha256": "eval-code", "protocol_code_sha256": "protocol-code"}
+            v5 = {**common, "protocol": "v5", "adapter_sha256": "v5-adapter", **v5}
+            v6 = {**common, "protocol": "v6", "adapter_sha256": "v6-adapter", **v6}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             base, candidate, report = root / "v5.json", root / "v6.json", root / "comparison.json"
@@ -42,6 +48,22 @@ class CompareSeq2SeqTest(unittest.TestCase):
         result, report = self.run_compare(base, unsafe)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertFalse(report["promotion_eligible"])
+
+    def test_rejects_missing_control_and_mismatched_targets_or_code(self) -> None:
+        base = {"rows": 18, "source_set_sha256": "same", "exact_rate": .4,
+                "normalized_exact_rate": .4, "novel_content_tokens": 0,
+                "outputs_with_novel_content": 0, "missing_target_content_tokens": 0,
+                "outputs_missing_target_content": 0}
+        result, report = self.run_compare(base, base, add_provenance=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(report)
+        for field in ("target_set_sha256", "base_model_sha256", "evaluation_code_sha256",
+                      "protocol_code_sha256", "adapter_sha256", "protocol"):
+            with self.subTest(field=field):
+                value = None if field == "adapter_sha256" else "different"
+                result, report = self.run_compare(base, {**base, field: value})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(report)
 
     def test_fallback_rate_is_a_separate_promotion_gate(self) -> None:
         base = {"rows": 100, "source_set_sha256": "same", "exact_rate": .4,
