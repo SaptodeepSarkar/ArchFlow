@@ -546,8 +546,12 @@ async fn dispatch(
             }
             start_flow(shared.clone(), &tx, false).await
         }
-        RequestKind::Stop => stop_flow(shared.clone(), &tx, true).await,
-        RequestKind::Cancel => cancel_flow(shared.clone(), &tx, &rid).await,
+        RequestKind::Stop => {
+            stop_flow_for_session(shared.clone(), &tx, true, req.session_id.as_deref()).await
+        }
+        RequestKind::Cancel => {
+            cancel_flow_for_session(shared.clone(), &tx, &rid, req.session_id.as_deref()).await
+        }
         RequestKind::Status => {
             let g = shared.lock().await;
             resp_ok(
@@ -605,7 +609,21 @@ async fn dispatch(
             resp_ok(&rid, &g.session, None, Some(data))
         }
         RequestKind::CopyPending => {
-            let text = { shared.lock().await.pending.clone().map(|p| p.text) };
+            let text = {
+                let g = shared.lock().await;
+                if req
+                    .session_id
+                    .as_deref()
+                    .is_some_and(|id| id != g.session.id)
+                {
+                    return Response {
+                        ok: false,
+                        message: Some("stale HUD session".into()),
+                        ..resp_ok(&rid, &g.session, None, None)
+                    };
+                }
+                g.pending.clone().map(|p| p.text)
+            };
             match text {
                 Some(text) => match clipboard::offer_text(&text) {
                     Ok(()) => {
@@ -1210,9 +1228,13 @@ async fn start_flow(
             tx,
             &ev_state(Some(sid), State::Starting, Some("Starting microphone…")),
         );
-        // On-demand overlay UI (separate app-owned Quickshell config).
-        // Store the child so stop_flow can kill it after streaming.
-        let mut child = std::process::Command::new("vaani-linux")
+        // Prefer the installed sibling under systemd's minimal PATH.
+        let native_ui = std::env::current_exe()
+            .ok()
+            .map(|path| path.with_file_name("vaani-linux"))
+            .filter(|path| path.is_file())
+            .unwrap_or_else(|| "vaani-linux".into());
+        let child = std::process::Command::new(native_ui)
             .arg("--overlay")
             .env("VAANI_SOCKET", paths::control_sock())
             .env_remove("VAANI_OPEN_SETTINGS")
@@ -1222,6 +1244,7 @@ async fn start_flow(
         // `g` is already the session lock held by this block. Re-entering
         // shared.lock() here deadlocks every start request before capture
         // begins, leaving the overlay stuck in STARTING.
+        retire_overlay(g.overlay.take());
         g.overlay = child.ok();
     }
 
@@ -1642,10 +1665,25 @@ async fn stop_flow(
     tx: &broadcast::Sender<Event>,
     manual: bool,
 ) -> Response {
+    stop_flow_for_session(shared, tx, manual, None).await
+}
+async fn stop_flow_for_session(
+    shared: Arc<Mutex<Shared>>,
+    tx: &broadcast::Sender<Event>,
+    manual: bool,
+    expected: Option<&str>,
+) -> Response {
     tracing::info!("stop_flow entry (manual={})", manual);
     // Capture close is synchronous and immediate, independent of transcription.
     let (samples, sid, cfg_snap, target) = {
         let mut g = shared.lock().await;
+        if expected.is_some_and(|id| id != g.session.id) {
+            return Response {
+                ok: false,
+                message: Some("stale HUD session".into()),
+                ..resp_ok("", &g.session, None, None)
+            };
+        }
         if matches!(g.session.state, State::Idle) {
             let s = g.session.clone();
             return resp_ok("", &s, Some("idle".into()), None);
@@ -1797,11 +1835,17 @@ async fn stop_flow(
                 });
                 let _ = g.session.transition(State::Idle);
                 drop(g);
-                let _ = clipboard::offer_text(&final_text);
-                if let Some(mut ov) = shared.lock().await.overlay.take() {
-                    let _ = ov.kill();
-                    let _ = ov.wait();
-                }
+                let copied = clipboard::offer_text(&final_text).is_ok();
+                emit(
+                    tx,
+                    &ev_state_data(
+                        Some(sid.clone()),
+                        State::Idle,
+                        Some("Dictation finished"),
+                        Some(serde_json::json!({"copied": copied})),
+                    ),
+                );
+                retire_overlay(shared.lock().await.overlay.take());
                 let s = shared.lock().await.session.clone();
                 return resp_ok(
                     "",
@@ -1821,10 +1865,7 @@ async fn stop_flow(
                 });
                 drop(g);
                 let _ = clipboard::offer_text(&final_text_c);
-                if let Some(mut ov) = shared.lock().await.overlay.take() {
-                    let _ = ov.kill();
-                    let _ = ov.wait();
-                }
+                retire_overlay(shared.lock().await.overlay.take());
                 let mut g = shared.lock().await;
                 let _ = g.session.transition(State::Idle);
                 let s = g.session.clone();
@@ -1866,10 +1907,7 @@ async fn stop_flow(
                 inserter::insert_automatic(&text_to_insert, &target_for_insert, &configured_mode)
             })
             .await;
-            if let Some(mut ov) = shared.lock().await.overlay.take() {
-                let _ = ov.kill();
-                let _ = ov.wait();
-            }
+            retire_overlay(shared.lock().await.overlay.take());
             let mut g = shared.lock().await;
             if g.session.id != sid || !matches!(g.session.state, State::Inserting) {
                 let s = g.session.clone();
@@ -1887,6 +1925,10 @@ async fn stop_flow(
             );
             let message = outcome.to_string();
             let _ = g.session.transition(State::Idle);
+            emit(
+                tx,
+                &ev_state(Some(sid.clone()), State::Idle, Some("Dictation finished")),
+            );
             let s = g.session.clone();
             resp_ok(
                 "",
@@ -1927,8 +1969,23 @@ async fn cancel_flow(
     tx: &broadcast::Sender<Event>,
     rid: &str,
 ) -> Response {
+    cancel_flow_for_session(shared, tx, rid, None).await
+}
+async fn cancel_flow_for_session(
+    shared: Arc<Mutex<Shared>>,
+    tx: &broadcast::Sender<Event>,
+    rid: &str,
+    expected: Option<&str>,
+) -> Response {
     tracing::info!("cancel_flow entry");
     let mut g = shared.lock().await;
+    if expected.is_some_and(|id| id != g.session.id) {
+        return Response {
+            ok: false,
+            message: Some("stale HUD session".into()),
+            ..resp_ok(rid, &g.session, None, None)
+        };
+    }
     if matches!(g.session.state, State::Idle) {
         let s = g.session.clone();
         return resp_ok(rid, &s, Some("idle".into()), None);
@@ -1957,6 +2014,7 @@ async fn cancel_flow(
     );
     let _ = g.session.transition(State::Idle);
     emit(tx, &ev_state(Some(g.session.id.clone()), State::Idle, None));
+    retire_overlay(g.overlay.take());
     let s = g.session.clone();
     resp_ok(rid, &s, Some("discarded".into()), None)
 }
@@ -2108,4 +2166,83 @@ fn with_store_clock(
         PersonalizationRecord::Replacement(r) => r.logical_clock = clock,
     }
     Ok(record)
+}
+
+/// Allow the on-demand HUD to show its confirmation, then reap with a hard bound.
+fn retire_overlay(child: Option<std::process::Child>) {
+    if let Some(mut child) = child {
+        tokio::task::spawn_blocking(move || {
+            use wait_timeout::ChildExt;
+            if !matches!(
+                child.wait_timeout(std::time::Duration::from_secs(3)),
+                Ok(Some(_))
+            ) {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod hud_session_tests {
+    use super::*;
+    #[tokio::test]
+    async fn stale_hud_actions_leave_current_capture_and_pending_text_untouched() {
+        let mut state = Shared {
+            cfg: vaani_core::config::Config::default(),
+            personalization: Default::default(),
+            session: Session::new(0),
+            seq: 0,
+            capture: None,
+            audio: Vec::new(),
+            amplitude: 0.0,
+            pending: None,
+            pending_audio: Vec::new(),
+            target: FocusTarget::default(),
+            ui_level: Vec::new(),
+            last_lat: Latencies::default(),
+            last_formatter: "not_run".into(),
+            last_delivery: "not_run".into(),
+            residency_warm_until: None,
+            no_auto: None,
+            live: false,
+            committed: String::new(),
+            live_transcript: String::new(),
+            live_audio_cursor: 0,
+            target_lost: false,
+            session_started_at: None,
+            last_activation: None,
+            overlay: None,
+            insertion_allowed: true,
+        };
+        state.session.transition(State::Starting).unwrap();
+        state.session.transition(State::Recording).unwrap();
+        state.audio = vec![0.1, 0.2];
+        state.pending = Some(Pending {
+            text: "synthetic pending text".into(),
+            at: std::time::Instant::now(),
+        });
+        let shared = Arc::new(Mutex::new(state));
+        let (tx, mut events) = broadcast::channel(8);
+        for kind in [
+            RequestKind::Stop,
+            RequestKind::Cancel,
+            RequestKind::CopyPending,
+        ] {
+            let mut request = Request::new(kind);
+            request.session_id = Some("previous-session".into());
+            let response = dispatch(request, shared.clone(), tx.clone()).await;
+            assert!(!response.ok);
+            assert_eq!(response.message.as_deref(), Some("stale HUD session"));
+            let current = shared.lock().await;
+            assert_eq!(current.session.state, State::Recording);
+            assert_eq!(current.audio, vec![0.1, 0.2]);
+            assert_eq!(
+                current.pending.as_ref().unwrap().text,
+                "synthetic pending text"
+            );
+        }
+        assert!(events.try_recv().is_err());
+    }
 }

@@ -81,7 +81,7 @@ fn add_page(stack: &gtk::Stack, page: &gtk::Box, name: &str, title: &str) {
     stack.add_titled(&scroll, Some(name), title);
 }
 fn main() {
-    if std::env::args().any(|arg| arg == "--overlay") {
+    if std::env::args().any(|arg| arg == "--overlay" || arg.starts_with("--overlay-preview=")) {
         overlay::run();
         return;
     }
@@ -180,6 +180,7 @@ fn build(app: &adw::Application) {
     page_header.append(&heading_text);
     let local = label("LOCAL FIRST");
     local.add_css_class("local-badge");
+    local.set_wrap(false);
     local.set_valign(gtk::Align::Center);
     page_header.append(&local);
     for (id, title, icon, heading, subtitle) in pages {

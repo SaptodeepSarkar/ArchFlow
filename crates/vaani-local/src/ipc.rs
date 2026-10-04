@@ -32,7 +32,7 @@ pub fn subscribe(
             !line.is_empty() && line.len() <= vaani_core::MAX_CONTROL_BYTES,
             "subscription ended"
         );
-        if let Ok(event) = serde_json::from_str(&line) {
+        if let Some(event) = subscription_event(&line) {
             if !callback(event) {
                 return Ok(());
             }
@@ -40,10 +40,14 @@ pub fn subscribe(
     }
 }
 pub fn request(kind: RequestKind) -> anyhow::Result<Response> {
+    request_for_session(kind, None)
+}
+pub fn request_for_session(kind: RequestKind, session: Option<String>) -> anyhow::Result<Response> {
     let mut socket = UnixStream::connect(socket_path())?;
     socket.set_read_timeout(Some(Duration::from_secs(8)))?;
     socket.set_write_timeout(Some(Duration::from_secs(8)))?;
-    let request = Request::new(kind);
+    let mut request = Request::new(kind);
+    request.session_id = session;
     socket.write_all(request.to_line()?.as_bytes())?;
     let mut reader = BufReader::new(socket);
     for _ in 0..128 {
@@ -68,4 +72,35 @@ pub fn request(kind: RequestKind) -> anyhow::Result<Response> {
         }
     }
     anyhow::bail!("daemon response limit")
+}
+
+fn subscription_event(line: &str) -> Option<vaani_core::protocol::Event> {
+    if let Ok(event) = serde_json::from_str::<vaani_core::protocol::Event>(line) {
+        return Some(event);
+    }
+    // The first subscription line is a state snapshot, not a tagged Event.
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if value.get("event").is_some() || value.get("ok").is_some() {
+        return None;
+    }
+    Some(vaani_core::protocol::Event {
+        protocol_version: vaani_core::PROTOCOL_VERSION,
+        event: "state".into(),
+        session_id: value["session_id"].as_str().map(str::to_owned),
+        state: Some(value["state"].as_str()?.to_owned()),
+        amplitude: None,
+        message: None,
+        data: None,
+    })
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn idle_snapshot_is_delivered_but_command_responses_are_not() {
+        let snapshot =
+            super::subscription_event(r#"{"state":"IDLE","session_id":"a","pending":false}"#)
+                .unwrap();
+        assert_eq!(snapshot.state.as_deref(), Some("IDLE"));
+        assert!(super::subscription_event(r#"{"ok":true,"state":"IDLE"}"#).is_none());
+    }
 }

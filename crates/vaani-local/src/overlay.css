@@ -1,0 +1,9 @@
+window.vaani-hud { background: transparent; }
+.hud-card { background: #fffdfb; border: 1px solid #bfd8eb; border-radius: 22px; padding: 12px; }
+.hud-wave { background: #ddeeff; border-radius: 13px; }
+.hud-caption { color: #586b76; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; }
+.hud-line { color: #243d4a; font-size: 13px; font-weight: 600; }
+.hud-action { background: #ddeeff; border: 1px solid #bfd8eb; border-radius: 12px; padding: 8px; color: #286d9f; min-width: 24px; min-height: 24px; box-shadow: none; }
+.hud-action:hover { background: #cce3f4; }
+.hud-action.cancel { background: #ffe8d7; border-color: #f2d5be; color: #814924; }
+.hud-action:disabled { opacity: 0.45; }
