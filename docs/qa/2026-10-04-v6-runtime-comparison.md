@@ -34,3 +34,29 @@ Artifact SHA-256:
 - V5 `adapter_model.safetensors`: `11657384ccd6ae54a9f45e03eb5d250bd223093d68dd9d1e4051742fe8fbb375`
 - V6 `adapter_config.json`: `f2ef8fdeb5f2cf4f931e8c36a733c0b78b892f5a4de826182b3c2d17b8919e53`
 - V6 `adapter_model.safetensors`: `da013f433133d03d4ef94f821e0093371a21880d441cf3912eb5a87390f6a1c9`
+
+## Fresh 3,000-step candidate (completed later on 2026-10-04)
+
+The fixed-final-step candidate `v6-formatter-research-corrected-control`
+finished 3,000 steps from the deployed V5 base with 44,067 encoded training
+rows and 5,524 dev rows. Minimum dev cross-entropy was 0.013295 at step 3,000;
+this is a training diagnostic, not a quality score. Paired reports were
+generated with the same base, evaluator, protocol, and ordered source/target
+hashes for each V5/V6 suite.
+
+| Suite | Rows | V5 exact target | V6 exact target | V6 safety/promotion result |
+|---|---:|---:|---:|---|
+| Challenge | 22 | 4 (18.2%) | 15 (68.2%) | Eligible on this small suite; all measured content/order gates passed |
+| Hard-eval | 128 | 38 (29.7%) | 10 (7.8%) | Rejected: large exact-match regression; content gates passed |
+| Real-derived heldout test | 768 | 37 (4.8%) | 333 (43.4%) | Rejected: 8 target-content tokens missing across 6 outputs; 2 token-order violations |
+
+On the real-derived heldout suite, V5 normalized exact match was 18.2% and V6
+was 43.4%. The V6 final outputs had no novel content tokens and only two
+copy-guard fallbacks, but lost some target content; high exact-match gain does
+not override that safety failure. On hard-eval, V6 was substantially worse
+than V5. Therefore this candidate is **not promotion-eligible** despite its
+challenge and real-derived exact-match gains. The contrasting suite results
+suggest the current training mix generalizes poorly to the hard-eval edit
+distribution; determine the affected phenomenon slices before changing data or
+training settings. Do not tune on these final fixtures and call the same rows a
+fresh test.
