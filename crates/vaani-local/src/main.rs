@@ -86,7 +86,7 @@ fn main() {
 fn build(app: &adw::Application) {
     let smoke = std::env::args().any(|a| a == "--smoke-test");
     let css = gtk::CssProvider::new();
-    css.load_from_data("window {background:#fafaf7;color:#202b36;} .suggested-action {background:#226ea8;color:white;} .sidebar {background:#e4f2ff;} entry {border-radius:8px;} .title-1 {color:#226ea8;}");
+    css.load_from_data("window {background:#fffcf7;color:#243d4a;} .suggested-action {background:#286d9f;color:white;} .sidebar {background:#ddeeff;} entry {border-radius:8px;} .title-1 {color:#286d9f;}");
     gtk::style_context_add_provider_for_display(
         &gtk::gdk::Display::default().expect("display"),
         &css,

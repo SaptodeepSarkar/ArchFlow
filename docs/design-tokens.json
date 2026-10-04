@@ -1,22 +1,44 @@
 {
   "color": {
-    "brandInk": "#0C1020",
-    "brandCobalt": "#526BFF",
-    "brandCoral": "#FF6B4A",
-    "brandCloud": "#FFF7F1",
-    "brandSky": "#78C7FF",
-    "neutral100": "#F7F8FC",
-    "neutral900": "#171A26",
-    "neutral600": "#72788B",
-    "neutral300": "#D9DDE8"
+    "brandInk": "#243D4A",
+    "brandBlue": "#286D9F",
+    "brandSky": "#DDEEFF",
+    "brandApricot": "#FFCFAB",
+    "brandSpeechDot": "#C8662C",
+    "brandPaper": "#FFFCF7",
+    "brandCobalt": "#286D9F",
+    "brandCoral": "#FFCFAB",
+    "brandCloud": "#FFFDFB",
+    "neutral100": "#FFFCF7",
+    "neutral900": "#243D4A",
+    "neutral600": "#586B76",
+    "neutral300": "#D9E1E3"
   },
-  "spaceDp": { "base": 4, "comfortable": 24, "section": 32, "hero": 40, "action": 56, "display": 72 },
-  "radiusDp": { "field": 12, "button": 14, "appIcon": 22 },
-  "typeSp": { "onboardingTitle": 44, "body": 18, "label": 14 },
-  "motionMs": { "standardMin": 160, "standardMax": 240 },
+  "spaceDp": {
+    "base": 4,
+    "comfortable": 24,
+    "section": 32,
+    "hero": 40,
+    "action": 56,
+    "display": 72
+  },
+  "radiusDp": {
+    "field": 12,
+    "button": 14,
+    "appIcon": 22
+  },
+  "typeSp": {
+    "onboardingTitle": 44,
+    "body": 18,
+    "label": 14
+  },
+  "motionMs": {
+    "standardMin": 160,
+    "standardMax": 240
+  },
   "onboardingArtwork": {
-    "scrimColor": "#0C1020",
+    "scrimColor": "#243D4A",
     "artOpacityBehindUi": 0.25,
-    "fallbackColor": "#0C1020"
+    "fallbackColor": "#FFFCF7"
   }
 }

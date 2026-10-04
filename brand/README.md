@@ -1,64 +1,44 @@
-# Vaani brand kit
+# Vaani identity
 
-[`brand-kit.html`](brand-kit.html) is the canonical visual reference for Vaani.
-Open it directly in a browser; it has no framework, build step, web fonts, or
-runtime dependency. It is a design specification, not production UI.
+**Your voice. Your words.** Vaani is an independent, local-first dictation app
+for Linux and Android. The tone is personal, direct and honest about what the
+software can do. Use concrete examples; avoid promises of perfect recognition,
+meaning-changing rewrites, universal insertion or measured battery savings.
 
-## What belongs where
+## Speakmark
 
-| Part | Use it for | Do not use it for |
-|---|---|---|
-| Ribbon V mark | App icon, launcher, compact system surface | Recording state, waveform, or arbitrary recolours |
-| Paper / ink | Everyday app surfaces and readable text | A decorative dark theme everywhere |
-| Plum | Progress, selected controls, intentional moments | Large default app backgrounds |
-| Lilac outlined CTA | One decisive onboarding or permission action | Multiple competing actions on a screen |
-| Apricot | A featured benefit or small warm supporting moment | Error, warning, or success meaning |
-| Serif display | One onboarding/feature headline | Settings, lists, fields, navigation, or overlay text |
-| Manrope sans | All operational UI: labels, controls, settings, overlay | Mixing several sans families |
+The mark is a rounded V with a detached speech dot: a voice becoming a sentence.
+Two shapes, no gradients or fine details. It should work at 16 px as well as on
+an app launcher. The dot is a permanent part of the identity, not a recording
+indicator. This is an original design, not a borrowed product mark.
 
-## Sections in the kit
+`vaani-mark.svg` is the canonical app icon; `vaani-glyph.svg` is its transparent
+variant. `assets/branding/vaani-mark.svg` and `website/assets/favicon.svg` mirror
+the icon. Android vector resources reproduce the same geometry, with clear
+space for adaptive masks. The GTK launcher/install paths use the canonical SVG.
 
-1. **Identity** — source SVG and approved app-mark/lockup contexts.
-2. **Colour** — named colour values and their semantic role.
-3. **Type** — editorial display use versus operational sans use.
-4. **Actions** — primary, secondary, dark, and text-only button hierarchy.
-5. **Selection** — tall outlined option rows and selected state.
-6. **Voice box** — the small, non-focus-stealing dictation overlay.
-7. **Tokens** — names that should be retained in implementation code.
+## Palette
 
-## Implementation guidance
+| Token | Hex | Use |
+| --- | --- | --- |
+| Paper | #FFFCF7 | Main surface |
+| Ink | #243D4A | Text |
+| Blue | #286D9F | Mark, primary controls, links |
+| Sky | #DDEEFF | Selected states and supporting surfaces |
+| Apricot | #FFCFAB | Warm illustration and secondary surfaces |
+| Speech dot | #C8662C | Identity accent; not body text on apricot |
+| Muted | #586B76 | Supporting text |
+| Line | #D9E1E3 | Boundaries |
 
-Treat the CSS custom properties at the top of `brand-kit.html` as the design
-source of truth. Mirror their *semantic names*, rather than copying raw hex
-values around the codebase:
+Use readable ink on light surfaces and white on blue controls. Keep apricot
+supporting, and give status/error states text as well as color. No dark hero,
+purple/plum palette, decorative gradients or perpetual fake recording animation.
 
-```text
-color.brand.plum
-color.action.lilac
-radius.action
-stroke.control
-```
+The website uses system sans for navigation and Georgia for editorial headlines,
+without external font requests. App controls use platform typography. The lowercase
+`vaani.` wordmark is a website lockup; the product name remains **Vaani**.
 
-Android Compose, QML, and any future React client should create platform-native
-components from those tokens. The HTML demonstrates hierarchy and behaviour; it
-does not prescribe fixed pixels over platform accessibility, touch-target, font
-fallback, or reduced-motion requirements.
-
-The source app icon is [`../assets/branding/vaani-mark.svg`](../assets/branding/vaani-mark.svg).
-Do not redraw it in code. Export platform-sized raster assets from the SVG when
-a platform requires them, retaining the rounded-square silhouette and clear
-space.
-
-## Product constraints
-
-The brand must remain subordinate to trustworthy dictation behaviour:
-
-- The voice box only reflects real states such as starting, listening,
-  transcribing, copied, or an explicit error.
-- It must not become a permanent chat bubble or fake waveform.
-- Error, success, and privacy states need text/icon meaning as well as colour.
-- Text previews remain optional for screen-sharing privacy.
-- Do not reuse external product names, marks, copy, illustrations, screenshots,
-  or exact layouts. The kit takes general cues—warm space, bounded actions, and
-  calm progression—and gives them Vaani-specific colours, mark, and component
-  rules.
+`brand-kit.html` is a directly viewable reference. `../docs/design-tokens.json`
+records the current palette. The website illustrations are explicitly examples,
+not screenshots or performance evidence. Reduced motion and visible keyboard
+focus are required.
