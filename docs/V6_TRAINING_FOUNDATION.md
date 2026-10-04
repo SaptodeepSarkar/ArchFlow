@@ -86,6 +86,13 @@ The full-suite run is inference only and does not authorize resuming training.
 Its exact-match/route metrics alone cannot qualify semantic fidelity, Android
 resources, or insertion behavior.
 
+Both `pipelines/formatter/train-v6-seq2seq.sh` and
+`pipelines/formatter/evaluate-v6-seq2seq-all.sh` require `--v5-adapter PATH`.
+Supply the trained V5 control explicitly; omitting it must fail before training
+or evaluation. Earlier offline comparisons against the unadapted base do not
+prove improvement over the trained V5 product model. The full Rust comparison
+already uses an explicit V5 adapter, so it is not affected by this correction.
+
 ### Formatter / LLM
 
 - **Keep V5 and deterministic safety behavior as frozen controls.** Compare a
