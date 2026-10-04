@@ -31,6 +31,31 @@ class CompareWhisperEvalsTest(unittest.TestCase):
             self.assertTrue(result_report["promotion_eligible"])
             self.assertEqual(result_report["suite"], "vocab-heldout")
 
+    def test_rejects_scoring_vocabulary_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, candidate, report = root / "base.json", root / "candidate.json", root / "report.json"
+            self.write(base, 20.0, 90.0)
+            self.write(candidate, 18.0, 90.0)
+            command = ["python3", str(ROOT / "tools/compare_v6_whisper_evals.py"),
+                       "--base", str(base), "--candidate", str(candidate), "--report", str(report),
+                       "--allow-hotword-mismatch"]
+            for baseline_hash in (None, "baseline-vocabulary"):
+                baseline = json.loads(base.read_text())
+                baseline["scored_vocabulary_sha256"] = baseline_hash
+                base.write_text(json.dumps(baseline), encoding="utf-8")
+                proposed = json.loads(candidate.read_text())
+                proposed["scored_vocabulary_sha256"] = "candidate-vocabulary"
+                candidate.write_text(json.dumps(proposed), encoding="utf-8")
+                result = subprocess.run(command, text=True, capture_output=True, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("scored_vocabulary_sha256", result.stderr)
+                self.assertFalse(report.exists())
+            baseline["scored_vocabulary_sha256"] = "candidate-vocabulary"
+            base.write_text(json.dumps(baseline), encoding="utf-8")
+            result = subprocess.run(command, text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_rejects_manifest_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); base, candidate, report = root / "base.json", root / "candidate.json", root / "report.json"

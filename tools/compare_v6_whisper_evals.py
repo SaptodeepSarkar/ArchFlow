@@ -124,6 +124,8 @@ def main() -> None:
         )
     if base.get("protected_terms") != candidate.get("protected_terms"):
         raise SystemExit("reports do not cover the same protected-term occurrences")
+    if base.get("scored_vocabulary_sha256") != candidate.get("scored_vocabulary_sha256"):
+        raise SystemExit("reports do not match in scored_vocabulary_sha256")
     provenance_present = ("base_model_sha256" in base or "base_model_sha256" in candidate
                           or "adapter_sha256" in base or "adapter_sha256" in candidate)
     if provenance_present:
