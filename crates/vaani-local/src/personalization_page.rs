@@ -1,3 +1,4 @@
+use crate::ui_components::{actions, card};
 use crate::{add_page, button, column, entry, label, task, Update};
 use adw::prelude::*;
 use gtk::Orientation;
@@ -6,21 +7,30 @@ use vaani_local::ipc;
 pub fn build(stack: &gtk::Stack, tx: &async_channel::Sender<Update>) -> gtk::Box {
     let personal = column();
     personal.append(&label("Vocabulary, snippets, links and replacements are encrypted locally. Links are snippets with a spoken trigger."));
+    let editor = card(
+        "Your words, recognised properly.",
+        "Add a name, a spoken shortcut or a text replacement.",
+        "sky",
+    );
+    personal.append(&editor);
     let kind = gtk::DropDown::from_strings(&["Vocabulary", "Snippet / link", "Replacement"]);
-    personal.append(&kind);
-    let first = entry("Canonical spelling or spoken trigger", &personal);
+    editor.append(&kind);
+    let first = entry("Canonical spelling or spoken trigger", &editor);
     let second = entry(
         "Heard as, snippet value / URL, or replacement text",
-        &personal,
+        &editor,
     );
     let list = gtk::Box::new(Orientation::Vertical, 6);
-    let scroll = gtk::ScrolledWindow::builder()
-        .child(&list)
-        .vexpand(true)
-        .build();
-    personal.append(&scroll);
+    let records = card(
+        "Saved words & shortcuts",
+        "Refresh to read your encrypted personalization from the service.",
+        "",
+    );
+    personal.append(&records);
+    let controls = actions(&editor);
+    records.append(&list);
     let t = tx.clone();
-    let refresh = button("Refresh personalization", &personal);
+    let refresh = button("Refresh personalization", &records);
     refresh.connect_clicked(move |_| {
         task(t.clone(), || {
             Ok(Update::Personalization(
@@ -30,7 +40,8 @@ pub fn build(stack: &gtk::Stack, tx: &async_channel::Sender<Update>) -> gtk::Box
             ))
         })
     });
-    let add = button("Add", &personal);
+    let add = button("Add to my words", &controls);
+    add.add_css_class("suggested-action");
     let t = tx.clone();
     add.connect_clicked(move |_| {
         let first = first.text().to_string();

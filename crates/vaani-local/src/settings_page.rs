@@ -1,3 +1,4 @@
+use crate::ui_components::{actions, card};
 use crate::{add_page, button, column, entry, label, task, Update};
 use adw::prelude::*;
 use std::{cell::RefCell, rc::Rc};
@@ -6,28 +7,41 @@ use vaani_local::{ipc, settings};
 pub fn build(stack: &gtk::Stack, status: &gtk::Label, tx: &async_channel::Sender<Update>) {
     let prefs = column();
     prefs.append(&label("Settings are loaded from your existing file. Saving validates values and preserves comments and unknown fields."));
+    let recognition = card(
+        "Speech & writing",
+        "Choose the model and language you already have installed.",
+        "",
+    );
+    prefs.append(&recognition);
     let language = gtk::DropDown::from_strings(&["en", "hi", "bn"]);
-    prefs.append(&label("Writing language"));
-    prefs.append(&language);
+    recognition.append(&label("Writing language"));
+    recognition.append(&language);
+    let residency = card(
+        "Model memory",
+        "Economy unloads after each use. Choose short retention for quicker repeat sessions.",
+        "sky",
+    );
+    prefs.append(&residency);
     let profile = gtk::DropDown::from_strings(&["economy", "balanced", "ready"]);
-    prefs.append(&label("Model retention"));
-    prefs.append(&profile);
+    residency.append(&label("Model retention"));
+    residency.append(&profile);
     let retention = gtk::SpinButton::with_range(1.0, 120.0, 1.0);
-    prefs.append(&label(
+    residency.append(&label(
         "Idle retention in seconds (Economy always unloads immediately)",
     ));
-    prefs.append(&retention);
+    residency.append(&retention);
     let delivery = gtk::DropDown::from_strings(&["automatic", "copy-only", "review"]);
-    prefs.append(&label("Text delivery"));
-    prefs.append(&delivery);
+    recognition.append(&label("Text delivery"));
+    recognition.append(&delivery);
     let stt_model =
         gtk::DropDown::from_strings(&["tiny", "base", "base.en", "small", "cozy", "v5"]);
-    prefs.append(&label("Installed speech model"));
-    prefs.append(&stt_model);
-    let formatter_path = entry("Optional formatter model path", &prefs);
+    recognition.append(&label("Installed speech model"));
+    recognition.append(&stt_model);
+    let formatter_path = entry("Optional formatter model path", &recognition);
     let loaded = Rc::new(RefCell::new(None::<String>));
     let path = vaani_core::config::Config::config_path();
-    let load = button("Reload settings", &prefs);
+    let controls = actions(&prefs);
+    let load = button("Reload settings", &controls);
     let load_fields = {
         let loaded = loaded.clone();
         let language = language.clone();
@@ -44,7 +58,8 @@ pub fn build(stack: &gtk::Stack, status: &gtk::Label, tx: &async_channel::Sender
     };
     load_fields();
     load.connect_clicked(move |_| load_fields());
-    let save = button("Save settings", &prefs);
+    let save = button("Save settings", &controls);
+    save.add_css_class("suggested-action");
     let t = tx.clone();
     let save_status = status.clone();
     save.connect_clicked(move |_| {
@@ -90,7 +105,7 @@ pub fn build(stack: &gtk::Stack, status: &gtk::Label, tx: &async_channel::Sender
             Ok(Update::Status(message.into()))
         });
     });
-    let unload = button("Unload models", &prefs);
+    let unload = button("Unload models", &controls);
     let sender = tx.clone();
     unload.connect_clicked(move |_| {
         task(sender.clone(), || {
