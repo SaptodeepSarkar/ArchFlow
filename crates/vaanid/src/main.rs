@@ -5,6 +5,7 @@ mod daemon;
 mod focus;
 mod inserter;
 mod llm_sup;
+mod native_models;
 mod paths;
 mod worker_sup;
 

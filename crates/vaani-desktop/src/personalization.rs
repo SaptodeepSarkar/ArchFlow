@@ -30,6 +30,17 @@ impl PersonalizationRepository {
         })
     }
 
+    pub fn open_secure(
+        path: impl AsRef<Path>,
+        device_id: impl Into<String>,
+    ) -> Result<Self, EngineError> {
+        let device_id = device_id.into();
+        Ok(Self {
+            storage: JsonlStorage::open_secure(path.as_ref().to_path_buf(), device_id.clone())?,
+            device_id,
+        })
+    }
+
     pub fn snapshot(&self) -> Result<PersonalizationSnapshot, EngineError> {
         self.storage.personalization()
     }
@@ -94,7 +105,7 @@ impl PersonalizationRepository {
                 SyncEntityKind::Vocabulary,
                 id.clone(),
                 1,
-                1,
+                self.storage.next_clock()?,
                 self.device_id.clone(),
                 now,
                 VocabularyEntry {
@@ -121,7 +132,7 @@ impl PersonalizationRepository {
                 SyncEntityKind::Snippet,
                 id.clone(),
                 1,
-                1,
+                self.storage.next_clock()?,
                 self.device_id.clone(),
                 now,
                 Snippet {
@@ -147,7 +158,7 @@ impl PersonalizationRepository {
                 SyncEntityKind::Replacement,
                 id.clone(),
                 1,
-                1,
+                self.storage.next_clock()?,
                 self.device_id.clone(),
                 now,
                 Replacement {

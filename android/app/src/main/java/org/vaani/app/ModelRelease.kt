@@ -40,14 +40,15 @@ object ModelRelease {
         NOT_STARTED, QUEUED, DOWNLOADING, READY, WAITING_FOR_ANDROID_PACKAGE, FAILED,
     }
 
-    fun enqueue(context: Context) {
-        if (hasRequiredModels(context)) {
+    fun enqueue(context: Context, includeFormatter: Boolean = false) {
+        if (hasRequiredModels(context) && (!includeFormatter || LocalModels(context).status().formatterAvailable)) {
             WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK)
             update(context, Status.READY)
             return
         }
         update(context, Status.QUEUED)
         val request = OneTimeWorkRequestBuilder<ModelReleaseWorker>()
+            .setInputData(workDataOf("include_formatter" to includeFormatter))
             // These are large local model packages.  Deferring them until an
             // unmetered, non-low-battery window avoids an onboarding action
             // unexpectedly becoming a cellular or low-power background load.
@@ -100,6 +101,8 @@ class ModelReleaseWorker(appContext: Context, params: WorkerParameters) : Corout
             check(item.optString("runtime") == kind.runtime) {
                 "Model runtime does not match its declared Android slot."
             }
+            if (kind != ModelKind.STT && kind != ModelKind.STT_V6 &&
+                !inputData.getBoolean("include_formatter",false)) continue
             check(assets.none { asset -> asset.kind == kind }) {
                 "The model release declares more than one asset for an Android slot."
             }

@@ -4,7 +4,10 @@ import android.content.Context
 import dev.ffmpegkit.llama.Llama
 import dev.ffmpegkit.llama.LlamaConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 
 /**
  * Optional local cleanup model. The LLM is an editor, never an authority: its
@@ -16,45 +19,43 @@ object LocalInference {
     }
 
     private suspend fun formatChunks(context: Context, source: String): String {
+        if (source.isBlank()) return ""
+        if (!AppSettings.formatterEnabled(context)) return source
         val chunks = source.split(Regex("\\s+")).filter(String::isNotBlank).chunked(MAX_WORDS_PER_CHUNK)
-        if (chunks.isEmpty()) return ""
-        return buildList {
-            chunks.forEach { words -> add(formatOne(context, words.joinToString(" "))) }
-        }.joinToString(" ")
-    }
-
-    private suspend fun formatOne(context: Context, source: String): String {
-        LocalModels(context).v6FormatterFile()?.let { file ->
-            runCatching { return formatV6(file.readBytes(), source) }
-        }
-        val modelPath = LocalModels(context).formatterModelFile() ?: return SafeFormatter.format(source)
-        return runCatching {
-            val model = Llama.loadModel(
-                modelPath.absolutePath,
-                LlamaConfig(contextSize = 1024, threads = 2, gpuLayers = 0, temperature = 0.1f, topP = 0.9f, topK = 40, seed = 0),
-            )
-            try {
-                val result = Llama.complete(
-                    model,
-                    prompt = "SOURCE:\n$source\n\nReturn only the same words with conservative casing and punctuation. Do not add, remove, reorder, or replace words.",
-                    systemPrompt = "You are Vaani's deterministic text editor. Never invent content.",
-                    maxTokens = 256,
-                )
-                val candidate = result.text.trim().removePrefix("OUTPUT:").trim()
-                if (ModelOutputGuard.isSafeEdit(source, candidate)) candidate else SafeFormatter.format(source)
-            } finally {
-                Llama.releaseModel(model)
+        val models = LocalModels(context)
+        val ttl = ModelLifecycle.ttl(context)
+        try {
+            models.v6FormatterFile()?.let { file ->
+                return ModelLifecycle.tagger.use(ModelLifecycle.identity(file), ttl, { V6Tagger.load(file.readBytes()) }) { model ->
+                    chunks.joinToString(" ") { formatV6(model, it.joinToString(" ")) }
+                }
             }
-        }.getOrElse { SafeFormatter.format(source) }
+            val file = models.formatterModelFile() ?: return SafeFormatter.format(source)
+            return ModelLifecycle.llm.use(ModelLifecycle.identity(file), ttl, {
+                Llama.loadModel(file.absolutePath, LlamaConfig(contextSize = 1024, threads = 2, gpuLayers = 0, temperature = 0.1f, topP = 0.9f, topK = 40, seed = 0))
+            }) { model ->
+                val output = mutableListOf<String>()
+                for (words in chunks) {
+                    coroutineContext.ensureActive()
+                    val chunk = words.joinToString(" ")
+                    val result = Llama.complete(model, prompt = "SOURCE:\n$chunk\n\nReturn only the same words with conservative casing and punctuation.", systemPrompt = "Never invent or reorder content.", maxTokens = 256)
+                    coroutineContext.ensureActive()
+                    val candidate = result.text.trim().removePrefix("OUTPUT:").trim()
+                    output.add(if (ModelOutputGuard.isSafeEdit(chunk, candidate)) candidate else SafeFormatter.format(chunk))
+                }
+                output.joinToString(" ")
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { coroutineContext.ensureActive(); return SafeFormatter.format(source) }
     }
 
     private const val MAX_WORDS_PER_CHUNK = 72
 
-    private fun formatV6(packageBytes: ByteArray, source: String): String {
-        val tokens = Regex("https?://[^\\s]+|/[^\\s]+|[A-Za-z0-9_][A-Za-z0-9_.-]*|[^\\w\\s]")
+    private fun formatV6(model: V6Tagger, source: String): String {
+        val tokens = Regex("https?://[^\\s]+|/[^\\s]+|[\\p{L}\\p{N}_][\\p{L}\\p{N}_.-]*|[^\\w\\s]")
             .findAll(source).map { it.value }.toList()
         if (tokens.isEmpty()) return ""
-        val prediction = V6Tagger.load(packageBytes).predict(tokens)
+        val prediction = model.predict(tokens)
         val rendered = buildString {
             tokens.indices.forEach { index ->
                 if (prediction.tokenLabels[index] == 1 || prediction.tokenLabels[index] == 2 || prediction.tokenLabels[index] == 3) return@forEach

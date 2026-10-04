@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PersonalizationEntity {
+    Snippet,
     Vocabulary,
     Replacement,
 }
@@ -50,6 +51,16 @@ pub enum RequestKind {
     /// Returns the local snapshot of portable vocabulary and replacement
     /// rules. This contains settings, never raw dictation.
     PersonalizationGet,
+    PersonalizationExport,
+    PersonalizationImport {
+        records: Vec<crate::sync::PersonalizationRecord>,
+    },
+    PersonalizationAddSnippet {
+        trigger: String,
+        value: String,
+    },
+    ConfigReload,
+    UnloadModels,
     /// Add a canonical spelling plus an optional phrase Vaani may hear.
     PersonalizationAddVocabulary {
         canonical: String,

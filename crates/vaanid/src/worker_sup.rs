@@ -646,6 +646,10 @@ pub fn model_path_for(model: &str) -> String {
         if requested_v5 {
             return None;
         }
+        let pack_file = format!("{dir}/../stt/{model}.bin");
+        if std::path::Path::new(&pack_file).is_file() {
+            return Some(pack_file);
+        }
         let file = format!("{dir}/{model}.bin");
         if std::path::Path::new(&file).is_file() {
             return Some(file);
@@ -827,6 +831,60 @@ pub fn transcribe(
     // feed the final transcript (windows diverge; merging them makes salad).
     let resolved = model_path_for(model);
     validate_model_package(&resolved)?;
+    if std::path::Path::new(&resolved).is_file() && !cuda {
+        let mut vad = vaani_core::vad::Vad::default();
+        for block in samples.chunks(vaani_core::vad::BLOCK_SAMPLES) {
+            if block.len() == vaani_core::vad::BLOCK_SAMPLES {
+                vad.push_block(block);
+            }
+        }
+        if vad.is_silence() {
+            return Ok(Transcript {
+                text: String::new(),
+                language: language.into(),
+                is_silence: true,
+                backend: "cpu-stub".into(),
+                inference_ms: 0,
+            });
+        }
+
+        let native = crate::native_models::with_session(
+            crate::native_models::Kind::Speech,
+            std::path::Path::new(&resolved),
+            server_idle_secs,
+            |worker| {
+                let mut parts = Vec::new();
+                let mut ms = 0;
+                for (start, end) in segment(samples) {
+                    let pcm: Vec<u8> = samples[start..end]
+                        .iter()
+                        .flat_map(|s| s.to_le_bytes())
+                        .collect();
+                    let result=worker.request(serde_json::json!({"language":language,"translate":translate,"threads":threads,"prompt":vocab.join(" ")}),Some(pcm))?;
+                    parts.push(
+                        result["text"]
+                            .as_str()
+                            .ok_or_else(|| anyhow::anyhow!("native text missing"))?
+                            .to_owned(),
+                    );
+                    ms += result["ms"].as_u64().unwrap_or(0);
+                }
+                let refs: Vec<&str> = parts.iter().map(String::as_str).collect();
+                let text = vaani_core::transcript::polish(&vaani_core::reconcile::reconcile(&refs));
+                Ok(Transcript {
+                    is_silence: text.trim().is_empty(),
+                    text,
+                    language: language.into(),
+                    backend: "whisper-native".into(),
+                    inference_ms: ms,
+                })
+            },
+        );
+        if let Ok(transcript) = native {
+            return Ok(transcript);
+        }
+        // Older/manual runtime installs retain their existing one-shot compatibility.
+    }
     if server_idle_secs > 0 && std::path::Path::new(&resolved).is_dir() {
         let segs = segment(samples);
         let mut parts: Vec<String> = Vec::new();

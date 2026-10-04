@@ -15,3 +15,5 @@ aes-gcm = { workspace = true }
 base64 = { workspace = true }
 flate2 = { workspace = true }
 blake2 = { workspace = true }
+keyring = "4.2.0"
+fs2 = "0.4"

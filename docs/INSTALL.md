@@ -1,14 +1,16 @@
+For verified online/offline bundles and native GUI setup, see [NATIVE_APP.md](NATIVE_APP.md).
+
 # Vaani installation and operation
 
 Vaani is a user-local Wayland dictation daemon for Hyprland. It captures
-16 kHz mono audio through PipeWire, shows a Quickshell preview, runs final
+16 kHz mono audio through PipeWire, shows a native GTK4 preview, runs final
 speech recognition, optionally cleans the complete transcript with a local
 LLM, then follows the configured copy-only/review/automatic delivery policy.
 
 ## Requirements
 
 The verified target environment is Arch Linux, Hyprland 0.56.2, PipeWire,
-Quickshell 0.3.1, wl-clipboard 2.3.0, and an XDG user session. Required
+GTK4, libadwaita, gtk4-layer-shell and libsecret, wl-clipboard 2.3.0, and an XDG user session. Required
 packages are `pipewire wireplumber wl-clipboard wtype hyprland quickshell
 qt6-base qt6-declarative curl cmake git rustup python`.
 
@@ -86,7 +88,7 @@ raw transcript if model startup or validation fails.
 
 1. `SUPER+H` invokes `vaani live-toggle`.
 2. The daemon records the focused window identity and starts `pw-record`.
-3. Quickshell opens a bottom-centered overlay: 320×94 px card, 18 px radius,
+3. The native GUI opens a bottom-centered overlay: 320×94 px card, 18 px radius,
    14 px internal margin, waveform plus at most five recent preview words.
 4. STT preview ticks update the overlay only. No target application receives
    preview text or clipboard changes.

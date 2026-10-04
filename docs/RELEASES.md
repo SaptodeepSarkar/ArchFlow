@@ -12,11 +12,10 @@ publishing it to a GitHub Release. Do not commit APKs or keystores.
 Users should download only a signed release APK with a published SHA-256 digest.
 The APK obtains model packages through the app's verified model-release flow;
 model weights are not bundled in Git or the repository release artifact.
-Firebase account/sync is optional: a local-only build does not require a
-`google-services.json`; release maintainers add that private file before
-building an account-enabled APK.
+No Firebase account configuration is required. Local-network pairing is explicit
+and encrypted; see [native app guide](NATIVE_APP.md).
 
-## Linux / QML desktop
+## Linux / native GTK4 desktop
 
 For a source install on Arch + Hyprland:
 
@@ -36,3 +35,5 @@ source = ~/.config/hypr/vaani.conf
 For a distributable Arch package, run `./tools/package-local.sh`. It packages
 the QML files, service, desktop entry, and app-owned Hyprland configuration;
 it never edits a user's dotfiles or bundles model weights.
+
+Verified online/offline native bundles are documented in [NATIVE_APP.md](NATIVE_APP.md).

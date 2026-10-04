@@ -14,7 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, Mutex};
 use vaani_core::config::Config;
-use vaani_core::personalization::{PersonalizationSnapshot, Replacement, VocabularyEntry};
+use vaani_core::personalization::{PersonalizationSnapshot, Replacement, Snippet, VocabularyEntry};
 use vaani_core::protocol::{Event, PersonalizationEntity, Request, RequestKind, Response};
 use vaani_core::state::{Session, State};
 use vaani_core::sync::{
@@ -103,7 +103,8 @@ pub async fn run() -> anyhow::Result<()> {
     let (tx, _rx) = broadcast::channel::<Event>(256);
     let mut cfg = Config::load_or_create()?;
     let mut personalization = PersonalizationSnapshot::default();
-    if let Ok(store) = JsonlStorage::open(paths::personalization_path(), "linux") {
+    if let Ok(store) = JsonlStorage::open_secure(paths::personalization_path(), paths::device_id())
+    {
         if let Ok(snapshot) = store.personalization() {
             personalization = snapshot;
             merge_personal_vocabulary(&mut cfg, &personalization);
@@ -151,8 +152,11 @@ pub async fn run() -> anyhow::Result<()> {
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 let idle = s.lock().await.cfg.effective_server_idle_secs();
                 if idle > 0 {
-                    worker_sup::reap_idle_servers(idle);
-                    llm_sup::reap_idle_llm(idle);
+                    // Account for this legacy reaper's 30-second cadence so
+                    // retained backends stay within the 120-second ceiling.
+                    let threshold = idle.saturating_sub(30);
+                    worker_sup::reap_idle_servers(threshold);
+                    llm_sup::reap_idle_llm(threshold);
                 }
             }
         });
@@ -391,7 +395,7 @@ fn now_ms() -> Result<i64, String> {
 }
 
 fn refresh_personalization(shared: &mut Shared) -> Result<(), String> {
-    let store = JsonlStorage::open(paths::personalization_path(), "linux")
+    let store = JsonlStorage::open_secure(paths::personalization_path(), paths::device_id())
         .map_err(|_| "could not open personalization storage".to_string())?;
     let snapshot = store
         .personalization()
@@ -415,10 +419,15 @@ fn request_name(kind: &RequestKind) -> &'static str {
         RequestKind::RecoverPending => "recover_pending",
         RequestKind::DiscardPending => "discard_pending",
         RequestKind::Subscribe => "subscribe",
+        RequestKind::UnloadModels => "unload_models",
         RequestKind::MicTest { .. } => "mic_test",
         RequestKind::ConfigSet { .. } => "config_set",
         RequestKind::ConfigGet => "config_get",
         RequestKind::PersonalizationGet => "personalization_get",
+        RequestKind::PersonalizationExport => "personalization_export",
+        RequestKind::PersonalizationImport { .. } => "personalization_import",
+        RequestKind::PersonalizationAddSnippet { .. } => "personalization_add_snippet",
+        RequestKind::ConfigReload => "config_reload",
         RequestKind::PersonalizationAddVocabulary { .. } => "personalization_add_vocabulary",
         RequestKind::PersonalizationAddReplacement { .. } => "personalization_add_replacement",
         RequestKind::PersonalizationRemove { .. } => "personalization_remove",
@@ -576,18 +585,10 @@ async fn dispatch(
                 g.no_auto = Some(g.session.id.clone());
             }
             drop(g);
-            let onboarding = {
-                let g = shared.lock().await;
-                !g.cfg.general.onboarding_complete
-            };
             std::thread::spawn(move || {
                 // Reap the child so closed UI processes never linger as zombies.
-                let mut child = std::process::Command::new("quickshell")
-                    .arg("-p")
-                    .arg(paths::ui_path())
+                let mut child = std::process::Command::new("vaani-linux")
                     .env("VAANI_SOCKET", paths::control_sock())
-                    .env("VAANI_OPEN_SETTINGS", "1")
-                    .env("VAANI_ONBOARDING", if onboarding { "1" } else { "0" })
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::inherit())
                     .spawn();
@@ -652,13 +653,152 @@ async fn dispatch(
             g.pending_audio.clear();
             resp_ok(&rid, &g.session, Some("discarded".into()), None)
         }
+        RequestKind::ConfigReload => {
+            let mut g = shared.lock().await;
+            let result = (|| -> anyhow::Result<()> {
+                let text = std::fs::read_to_string(Config::config_path())?;
+                let config: Config = toml::from_str(&text)?;
+                g.cfg = config;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => resp_ok(
+                    &rid,
+                    &g.session,
+                    Some("Settings loaded; model changes apply next session".into()),
+                    None,
+                ),
+                Err(_) => Response {
+                    ok: false,
+                    message: Some(
+                        "Settings are malformed; the last loaded configuration remains active"
+                            .into(),
+                    ),
+                    ..resp_ok(&rid, &g.session, None, None)
+                },
+            }
+        }
+        RequestKind::UnloadModels => {
+            tokio::task::spawn_blocking(|| {
+                crate::native_models::unload();
+                worker_sup::reap_idle_servers(0);
+                llm_sup::reap_idle_llm(0);
+            });
+            let g = shared.lock().await;
+            resp_ok(
+                &rid,
+                &g.session,
+                Some("Unload requested; active inference finishes safely first".into()),
+                None,
+            )
+        }
+        RequestKind::PersonalizationExport => {
+            let g = shared.lock().await;
+            let result =
+                JsonlStorage::open_secure(paths::personalization_path(), paths::device_id())
+                    .and_then(|s| s.records());
+            match result {
+                Ok(records) => resp_ok(
+                    &rid,
+                    &g.session,
+                    None,
+                    Some(
+                        serde_json::json!({"schema_version":1,"records":records,"preferences":{"recognition.language":g.cfg.recognition.language,"general.residency_profile":g.cfg.general.residency_profile,"recognition.server_idle_secs":g.cfg.recognition.server_idle_secs.to_string()}}),
+                    ),
+                ),
+                Err(_) => Response {
+                    ok: false,
+                    message: Some("Unlock the local data keyring first".into()),
+                    ..resp_ok(&rid, &g.session, None, None)
+                },
+            }
+        }
+        RequestKind::PersonalizationImport { records } => {
+            let mut g = shared.lock().await;
+            let result = (|| -> anyhow::Result<()> {
+                vaani_local::pairing::Bundle {
+                    schema_version: 1,
+                    records: records.clone(),
+                    ..Default::default()
+                }
+                .validate()?;
+                let store =
+                    JsonlStorage::open_secure(paths::personalization_path(), paths::device_id())?;
+                store.merge_batch(&records)?;
+                g.personalization = store.personalization()?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => resp_ok(
+                    &rid,
+                    &g.session,
+                    Some("Personalization merged".into()),
+                    None,
+                ),
+                Err(_) => Response {
+                    ok: false,
+                    message: Some(
+                        "Import rejected; check record limits and unlock the data keyring".into(),
+                    ),
+                    ..resp_ok(&rid, &g.session, None, None)
+                },
+            }
+        }
+        RequestKind::PersonalizationAddSnippet { trigger, value } => {
+            let mut g = shared.lock().await;
+            let result = (|| -> anyhow::Result<()> {
+                anyhow::ensure!(
+                    !trigger.trim().is_empty()
+                        && trigger.len() <= 160
+                        && !value.trim().is_empty()
+                        && value.len() <= 2048,
+                    "Invalid snippet"
+                );
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_millis() as i64;
+                let id = uuid::Uuid::new_v4().to_string();
+                let store =
+                    JsonlStorage::open_secure(paths::personalization_path(), paths::device_id())?;
+                store.upsert(PersonalizationRecord::Snippet(SyncRecord::live(
+                    SyncEntityKind::Snippet,
+                    id.clone(),
+                    1,
+                    store.next_clock()?,
+                    paths::device_id(),
+                    now,
+                    Snippet {
+                        id,
+                        trigger,
+                        value,
+                        created_at_ms: now,
+                        updated_at_ms: now,
+                    },
+                )))?;
+                g.personalization = store.personalization()?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => resp_ok(&rid, &g.session, Some("Snippet saved".into()), None),
+                Err(_) => Response {
+                    ok: false,
+                    message: Some(
+                        "Snippet save failed; check values and unlock your keyring".into(),
+                    ),
+                    ..resp_ok(&rid, &g.session, None, None)
+                },
+            }
+        }
         RequestKind::ConfigGet => {
             let g = shared.lock().await;
             let data = serde_json::to_value(&g.cfg).unwrap_or(serde_json::Value::Null);
             resp_ok(&rid, &g.session, None, Some(data))
         }
         RequestKind::PersonalizationGet => {
-            let g = shared.lock().await;
+            let mut g = shared.lock().await;
+            if refresh_personalization(&mut g).is_err() {
+                return Response { ok:false, message:Some("Unlock the local personalization keyring; preserved data could not be read".into()), ..resp_ok(&rid, &g.session, None, None) };
+            }
             resp_ok(
                 &rid,
                 &g.session,
@@ -727,7 +867,7 @@ async fn dispatch(
                 id.clone(),
                 1,
                 1,
-                "linux".into(),
+                paths::device_id(),
                 now,
                 VocabularyEntry {
                     id,
@@ -739,14 +879,15 @@ async fn dispatch(
                 },
             ));
             let mut g = shared.lock().await;
-            let result = JsonlStorage::open(paths::personalization_path(), "linux")
-                .map_err(|_| "could not open personalization storage".to_string())
-                .and_then(|store| {
-                    store
-                        .upsert(record)
-                        .map_err(|_| "could not save vocabulary".to_string())
-                })
-                .and_then(|_| refresh_personalization(&mut g));
+            let result =
+                JsonlStorage::open_secure(paths::personalization_path(), paths::device_id())
+                    .map_err(|_| "could not open personalization storage".to_string())
+                    .and_then(|store| {
+                        store
+                            .upsert(with_store_clock(record, &store)?)
+                            .map_err(|_| "could not save vocabulary".to_string())
+                    })
+                    .and_then(|_| refresh_personalization(&mut g));
             match result {
                 Ok(()) => resp_ok(
                     &rid,
@@ -801,7 +942,7 @@ async fn dispatch(
                 id.clone(),
                 1,
                 1,
-                "linux".into(),
+                paths::device_id(),
                 now,
                 Replacement {
                     id,
@@ -812,14 +953,15 @@ async fn dispatch(
                 },
             ));
             let mut g = shared.lock().await;
-            let result = JsonlStorage::open(paths::personalization_path(), "linux")
-                .map_err(|_| "could not open personalization storage".to_string())
-                .and_then(|store| {
-                    store
-                        .upsert(record)
-                        .map_err(|_| "could not save replacement".to_string())
-                })
-                .and_then(|_| refresh_personalization(&mut g));
+            let result =
+                JsonlStorage::open_secure(paths::personalization_path(), paths::device_id())
+                    .map_err(|_| "could not open personalization storage".to_string())
+                    .and_then(|store| {
+                        store
+                            .upsert(with_store_clock(record, &store)?)
+                            .map_err(|_| "could not save replacement".to_string())
+                    })
+                    .and_then(|_| refresh_personalization(&mut g));
             match result {
                 Ok(()) => resp_ok(
                     &rid,
@@ -844,18 +986,25 @@ async fn dispatch(
                 };
             }
             let entity = match entity {
+                PersonalizationEntity::Snippet => SyncEntityKind::Snippet,
                 PersonalizationEntity::Vocabulary => SyncEntityKind::Vocabulary,
                 PersonalizationEntity::Replacement => SyncEntityKind::Replacement,
             };
             let mut g = shared.lock().await;
             let result = (|| {
-                let store = JsonlStorage::open(paths::personalization_path(), "linux")
-                    .map_err(|_| "could not open personalization storage".to_string())?;
+                let store =
+                    JsonlStorage::open_secure(paths::personalization_path(), paths::device_id())
+                        .map_err(|_| "could not open personalization storage".to_string())?;
                 let revision = store
                     .records()
                     .map_err(|_| "could not read personalization storage".to_string())?
                     .into_iter()
                     .find_map(|record| match (&record, entity) {
+                        (PersonalizationRecord::Snippet(value), SyncEntityKind::Snippet)
+                            if value.id == id =>
+                        {
+                            Some(value.revision)
+                        }
                         (PersonalizationRecord::Vocabulary(value), SyncEntityKind::Vocabulary)
                             if value.id == id =>
                         {
@@ -1063,9 +1212,8 @@ async fn start_flow(
         );
         // On-demand overlay UI (separate app-owned Quickshell config).
         // Store the child so stop_flow can kill it after streaming.
-        let mut child = std::process::Command::new("quickshell")
-            .arg("-p")
-            .arg(paths::ui_path())
+        let mut child = std::process::Command::new("vaani-linux")
+            .arg("--overlay")
             .env("VAANI_SOCKET", paths::control_sock())
             .env_remove("VAANI_OPEN_SETTINGS")
             .stdout(std::process::Stdio::null())
@@ -1077,21 +1225,10 @@ async fn start_flow(
         g.overlay = child.ok();
     }
 
-    // Start capture immediately — recording must not wait
-    // for the cleanup LLM model. The model loads in the
-    // background while the user is speaking (~8 s cold).
-    // By Super+J, the server is usually ready.
-    // After server_idle_secs of inactivity, the model
-    // is reaped from VRAM.
+    // Capture starts without speculative formatter loading.
     let t0 = std::time::Instant::now();
     let device_sel = { shared.lock().await.cfg.audio.device_selector.clone() };
     let cap = CaptureHandle::start(&device_sel);
-    // Start loading the cleanup LLM model now,
-    // in parallel with microphone capture.
-    let cfg_prefill = shared.lock().await.cfg.clone();
-    if cfg_prefill.effective_server_idle_secs() > 0 {
-        let _ = tokio::task::spawn_blocking(move || llm_sup::prefill(&cfg_prefill));
-    }
     let mut g = shared.lock().await;
     match cap {
         Ok(h) => {
@@ -1885,7 +2022,15 @@ async fn doctor() -> serde_json::Value {
     checks.insert("pw-record", serde_json::json!(bin("pw-record")));
     checks.insert("wl-copy", serde_json::json!(bin("wl-copy")));
     checks.insert("hyprctl", serde_json::json!(bin("hyprctl")));
-    checks.insert("quickshell", serde_json::json!(bin("quickshell")));
+    checks.insert("vaani-linux", serde_json::json!(bin("vaani-linux")));
+    checks.insert(
+        "native-stt-retention",
+        serde_json::json!(bin("vaani-whisper-session")),
+    );
+    checks.insert(
+        "native-formatter-retention",
+        serde_json::json!(bin("vaani-llama-session")),
+    );
     checks.insert(
         "whisper-cli",
         serde_json::json!(bin("whisper-cli") || bin("whisper-cpp")),
@@ -1948,4 +2093,19 @@ mod preview_event_tests {
         assert_eq!(hidden["next_word"], "");
         assert_eq!(hidden["tail"], "");
     }
+}
+
+fn with_store_clock(
+    mut record: PersonalizationRecord,
+    store: &JsonlStorage,
+) -> Result<PersonalizationRecord, String> {
+    let clock = store
+        .next_clock()
+        .map_err(|_| "could not allocate merge clock".to_owned())?;
+    match &mut record {
+        PersonalizationRecord::Vocabulary(r) => r.logical_clock = clock,
+        PersonalizationRecord::Snippet(r) => r.logical_clock = clock,
+        PersonalizationRecord::Replacement(r) => r.logical_clock = clock,
+    }
+    Ok(record)
 }

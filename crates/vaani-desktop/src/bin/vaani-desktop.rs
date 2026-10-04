@@ -1,5 +1,4 @@
-//! Small cross-platform account/sync entry point for the desktop shell.
-//! Passwords are read interactively and never accepted as command arguments.
+//! Desktop launcher and local personalization commands.
 
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
@@ -7,11 +6,7 @@ use vaani_core::config::Config;
 use vaani_core::engine::EngineError;
 use vaani_core::personalization::PersonalizationSnapshot;
 use vaani_core::sync::SyncEntityKind;
-use vaani_core::sync_crypto::RecoveryKey;
-use vaani_desktop::{
-    DesktopSyncClient, FirebaseEmailAuth, PersonalizationRepository, SecureSessionStore,
-    SyncKeyStore,
-};
+use vaani_desktop::PersonalizationRepository;
 
 #[cfg(windows)]
 use vaani_core::engine::{FormatContext, LocalFormatter, NoopDenoiser};
@@ -25,13 +20,22 @@ use vaani_desktop::platform::windows::{
 #[cfg(windows)]
 use vaani_desktop::{AudioFrontEnd, DesktopRuntime, DesktopSession, ShortcutSpec, WorkerSttEngine};
 
-fn env_required(name: &str) -> Result<String, EngineError> {
-    std::env::var(name).map_err(|_| {
+fn prompt(label: &str) -> Result<String, EngineError> {
+    print!("{label}: ");
+    io::stdout().flush().map_err(|_| {
         EngineError::new(
-            vaani_core::engine::EngineErrorKind::InvalidInput,
-            format!("set {name} for desktop account operations"),
+            vaani_core::engine::EngineErrorKind::Unavailable,
+            "cannot display prompt",
         )
-    })
+    })?;
+    let mut value = String::new();
+    io::stdin().read_line(&mut value).map_err(|_| {
+        EngineError::new(
+            vaani_core::engine::EngineErrorKind::Unavailable,
+            "cannot read local input",
+        )
+    })?;
+    Ok(value.trim().to_owned())
 }
 
 fn data_dir() -> Result<PathBuf, EngineError> {
@@ -81,15 +85,14 @@ fn repository() -> Result<PersonalizationRepository, EngineError> {
             value
         }
     };
-    PersonalizationRepository::open(dir.join("personalization.jsonl"), device_id)
-}
-
-fn prompt(label: &str) -> io::Result<String> {
-    print!("{label}: ");
-    io::stdout().flush()?;
-    let mut value = String::new();
-    io::stdin().lock().read_line(&mut value)?;
-    Ok(value.trim_end_matches(['\r', '\n']).to_owned())
+    #[cfg(target_os = "linux")]
+    {
+        PersonalizationRepository::open_secure(dir.join("personalization.jsonl"), device_id)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        PersonalizationRepository::open(dir.join("personalization.jsonl"), device_id)
+    }
 }
 
 fn print_snapshot(snapshot: PersonalizationSnapshot) {
@@ -132,27 +135,10 @@ fn set_setting(key: &str, value: &str) -> Result<(), Box<dyn std::error::Error>>
 fn launch_app() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     {
-        // This window intentionally lives outside `vaanid.service`. It stays
-        // open while the user stops that service and can start it again from
-        // the same Settings page; the shell reconnects to the socket when it
-        // returns. The daemon still exclusively owns dictation state.
-        let config = Config::load();
-        let status = std::process::Command::new("quickshell")
-            .arg("-p")
-            .arg(ui_path())
-            .env("VAANI_SOCKET", control_socket_path())
-            .env("VAANI_OPEN_SETTINGS", "1")
-            .env(
-                "VAANI_ONBOARDING",
-                if config.general.onboarding_complete {
-                    "0"
-                } else {
-                    "1"
-                },
-            )
-            .status()?;
+        let binary = std::env::current_exe()?.with_file_name("vaani-linux");
+        let status = std::process::Command::new(binary).status()?;
         if !status.success() {
-            return Err("Vaani's settings window closed with an error".into());
+            return Err("Native Vaani window failed to start".into());
         }
         Ok(())
     }
@@ -428,7 +414,7 @@ fn personalization_menu(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let default_command = if cfg!(windows) { "run" } else { "status" };
+    let default_command = if cfg!(windows) { "run" } else { "app" };
     let command = std::env::args()
         .nth(1)
         .unwrap_or_else(|| default_command.into());
@@ -451,84 +437,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let value = std::env::args().nth(2);
             sync_hyprland_shortcut(value.as_deref())?;
         }
-        "login" => {
-            let project = env_required("VAANI_FIREBASE_PROJECT")?;
-            let api_key = env_required("VAANI_FIREBASE_API_KEY")?;
-            let store = SecureSessionStore::new(&project, &api_key);
-            let mut email = String::new();
-            print!("Email: ");
-            io::stdout().flush()?;
-            io::stdin().lock().read_line(&mut email)?;
-            let password = rpassword::prompt_password("Password: ")?;
-            let session = FirebaseEmailAuth::new(api_key).sign_in(email.trim(), &password)?;
-            store.save(&session)?;
-            println!("signed in");
-        }
-        "sync" => {
-            let project = env_required("VAANI_FIREBASE_PROJECT")?;
-            let api_key = env_required("VAANI_FIREBASE_API_KEY")?;
-            let store = SecureSessionStore::new(&project, &api_key);
-            let repository = repository()?;
-            let mut client = DesktopSyncClient::new(&project, repository);
-            if !client.restore_session(&store)? {
-                return Err("not signed in; run `vaani-desktop login` first".into());
-            }
-            let key = SyncKeyStore::new(&project).load()?.ok_or("encrypted sync is not set up; run `vaani-desktop sync-key-create` on your first device or `vaani-desktop sync-key-import` on a new one")?;
-            let cycle = client.sync_once_encrypted(key)?;
-            println!("synced: pushed {}, pulled {}", cycle.pushed, cycle.pulled);
-        }
-        "sync-key-create" => {
-            let project = env_required("VAANI_FIREBASE_PROJECT")?;
-            let store = SyncKeyStore::new(project);
-            if store.load()?.is_some() { return Err("an encrypted sync key already exists on this device".into()); }
-            let key = RecoveryKey::generate()?;
-            store.save(&key)?;
-            println!("Save this recovery code somewhere safe. It is required to add another device:\n{}", key.export());
-        }
-        "sync-key-import" => {
-            let project = env_required("VAANI_FIREBASE_PROJECT")?;
-            let code = prompt("Recovery code")?;
-            let key = RecoveryKey::import(&code)?;
-            SyncKeyStore::new(project).save(&key)?;
-            println!("encrypted sync key saved on this device");
-        }
-        "sign-out" => {
-            let project = env_required("VAANI_FIREBASE_PROJECT")?;
-            let api_key = env_required("VAANI_FIREBASE_API_KEY")?;
-            let store = SecureSessionStore::new(&project, &api_key);
-            store.clear()?;
-            println!("signed out");
-        }
         "status" => {
-            let repository = repository()?;
-            let snapshot = repository.snapshot()?;
-            let account = match (
-                std::env::var("VAANI_FIREBASE_PROJECT"),
-                std::env::var("VAANI_FIREBASE_API_KEY"),
-            ) {
-                (Ok(project), Ok(api_key)) => {
-                    let store = SecureSessionStore::new(project, api_key);
-                    match store.load() {
-                        Ok(Some(_)) => "signed in",
-                        Ok(None) => "local only",
-                        Err(_) => "secure store unavailable",
-                    }
-                }
-                _ => "local only",
-            };
-            println!(
-                "local: vocabulary {}, snippets {}, replacements {}; account: {}",
-                snapshot.vocabulary.len(),
-                snapshot.snippets.len(),
-                snapshot.replacements.len(),
-                account
-            );
+            let snapshot=repository()?.snapshot()?;
+            println!("local: vocabulary {}, snippets {}, replacements {}; transfer: local network",snapshot.vocabulary.len(),snapshot.snippets.len(),snapshot.replacements.len());
         }
         "doctor" => print_doctor(),
         "personalize" => personalization_menu(&repository()?)?,
         _ => {
             return Err(
-                "usage: vaani-desktop [app|run|settings|config-get|config-set KEY VALUE|shortcut [KEY]|login|sync|sync-key-create|sync-key-import|sign-out|status|doctor|personalize]".into(),
+                "usage: vaani-desktop [app|run|settings|config-get|config-set KEY VALUE|shortcut [KEY]|status|doctor|personalize]".into(),
             )
         }
     }

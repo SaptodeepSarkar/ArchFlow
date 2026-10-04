@@ -16,9 +16,10 @@ always-listening microphone is required. English, Hindi (`hi`), and Bengali
 
 Vaani ships two independently buildable surfaces. See
 [Delivery surfaces](docs/RELEASES.md) for the Android APK build/publish path
-and the Linux/QML installation path.
+and the native Linux installation path.
 
-On Arch + Hyprland, install the documented dependencies, then:
+On Arch + Hyprland install Rust, GTK4, libadwaita, gtk4-layer-shell, OpenSSL,
+a Secret Service keyring and the existing audio/clipboard dependencies, then:
 
 ```sh
 git clone https://github.com/SaptodeepSarkar/ArchFlow vaani
@@ -102,28 +103,28 @@ focused editable field; password or unavailable fields fall back to the
 clipboard. The native `InputMethodService` remains an optional compatibility
 surface, not a requirement for using Vaani.
 
-On Linux, `vaani settings` opens the same guided setup shape: local-first or
-optional account sync, microphone check, personal vocabulary, model choice,
-residency/unload policy, and shortcut configuration. The setup is persisted in
-`~/.config/vaani/config.toml`; the full settings window remains available later.
+Linux now uses a Rust GTK4/libadwaita application. Its Home, Settings,
+Personalize, Models and Devices pages communicate with the Rust backend.
+Settings validate values and preserve existing TOML comments and unknown fields.
+See [native installation and architecture](docs/NATIVE_APP.md).
 
-Open `android/` in Android Studio with JDK 17 and SDK 35 to build and install
-the debug APK, or run `make android-debug` from the repository root. The onboarding uses the original Vaani editorial artwork and
-opens the real Android Accessibility and overlay permission surfaces. Firebase Auth is
-wired to the existing `org.vaani.keyboard` project registration. The APK
-embeds whisper.cpp and llama.cpp runtimes while keeping STT/LLM weights out of
-Git; user-installed model packs run privately from `files/models/`, with safe
-deterministic fallbacks when a pack is absent. The Home screen can import both
-packs through Android's document picker. It also exposes the floating
-Vaani button; Android's overlay settings must be approved before it can appear
-above another app. The keyboard inspects the focused `EditorInfo` to detect
-password/multiline fields and automatically downgrades those targets to
-clipboard-only delivery. See
-[`android/README.md`](android/README.md) for model paths and ADB staging.
+Android keeps Kotlin/Compose, the floating accessibility bubble and optional
+IME. Models are installed explicitly from the Models page; startup does not
+load or download weights. Economy unloads model handles after use; Balanced
+retains them for at most 120 seconds. Personalization is encrypted with Android
+Keystore or Linux Secret Service. Missing keys fail closed and preserve files.
 
-Every push and pull request runs Rust formatting/tests, website syntax checks,
-Android unit/APK verification, and Android instrumented tests on an API 35
-emulator. Run the corresponding Android check locally with:
+Devices pairs through a two-minute, single-use QR invitation and certificate-
+pinned TLS 1.3 on the local network. Transfers remain staged until the receiver
+approves the merge. Vocabulary, snippets/links and replacements retain stable
+IDs and deletion records. Portable language/retention preferences are optional
+approved snapshots. Accounts, Firebase and push sync have been removed.
+
+Build Android using JDK 17 and SDK 35. Real microphone, editor, battery and
+cross-device checks remain required before release; cloud tests do not establish
+physical-device performance. Give a tester [this prompt](docs/TESTING_AGENT_PROMPT.md).
+
+Run the Android checks locally with:
 
 ```sh
 cd android
@@ -135,7 +136,7 @@ cd android
 Use the root `Makefile` to keep desktop and Android work separate:
 
 ```sh
-make desktop-debug    # Rust daemon/CLI/QML desktop surface
+make desktop-debug    # Rust daemon/CLI/native GTK4 desktop surface
 make android-debug    # Kotlin/Compose APK only
 make test-desktop
 make test-android

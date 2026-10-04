@@ -143,26 +143,53 @@ fn llm_paths(cfg: &Config) -> (String, String) {
 fn v6_package_path() -> Option<std::path::PathBuf> {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share")))?;
-    let path = base.join("vaani/cleanup/model.v6tg");
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share"))
+        })?;
+    let packaged = base.join("vaani/formatter_v6/model.v6tg");
+    let path = if packaged.exists() {
+        packaged
+    } else {
+        base.join("vaani/cleanup/model.v6tg")
+    };
     path.is_file().then_some(path)
 }
 
 fn v6_cleanup(text: &str) -> Option<String> {
-    let package = v6_package_path().and_then(|path| std::fs::read(path).ok())
+    let package = v6_package_path()
+        .and_then(|path| std::fs::read(path).ok())
         .and_then(|bytes| vaani_core::v6_tagger::parse(&bytes).ok())?;
     let words: Vec<&str> = text.split_whitespace().collect();
-    if words.is_empty() { return Some(String::new()); }
+    if words.is_empty() {
+        return Some(String::new());
+    }
     let (tokens, punctuation) = vaani_core::v6_tagger::predict(&package, &words).ok()?;
     let mut output = String::new();
     for (index, word) in words.iter().enumerate() {
-        if matches!(tokens[index], 1 | 2 | 3) { continue; }
-        if !output.is_empty() { output.push(' '); }
+        if matches!(tokens[index], 1 | 2 | 3) {
+            continue;
+        }
+        if !output.is_empty() {
+            output.push(' ');
+        }
         if tokens[index] == 4 {
             let mut chars = word.chars();
-            if let Some(first) = chars.next() { output.extend(first.to_uppercase()); output.extend(chars); }
-        } else { output.push_str(word); }
-        output.push_str(match punctuation[index] { 1 => ",", 2 => ".", 3 => "?", 4 => "!", 5 => ":", 6 => ";", _ => "" });
+            if let Some(first) = chars.next() {
+                output.extend(first.to_uppercase());
+                output.extend(chars);
+            }
+        } else {
+            output.push_str(word);
+        }
+        output.push_str(match punctuation[index] {
+            1 => ",",
+            2 => ".",
+            3 => "?",
+            4 => "!",
+            5 => ":",
+            6 => ";",
+            _ => "",
+        });
     }
     crate::cleanup::semantic_ok(text, &output).then_some(output)
 }
@@ -393,27 +420,36 @@ pub fn llm_cleanup(text: &str, cfg: &Config) -> CleanupResult {
 }
 
 fn llm_cleanup_one(text: &str, cfg: &Config) -> CleanupResult {
+    if let Some(candidate) = gguf_cleanup(text, cfg) {
+        return CleanupResult {
+            text: candidate,
+            outcome: "gguf_accepted",
+        };
+    }
     match crate::cleanup::closed_special(text) {
         Some(special) => CleanupResult {
             text: special,
             outcome: "deterministic_structure",
         },
         None => match v6_cleanup(text) {
-            Some(s) => CleanupResult { text: s, outcome: "v6_native_accepted" },
+            Some(s) => CleanupResult {
+                text: s,
+                outcome: "v6_native_accepted",
+            },
             None => match llm_server_cleanup(text, cfg) {
-            Ok((s, true)) if !s.is_empty() && cfg.general.review_before_insertion => CleanupResult {
-                text: s,
-                outcome: "v6_review_required",
-            },
-            Ok((s, _)) if !s.is_empty() && crate::cleanup::semantic_ok(text, &s) => CleanupResult {
-                text: s,
-                outcome: "sidecar_accepted",
-            },
-            Ok(_) => CleanupResult {
-                text: crate::cleanup::conservative_format(text),
-                outcome: "sidecar_rejected_deterministic_fallback",
-            },
-            Err(_) => one_shot_result(text, cfg, "sidecar_failed"),
+                Ok((s, true)) if !s.is_empty() && cfg.general.review_before_insertion => CleanupResult {
+                    text: s,
+                    outcome: "v6_review_required",
+                },
+                Ok((s, _)) if !s.is_empty() && crate::cleanup::semantic_ok(text, &s) => CleanupResult {
+                    text: s,
+                    outcome: "sidecar_accepted",
+                },
+                Ok(_) => CleanupResult {
+                    text: crate::cleanup::conservative_format(text),
+                    outcome: "sidecar_rejected_deterministic_fallback",
+                },
+                Err(_) => one_shot_result(text, cfg, "sidecar_failed"),
             },
         },
     }
@@ -636,4 +672,92 @@ mod tests {
             );
         }
     }
+}
+
+/// Native GGUF fallback uses stdin, never transcript argv or a persistent TCP server.
+fn gguf_cleanup(text: &str, cfg: &Config) -> Option<String> {
+    use std::io::{Read, Write};
+    use wait_timeout::ChildExt;
+    let root = std::env::var_os("XDG_DATA_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|p| std::path::PathBuf::from(p).join(".local/share"))
+        })?;
+    let default = root.join("vaani/formatter/model.gguf");
+    let model = if cfg.cleanup.model_path.ends_with(".gguf") {
+        std::path::PathBuf::from(&cfg.cleanup.model_path)
+    } else {
+        default
+    };
+    if !model.is_file() || text.trim().is_empty() {
+        return None;
+    }
+    let prompt=format!("Format this text conservatively. Keep the same content words in the same order. Return only the formatted text.\n{text}\n");
+    if let Ok(output) = crate::native_models::with_session(
+        crate::native_models::Kind::Formatter,
+        &model,
+        cfg.effective_server_idle_secs(),
+        |worker| worker.request(serde_json::json!({"prompt":prompt}), None),
+    ) {
+        if let Some(candidate) = output["text"].as_str() {
+            let candidate = candidate.trim();
+            if crate::cleanup::semantic_ok(text, candidate) {
+                return Some(candidate.to_owned());
+            }
+        }
+        return None;
+    }
+    let mut child = std::process::Command::new("llama-cli")
+        .args([
+            "-m",
+            model.to_str()?,
+            "-f",
+            "/dev/stdin",
+            "--no-display-prompt",
+            "--no-conversation",
+            "--no-escape",
+            "--simple-io",
+            "--no-warmup",
+            "-n",
+            "256",
+            "-c",
+            "1024",
+            "--temp",
+            "0.1",
+            "-t",
+            "2",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut input = child.stdin.take()?;
+    let prompt=format!("Format this text conservatively. Keep the same content words in the same order. Return only the formatted text.\n{text}\n");
+    if input.write_all(prompt.as_bytes()).is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+    drop(input);
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stdout.by_ref().take(64 * 1024 + 1).read_to_end(&mut bytes);
+        bytes
+    });
+    let status = child
+        .wait_timeout(std::time::Duration::from_secs(60))
+        .ok()
+        .flatten();
+    if status.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let bytes = reader.join().ok()?;
+    if !status.is_some_and(|s| s.success()) || bytes.len() > 64 * 1024 {
+        return None;
+    }
+    let candidate = String::from_utf8(bytes).ok()?.trim().to_owned();
+    crate::cleanup::semantic_ok(text, &candidate).then_some(candidate)
 }

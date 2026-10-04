@@ -14,26 +14,37 @@ object AccessibilityBridge {
     private val focusListeners = CopyOnWriteArraySet<(Boolean) -> Unit>()
     private val keyboardHeight = AtomicInteger(0)
     private val keyboardListeners = CopyOnWriteArraySet<(Int) -> Unit>()
+    private val targets = FocusTargetLease<AccessibilityNodeInfo>()
+
+    /** A field switch (including away and back) invalidates the original target. */
+    fun captureTarget(): Long? = if (hasEditableFocus()) targets.capture() else null
 
     fun observe(node: AccessibilityNodeInfo?) {
-        if (node == null || !node.isEditable || node.isPassword) {
+        if (node == null || !node.isEditable || !node.isFocused || node.isPassword) {
             clear()
             return
         }
         val copy = AccessibilityNodeInfo.obtain(node)
-        focused.getAndSet(copy)?.recycle()
-        notifyFocus(true)
+        val previous = focused.getAndSet(copy)
+        val changed = targets.observe(copy)
+        previous?.recycle()
+        if (changed) {
+            notifyFocus(true)
+        }
     }
 
     fun clear() {
         val previous = focused.getAndSet(null)
+        targets.observe(null)
         previous?.recycle()
-        if (previous != null) notifyFocus(false)
+        if (previous != null) {
+            notifyFocus(false)
+        }
     }
 
     fun hasEditableFocus(): Boolean {
         val node = focused.get() ?: return false
-        return node.refresh() && node.isEditable && !node.isPassword
+        return node.refresh() && node.isFocused && node.isEditable && !node.isPassword
     }
 
     fun addFocusListener(listener: (Boolean) -> Unit) {
@@ -74,29 +85,22 @@ object AccessibilityBridge {
         focusListeners.forEach { it(active) }
     }
 
-    fun paste(context: Context, text: String): Boolean {
+    fun paste(context: Context, text: String, target: Long? = captureTarget()): Boolean {
+        if (!targets.matches(target)) return false
         val source = focused.get() ?: return false
         val node = AccessibilityNodeInfo.obtain(source)
-        if (!node.refresh() || !node.isEditable || node.isPassword) {
+        if (!node.refresh() || !node.isFocused || !node.isEditable || node.isPassword) {
             node.recycle()
             return false
         }
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Vaani dictation", text))
-        val pasted = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-        if (pasted) {
+        return try {
+            // ACTION_PASTE honors the editor's selection. SET_TEXT replaced the
+            // complete document and appended at the end; use copy fallback instead.
+            node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        } finally {
             node.recycle()
-            return true
         }
-        // Some editors expose SET_TEXT but not PASTE. Keep this fallback
-        // limited to safe editable, non-password fields.
-        val existing = node.text?.toString().orEmpty()
-        val value = if (existing.isBlank()) text else "$existing $text"
-        val args = android.os.Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
-        }
-        val set = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-        node.recycle()
-        return set
     }
 }

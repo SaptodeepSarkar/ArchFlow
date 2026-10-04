@@ -1,7 +1,7 @@
 # Vaani for Android
 
 Fresh native Android implementation using Kotlin and Compose. The app shell uses
-the cobalt/coral/cloud system in `docs/design-tokens.json`; the keyboard and
+a white/sky/apricot palette with an original vector V mark; the keyboard and
 optional overlay remain Kotlin services because Android requires them to be
 native system surfaces. The primary experience keeps the user's default
 keyboard active and uses the Vaani bubble as an overlay.
@@ -14,52 +14,25 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n org.vaani.keyboard/org.vaani.app.MainActivity
 ```
 
-The rebuilt app keeps the registered Firebase Android identity
-`org.vaani.keyboard`. Account controls are explicit opt-in choices shown
-immediately after the three opening splash screens. A private
-`android/app/google-services.json` enables Firebase-backed account features for
-a configured release build; it is intentionally not committed, and a
-local-only APK builds without it. Choosing either account path—or **Continue
-without an account**—starts Vaani's verified model-release job on the available network.
-The job
-uses HTTPS, SHA-256 verification, a private temporary file, and an atomic move
-before a model can run. There is no manual model-picker or replacement action
-in the product.
+The package remains `org.vaani.keyboard`. The Compose app has Home, Models,
+Words, Settings and Devices pages. Permissions and model downloads require
+explicit user actions. Speech works without an optional formatter. Verified
+release downloads and manual document imports preserve the previous model.
 
-The release APK embeds native whisper.cpp and llama.cpp runtimes
-(`arm64-v8a`). It cannot be used until both verified, Android-qualified model
-packages have arrived in the private model directory. At the end of onboarding,
-the model-preparation screen remains locked until that happens, then Android
-posts a “Vaani is ready” notification. The IME records 16-kHz PCM into a
-private temporary WAV, transcribes locally with Whisper, and runs the
-conservative Llama editor before insertion. Model output is accepted only when
-it preserves the source words in order.
+Economy loads models on demand and releases them after inference. Optional
+retention is capped at 120 seconds. Cancellation rejects stale results; native
+JNI inference can finish before resources are released. The overlay and optional
+IME share exclusive microphone ownership. Accessibility insertion requires the
+original non-password editable target; changing focus cancels that delivery.
 
-The Firestore surface is deliberately limited to signed-in users' vocabulary,
-snippets, and replacements at `/users/{uid}/personalization/{recordId}`. The
-client cannot write raw dictation, recordings, clipboard text, tokens, or a
-free-form profile document; matching rules deny them. The ADB commands below
-remain useful for development and repeatable test setup.
+Personalization uses Android Keystore AES-GCM with verified legacy migration.
+Devices provides authenticated, expiring QR/manual-code transfer over the local
+network with receiver approval. Firebase accounts and push synchronization have
+been removed. Back up personalization through the supported transfer flow;
+Keystore-encrypted files cannot simply be copied to a different device.
 
-After the three opening splash screens, Vaani offers sign-in or local-only use,
-then teaches its value, hold/speak/release interaction, in-field behavior, and
-language choice before asking for permissions. It then explains **text-box
-access** and opens Android's Accessibility settings. The optional **Enable
-Vaani control** action opens the overlay permission page. After the models
-verify, the Vaani control appears only while an editable, non-password field is
-focused; it disappears when focus leaves the field. Press and hold to dictate,
-then release to finish, while the default keyboard remains active. Google login
-requires the Firebase console's Google provider,
-an Android SHA-1 fingerprint, and refreshed `google-services.json`; email
-login requires the Email/Password provider. Firestore must be provisioned in
-the chosen region and have the checked-in rules deployed before live sync is
-available.
-The listening bars are driven by microphone RMS callbacks from the active STT
-session. When the focused node is editable and not a password field, Vaani
-pastes into that node; otherwise it copies the result for a normal paste. If
-the overlay service is started before its grant exists, it exits safely without
-crashing. The IME remains an optional compatibility surface and is never
-required by onboarding.
+See `../docs/NATIVE_APP.md` and `../docs/TESTING_AGENT_PROMPT.md` for architecture
+and the outstanding physical-device release gates.
 
 For development, model files can be staged without putting them in the APK:
 

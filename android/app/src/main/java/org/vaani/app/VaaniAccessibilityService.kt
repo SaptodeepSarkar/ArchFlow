@@ -13,21 +13,21 @@ class VaaniAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        refreshKeyboardBounds()
-        val source = event?.source
         if (AccessibilityEventPolicy.shouldIgnoreOwnEvent(event?.packageName, packageName)) {
             // The non-focusable overlay can generate click, content, and
             // window events.  None of those changes the editor in the app
             // behind it, so never turn them into a blur.
-            Unit
-        } else if (source?.isEditable == true) {
-            AccessibilityBridge.observe(source)
-        } else if (AccessibilityEventPolicy.shouldRefreshFocusedField(event?.eventType ?: 0)) {
+            return
+        }
+        val type = event?.eventType ?: return
+        if (AccessibilityEventPolicy.shouldRefreshKeyboardBounds(type)) {
+            refreshKeyboardBounds()
+        }
+        if (AccessibilityEventPolicy.shouldRefreshFocusedField(type)) {
             // A real external blur has no editable input here, while a new
             // focused editor can be resolved from the active app window.
             refreshFocusedField()
         }
-        source?.recycle()
     }
 
     private fun refreshKeyboardBounds() {
@@ -47,7 +47,8 @@ class VaaniAccessibilityService : AccessibilityService() {
     }
 
     private fun refreshFocusedField() {
-        val activeField = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        val root = rootInActiveWindow
+        val activeField = root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
         try {
             if (activeField?.isEditable == true && !activeField.isPassword) {
                 AccessibilityBridge.observe(activeField)
@@ -56,6 +57,7 @@ class VaaniAccessibilityService : AccessibilityService() {
             }
         } finally {
             activeField?.recycle()
+            root?.recycle()
         }
     }
 

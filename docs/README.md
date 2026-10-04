@@ -6,13 +6,16 @@ so benchmark notes do not get confused with user-facing setup instructions.
 
 ## Use Vaani
 
+- [Native app and verified bundles](NATIVE_APP.md) — architecture, encryption, model lifecycle and LAN transfer.
+- [Testing agent prompt](TESTING_AGENT_PROMPT.md) — copyable device validation and report instructions.
+
 - [Installation and operation](INSTALL.md) — dependencies, setup, shortcuts,
   runtime flow, and diagnostics.
 - [Configuration](configuration.md) — supported keys and policy tradeoffs.
 - [Compatibility](compatibility.md) — tested environments and known limits.
 - [Troubleshooting](troubleshooting.md) — common failures and safe recovery.
 - [Manual checks](manual-checks.md) — laptop checks that still need a human.
-- [Delivery surfaces](RELEASES.md) — Android APK and Linux/QML install paths.
+- [Delivery surfaces](RELEASES.md) — Android APK and native Linux install paths.
 - [Asset and screenshot map](ASSET_MAP.md) — ownership and retention policy.
 
 ## Understand Vaani
@@ -21,6 +24,8 @@ so benchmark notes do not get confused with user-facing setup instructions.
 - [Environment ADR](ADR-001-environment.md) — verified host versions and API
   decisions; do not infer versions from memory.
 - [Performance](performance.md) — measured latency and resource notes.
+- [Phase 1 safety and profiling](qa/phase1/README.md) — Android cancellation,
+  target-delivery changes and the pending physical-device verification gate.
 
 ## Models and experiments
 

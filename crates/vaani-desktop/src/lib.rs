@@ -364,115 +364,10 @@ where
     }
 }
 
-pub mod credentials;
-pub mod firebase;
 pub mod personalization;
 #[cfg(any(unix, windows))]
 pub mod platform;
-pub use credentials::{SecureSessionStore, SyncKeyStore};
-pub use firebase::{
-    EncryptedFirebaseRestProvider, FirebaseEmailAuth, FirebaseRestProvider, FirebaseSession,
-    FirebaseTokenProvider,
-};
 pub use personalization::PersonalizationRepository;
-
-/// Local-first desktop account bridge. The repository remains usable before
-/// sign-in and the session is held only for the lifetime of this object.
-pub struct DesktopSyncClient {
-    project_id: String,
-    repository: PersonalizationRepository,
-    session: Option<FirebaseSession>,
-    cursor: Option<String>,
-}
-
-impl DesktopSyncClient {
-    pub fn new(project_id: impl Into<String>, repository: PersonalizationRepository) -> Self {
-        Self {
-            project_id: project_id.into(),
-            repository,
-            session: None,
-            cursor: None,
-        }
-    }
-
-    pub fn repository(&self) -> &PersonalizationRepository {
-        &self.repository
-    }
-
-    pub fn sign_in(
-        &mut self,
-        auth: &FirebaseEmailAuth,
-        email: &str,
-        password: &str,
-    ) -> Result<String, EngineError> {
-        let session = auth.sign_in(email, password)?;
-        let email = session.email().to_owned();
-        self.session = Some(session);
-        self.cursor = None;
-        Ok(email)
-    }
-
-    pub fn create_account(
-        &mut self,
-        auth: &FirebaseEmailAuth,
-        email: &str,
-        password: &str,
-    ) -> Result<String, EngineError> {
-        let session = auth.create_account(email, password)?;
-        let email = session.email().to_owned();
-        self.session = Some(session);
-        self.cursor = None;
-        Ok(email)
-    }
-
-    pub fn sign_out(&mut self) {
-        self.session = None;
-        self.cursor = None;
-    }
-
-    pub fn persist_session(&self, store: &SecureSessionStore) -> Result<(), EngineError> {
-        self.session
-            .as_ref()
-            .ok_or_else(|| {
-                EngineError::new(
-                    vaani_core::engine::EngineErrorKind::Unavailable,
-                    "not signed in",
-                )
-            })
-            .and_then(|session| store.save(session))
-    }
-
-    pub fn restore_session(&mut self, store: &SecureSessionStore) -> Result<bool, EngineError> {
-        let Some(session) = store.load()? else {
-            return Ok(false);
-        };
-        self.session = Some(session);
-        self.cursor = None;
-        Ok(true)
-    }
-
-    pub fn clear_persisted_session(&self, store: &SecureSessionStore) -> Result<(), EngineError> {
-        store.clear()
-    }
-
-    pub fn email(&self) -> Option<&str> {
-        self.session.as_ref().map(FirebaseSession::email)
-    }
-
-    pub fn sync_once_encrypted(
-        &mut self,
-        key: vaani_core::sync_crypto::RecoveryKey,
-    ) -> Result<vaani_core::sync::SyncCycle, EngineError> {
-        let session = self.session.as_ref().ok_or_else(|| {
-            EngineError::new(
-                vaani_core::engine::EngineErrorKind::Unavailable,
-                "sign in to sync personalization",
-            )
-        })?;
-        let provider = EncryptedFirebaseRestProvider::new(self.project_id.clone(), session, key);
-        self.repository.sync_once(&provider, &mut self.cursor)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Invocation {
@@ -1303,29 +1198,6 @@ mod tests {
         assert_eq!(silent, None);
         assert_eq!(session.active_session(), None);
         assert_eq!(inserted.lock().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn account_is_optional_for_local_personalization() {
-        let path =
-            std::env::temp_dir().join(format!("vaani-desktop-client-{}.jsonl", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(path.with_extension("outbox.jsonl"));
-        let repository = PersonalizationRepository::open(&path, "client-test").unwrap();
-        repository
-            .add_snippet("my email", "person@example.test")
-            .unwrap();
-        let mut client = DesktopSyncClient::new("project-id", repository);
-        assert_eq!(client.email(), None);
-        assert_eq!(
-            client.repository().render("my email").unwrap(),
-            "person@example.test"
-        );
-        assert!(client
-            .sync_once_encrypted(vaani_core::sync_crypto::RecoveryKey::generate().unwrap())
-            .is_err());
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(path.with_extension("outbox.jsonl"));
     }
 
     #[test]

@@ -19,6 +19,7 @@ import android.view.View
 import android.view.WindowManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -33,7 +34,9 @@ class VoiceOverlayService : Service() {
     private lateinit var bubble: VoiceBubbleView
     private var attached = false
     private var stt: SttSession? = null
-    private val sttFence = SttSessionFence()
+    private val sessions = DictationSessionGate()
+    private var formatting: Job? = null
+    private var ownership: Long? = null
     private var touchStartedAt = 0L
     private var tapRecording = false
     private var overlayWidth = IDLE_WIDTH_DP
@@ -45,10 +48,12 @@ class VoiceOverlayService : Service() {
     private val focusListener: (Boolean) -> Unit = { active -> mainHandler.post { setFieldActive(active) } }
     private val keyboardListener: (Int) -> Unit = { mainHandler.post { refreshOverlayPosition() } }
 
+    private fun speechAvailable(): Boolean = ModelRelease.isReady(this) || android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!ModelRelease.isReady(this)) {
+        if (!speechAvailable()) {
             detach()
             stopSelf(startId)
             return START_NOT_STICKY
@@ -86,8 +91,8 @@ class VoiceOverlayService : Service() {
     }
 
     private fun setFieldActive(active: Boolean) {
-        if (!active || !AccessibilityBridge.hasEditableFocus() || !ModelRelease.isReady(this)) {
-            endSttSession()
+        if (!active || !AccessibilityBridge.hasEditableFocus() || !speechAvailable()) {
+            cancelSession()
             tapRecording = false
             bubble.state = VoiceBubbleView.State.IDLE
             detach()
@@ -169,89 +174,106 @@ class VoiceOverlayService : Service() {
         tapRecording = false
         touchStartedAt = 0L
         bubble.tapMode = false
-        endSttSession()
+        cancelSession()
         bubble.state = VoiceBubbleView.State.IDLE
         resizeOverlay(IDLE_WIDTH_DP)
     }
 
-    private fun begin() {
+    private fun cancelSession() {
+        sessions.invalidate()
+        formatting?.cancel()
+        formatting = null
         stt?.cancel()
-        val session = sttFence.begin()
-        stt = SttFactory.create(this).also { engine ->
+        stt = null
+        ActiveDictation.ownership.release(ownership)
+        ownership = null
+    }
+
+    private fun showCompletion(token: Long, state: VoiceBubbleView.State, description: String) {
+        if (!sessions.isCurrent(token)) return
+        ActiveDictation.ownership.release(ownership)
+        ownership = null
+        tapRecording = false
+        bubble.tapMode = false
+        bubble.state = state
+        bubble.contentDescription = description
+        mainHandler.postDelayed({
+            if (sessions.isCurrent(token)) {
+                bubble.state = VoiceBubbleView.State.IDLE
+                resizeOverlay(IDLE_WIDTH_DP)
+                bubble.contentDescription = "Vaani bubble. Hold to speak; your result is pasted or copied."
+            }
+        }, 1500L)
+    }
+
+    private fun begin() {
+        cancelSession()
+        ownership = ActiveDictation.ownership.claim {
+            cancelSession()
+            tapRecording = false
+            touchStartedAt = 0L
+            bubble.tapMode = false
+            bubble.state = VoiceBubbleView.State.IDLE
+            resizeOverlay(IDLE_WIDTH_DP)
+        }
+        val token = sessions.begin()
+        val target = AccessibilityBridge.captureTarget()
+        fun failed() {
+            mainHandler.post {
+                if (sessions.isListening(token)) {
+                    stt?.cancel()
+                    stt = null
+                    sessions.acceptResult(token)
+                    showCompletion(token, VoiceBubbleView.State.ERROR, "Vaani could not finish that phrase. Hold to try again.")
+                }
+            }
+        }
+        try {
+            val engine = SttFactory.create(this)
+            stt = engine
             engine.start(
-                onReady = {
-                    bubble.post {
-                        if (sttFence.isCurrent(session)) bubble.state = VoiceBubbleView.State.LISTENING
-                    }
-                },
-                onRms = { level ->
-                    bubble.post {
-                        if (sttFence.isCurrent(session)) bubble.level = level
-                    }
-                },
-                onResult = result@{ final ->
-                    if (!sttFence.isCurrent(session)) return@result
-                    formatScope.launch {
-                        if (!sttFence.isCurrent(session)) return@launch
-                        bubble.post { bubble.state = VoiceBubbleView.State.PROCESSING }
+                onReady = { mainHandler.post {
+                    if (sessions.isListening(token)) bubble.state = VoiceBubbleView.State.LISTENING
+                } },
+                onRms = { level -> mainHandler.post {
+                    if (sessions.isListening(token)) bubble.level = level
+                } },
+                onResult = { raw -> mainHandler.post {
+                    if (!sessions.acceptResult(token)) return@post
+                    stt?.cancel()
+                    stt = null
+                    bubble.state = VoiceBubbleView.State.PROCESSING
+                    formatting = formatScope.launch {
                         val text = PersonalizationStore(this@VoiceOverlayService)
-                            .render(LocalInference.format(this@VoiceOverlayService, final.text))
-                        if (!sttFence.isCurrent(session)) return@launch
-                        val completed = endSttSession()
+                            .render(LocalInference.format(this@VoiceOverlayService, raw.text))
+                        if (!sessions.isCurrent(token)) return@launch
                         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                         val result = TextDelivery.deliver(
                             text = text,
                             delivery = Delivery.INSERT,
-                            commit = { value -> AccessibilityBridge.paste(this@VoiceOverlayService, value) },
+                            commit = { value -> AccessibilityBridge.paste(this@VoiceOverlayService, value, target) },
                             copy = { value -> clipboard.setPrimaryClip(ClipData.newPlainText("Vaani dictation", value)) },
                         )
-                        bubble.post {
-                            if (sttFence.isCurrent(completed)) {
-                                tapRecording = false
-                                bubble.tapMode = false
-                                bubble.state = if (result == DeliveryResult.INSERTED) VoiceBubbleView.State.SENT else VoiceBubbleView.State.COPIED
-                                bubble.contentDescription = if (result == DeliveryResult.INSERTED) "Vaani sent the text to the focused field." else "Vaani copied the text to the clipboard."
-                                bubble.postDelayed({
-                                    if (sttFence.isCurrent(completed)) {
-                                        bubble.state = VoiceBubbleView.State.IDLE
-                                        resizeOverlay(IDLE_WIDTH_DP)
-                                        bubble.contentDescription = "Vaani bubble. Hold to speak; your result is pasted or copied."
-                                    }
-                                }, 1500L)
-                            }
+                        val state = when (result) {
+                            DeliveryResult.INSERTED -> VoiceBubbleView.State.SENT
+                            DeliveryResult.COPIED -> VoiceBubbleView.State.COPIED
+                            DeliveryResult.EMPTY -> VoiceBubbleView.State.ERROR
                         }
+                        showCompletion(token, state, when (result) {
+                            DeliveryResult.INSERTED -> "Vaani sent the text to the original field."
+                            DeliveryResult.COPIED -> "Vaani copied the text to the clipboard."
+                            DeliveryResult.EMPTY -> "No speech detected. Hold to try again."
+                        })
                     }
-                },
-                onError = error@{
-                    if (!sttFence.isCurrent(session)) return@error
-                    bubble.post {
-                        val completed = endSttSession()
-                        tapRecording = false
-                        bubble.tapMode = false
-                        bubble.state = VoiceBubbleView.State.ERROR
-                        bubble.contentDescription = "Vaani could not finish that phrase. Hold to try again."
-                        bubble.postDelayed({
-                            if (sttFence.isCurrent(completed)) {
-                                bubble.state = VoiceBubbleView.State.IDLE
-                                resizeOverlay(IDLE_WIDTH_DP)
-                                bubble.contentDescription = "Vaani bubble. Hold to speak; your result is pasted or copied."
-                            }
-                        }, 1500L)
-                    }
-                },
+                } },
+                onError = { failed() },
             )
-        }
-    }
-
-    private fun endSttSession(): Long {
-        val completed = sttFence.invalidate()
-        stt?.cancel()
-        stt = null
-        return completed
+        } catch (_: Exception) { failed() }
     }
 
     override fun onDestroy() {
-        endSttSession()
+        cancelSession()
+        mainHandler.removeCallbacksAndMessages(null)
         formatScope.cancel()
         AccessibilityBridge.removeFocusListener(focusListener)
         AccessibilityBridge.removeKeyboardListener(keyboardListener)
@@ -293,21 +315,21 @@ private class VoiceBubbleView(context: android.content.Context) : View(context) 
         // Matches the Linux Quickshell overlay: dark graphite surface,
         // lilac activity mark, and a muted slate outline.
         val surface = when (state) {
-            State.ERROR -> Color.rgb(49, 30, 38)
-            State.SENT, State.COPIED -> Color.rgb(31, 34, 48)
-            else -> Color.rgb(16, 18, 24)
+            State.ERROR -> Color.rgb(255, 228, 220)
+            State.SENT, State.COPIED -> Color.rgb(228, 242, 255)
+            else -> Color.rgb(250, 250, 247)
         }
         val icon = when (state) {
-            State.ERROR -> Color.rgb(255, 180, 171)
-            else -> Color.rgb(195, 180, 255)
+            State.ERROR -> Color.rgb(156, 54, 40)
+            else -> Color.rgb(34, 110, 168)
         }
 
         if (listening) {
-            paint.color = Color.rgb(16, 18, 24)
+            paint.color = Color.rgb(250, 250, 247)
             canvas.drawRoundRect(RectF(dp(2f), top - dp(8f), width - dp(2f), top + bubbleSize + dp(8f)), dp(28f), dp(28f), paint)
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = dp(1f)
-            paint.color = Color.rgb(61, 64, 80)
+            paint.color = Color.rgb(207, 225, 237)
             canvas.drawRoundRect(RectF(dp(2f), top - dp(8f), width - dp(2f), top + bubbleSize + dp(8f)), dp(28f), dp(28f), paint)
             paint.style = Paint.Style.FILL
         }
@@ -316,7 +338,7 @@ private class VoiceBubbleView(context: android.content.Context) : View(context) 
         canvas.drawRoundRect(RectF(left, top, left + bubbleSize, top + bubbleSize), dp(21f), dp(21f), paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = dp(1f)
-        paint.color = Color.rgb(61, 64, 80)
+        paint.color = Color.rgb(207, 225, 237)
         canvas.drawRoundRect(RectF(left, top, left + bubbleSize, top + bubbleSize), dp(21f), dp(21f), paint)
         paint.style = Paint.Style.FILL
         paint.color = icon
@@ -335,7 +357,7 @@ private class VoiceBubbleView(context: android.content.Context) : View(context) 
         }
 
         if (listening) {
-            paint.color = Color.rgb(240, 240, 247)
+            paint.color = Color.rgb(32, 43, 54)
             paint.textSize = dp(12f)
             paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             canvas.drawText(
@@ -344,7 +366,7 @@ private class VoiceBubbleView(context: android.content.Context) : View(context) 
             )
             postInvalidateOnAnimation()
         } else if (state == State.SENT || state == State.COPIED || state == State.ERROR) {
-            paint.color = Color.rgb(240, 240, 247)
+            paint.color = Color.rgb(32, 43, 54)
             paint.textSize = dp(11f)
             paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
             canvas.drawText(when (state) { State.SENT -> "Sent"; State.COPIED -> "Copied"; else -> "Try again" }, dp(7f), top - dp(8f), paint)

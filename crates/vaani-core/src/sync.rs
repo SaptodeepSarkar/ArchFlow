@@ -259,6 +259,9 @@ impl<S: SyncStorage, P: SyncProvider> SyncCoordinator<S, P> {
 /// shipping a heavier database dependency.
 pub struct JsonlStorage {
     path: PathBuf,
+    encryption_key: Option<[u8; 32]>,
+    _file_lock: Option<std::fs::File>,
+    mutation: Mutex<()>,
     outbox_path: PathBuf,
     device_id: String,
     state: Mutex<Vec<PersonalizationRecord>>,
@@ -271,20 +274,80 @@ impl JsonlStorage {
         path: impl Into<PathBuf>,
         device_id: impl Into<String>,
     ) -> Result<Self, EngineError> {
+        Self::open_with_key(path.into(), device_id.into(), None)
+    }
+
+    pub fn open_secure(
+        path: impl Into<PathBuf>,
+        device_id: impl Into<String>,
+    ) -> Result<Self, EngineError> {
         let path = path.into();
+        let key = crate::local_crypto::key(&path).map_err(|e| storage_error(e.to_string()))?;
+        Self::open_with_key(path, device_id.into(), Some(key))
+    }
+
+    pub fn open_with_key(
+        path: PathBuf,
+        device_id: String,
+        encryption_key: Option<[u8; 32]>,
+    ) -> Result<Self, EngineError> {
+        let file_lock = if encryption_key.is_some() {
+            use fs2::FileExt;
+            let lock_path = path.with_extension("storage.lock");
+            if let Some(parent) = lock_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|_| storage_error("cannot create private data directory"))?;
+            }
+            let mut options = std::fs::OpenOptions::new();
+            options.create(true).write(true).truncate(false);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let lock = options
+                .open(lock_path)
+                .map_err(|_| storage_error("cannot open data lock"))?;
+            lock.try_lock_exclusive().map_err(|_| {
+                storage_error("Personalization is in use; retry after the other operation finishes")
+            })?;
+            Some(lock)
+        } else {
+            None
+        };
         let records = if path.exists() {
-            read_records(&path)?
+            read_records(&path, encryption_key.as_ref())?
         } else {
             Vec::new()
         };
         let outbox_path = path.with_extension("outbox.jsonl");
         let outbox = if outbox_path.exists() {
-            read_records(&outbox_path)?
+            read_records(&outbox_path, encryption_key.as_ref())?
         } else {
             Vec::new()
         };
         let clock = records.iter().map(record_clock).max().unwrap_or(0);
+        if encryption_key.is_some()
+            && (!path.exists()
+                || !std::fs::read(&path)
+                    .map_err(|_| storage_error("data read failed"))?
+                    .starts_with(b"VAANIENC1"))
+        {
+            // Write and authenticate encrypted replacements before plaintext is retired.
+            write_records(&path, &records, encryption_key.as_ref())?;
+        }
+        if encryption_key.is_some()
+            && (!outbox_path.exists()
+                || !std::fs::read(&outbox_path)
+                    .map_err(|_| storage_error("outbox read failed"))?
+                    .starts_with(b"VAANIENC1"))
+        {
+            write_records(&outbox_path, &outbox, encryption_key.as_ref())?;
+        }
         Ok(Self {
+            _file_lock: file_lock,
+            mutation: Mutex::new(()),
+            encryption_key,
             path,
             outbox_path,
             device_id: device_id.into(),
@@ -304,7 +367,23 @@ impl JsonlStorage {
             .map_err(|_| storage_error("state lock poisoned"))
     }
 
-    fn next_clock(&self) -> Result<u64, EngineError> {
+    pub fn merge_batch(&self, incoming: &[PersonalizationRecord]) -> Result<(), EngineError> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| storage_error("mutation lock poisoned"))?;
+        let mut records = self.records()?;
+        for record in incoming {
+            if let Some(slot) = records.iter_mut().find(|r| same_record(r, record)) {
+                *slot = PersonalizationRecord::merge(slot.clone(), record.clone());
+            } else {
+                records.push(record.clone());
+            }
+        }
+        self.commit(records)
+    }
+
+    pub fn next_clock(&self) -> Result<u64, EngineError> {
         let mut clock = self
             .logical_clock
             .lock()
@@ -314,7 +393,13 @@ impl JsonlStorage {
     }
 
     fn commit(&self, records: Vec<PersonalizationRecord>) -> Result<(), EngineError> {
-        write_records(&self.path, &records)?;
+        write_records(&self.path, &records, self.encryption_key.as_ref())?;
+        let maximum = records.iter().map(record_clock).max().unwrap_or(0);
+        let mut clock = self
+            .logical_clock
+            .lock()
+            .map_err(|_| storage_error("clock lock poisoned"))?;
+        *clock = (*clock).max(maximum);
         *self
             .state
             .lock()
@@ -337,6 +422,10 @@ impl StorageProvider for JsonlStorage {
     }
 
     fn upsert(&self, record: PersonalizationRecord) -> Result<(), EngineError> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| storage_error("mutation lock poisoned"))?;
         let queued = record.clone();
         let mut records = self
             .state
@@ -357,7 +446,7 @@ impl StorageProvider for JsonlStorage {
             .lock()
             .map_err(|_| storage_error("sync outbox lock poisoned"))?;
         outbox.push(queued);
-        write_records(&self.outbox_path, &outbox)?;
+        write_records(&self.outbox_path, &outbox, self.encryption_key.as_ref())?;
         Ok(())
     }
 
@@ -433,7 +522,7 @@ impl SyncStorage for JsonlStorage {
             .lock()
             .map_err(|_| storage_error("sync outbox lock poisoned"))?;
         outbox.retain(|pending| !records.iter().any(|sent| sent == pending));
-        write_records(&self.outbox_path, &outbox)
+        write_records(&self.outbox_path, &outbox, self.encryption_key.as_ref())
     }
 
     fn merge_remote(&self, record: PersonalizationRecord) -> Result<(), EngineError> {
@@ -466,7 +555,7 @@ fn record_clock(record: &PersonalizationRecord) -> u64 {
 }
 
 impl PersonalizationRecord {
-    fn entity(&self) -> SyncEntityKind {
+    pub fn entity(&self) -> SyncEntityKind {
         match self {
             Self::Vocabulary(r) => r.entity,
             Self::Snippet(r) => r.entity,
@@ -479,8 +568,11 @@ fn storage_error(message: impl Into<String>) -> EngineError {
     EngineError::new(crate::engine::EngineErrorKind::Runtime, message)
 }
 
-fn read_records(path: &Path) -> Result<Vec<PersonalizationRecord>, EngineError> {
-    let text = std::fs::read_to_string(path)
+fn read_records(
+    path: &Path,
+    key: Option<&[u8; 32]>,
+) -> Result<Vec<PersonalizationRecord>, EngineError> {
+    let text = crate::local_crypto::read(path, key)
         .map_err(|e| storage_error(format!("read personalization store: {e}")))?;
     text.lines()
         .filter(|line| !line.trim().is_empty())
@@ -491,12 +583,15 @@ fn read_records(path: &Path) -> Result<Vec<PersonalizationRecord>, EngineError> 
         .collect()
 }
 
-fn write_records(path: &Path, records: &[PersonalizationRecord]) -> Result<(), EngineError> {
+fn write_records(
+    path: &Path,
+    records: &[PersonalizationRecord],
+    key: Option<&[u8; 32]>,
+) -> Result<(), EngineError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| storage_error(format!("create personalization directory: {e}")))?;
     }
-    let tmp = path.with_extension("tmp");
     let body = records
         .iter()
         .map(|record| {
@@ -506,9 +601,7 @@ fn write_records(path: &Path, records: &[PersonalizationRecord]) -> Result<(), E
         .collect::<Result<Vec<_>, _>>()?
         .join("\n")
         + if records.is_empty() { "" } else { "\n" };
-    std::fs::write(&tmp, body)
-        .map_err(|e| storage_error(format!("write personalization store: {e}")))?;
-    std::fs::rename(&tmp, path)
+    crate::local_crypto::write(path, body.as_bytes(), key)
         .map_err(|e| storage_error(format!("commit personalization store: {e}")))
 }
 
@@ -525,6 +618,43 @@ mod tests {
             created_at_ms: 0,
             updated_at_ms,
         }
+    }
+
+    #[test]
+    fn encrypted_migration_preserves_records_and_import_clock() {
+        let path =
+            std::env::temp_dir().join(format!("vaani-migration-{}.jsonl", uuid::Uuid::new_v4()));
+        let source = JsonlStorage::open(&path, "old-device").unwrap();
+        let record = PersonalizationRecord::Vocabulary(SyncRecord::live(
+            SyncEntityKind::Vocabulary,
+            "stable".into(),
+            1,
+            500,
+            "remote".into(),
+            1,
+            VocabularyEntry {
+                id: "stable".into(),
+                canonical: "private-term".into(),
+                spoken_aliases: vec![],
+                category: None,
+                created_at_ms: 1,
+                updated_at_ms: 1,
+            },
+        ));
+        source.upsert(record.clone()).unwrap();
+        drop(source);
+        let migrated =
+            JsonlStorage::open_with_key(path.clone(), "local".into(), Some([7; 32])).unwrap();
+        assert_eq!(migrated.records().unwrap().len(), 1);
+        assert!(!String::from_utf8_lossy(&std::fs::read(&path).unwrap()).contains("private-term"));
+        migrated.merge_batch(&[record.clone(), record]).unwrap();
+        assert_eq!(migrated.records().unwrap().len(), 1);
+        assert!(migrated.next_clock().unwrap() > 500);
+        assert!(JsonlStorage::open_with_key(path.clone(), "other".into(), Some([7; 32])).is_err());
+        drop(migrated);
+        assert!(JsonlStorage::open_with_key(path.clone(), "local".into(), Some([8; 32])).is_err());
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(path.with_extension("outbox.jsonl")).unwrap();
     }
 
     #[test]
