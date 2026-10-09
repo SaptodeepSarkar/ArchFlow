@@ -58,7 +58,7 @@ object ModelInstaller {
         check(temporary.length() in 4..4L*1024*1024*1024) { "Invalid model size" }
         val magic=temporary.inputStream().use {input ->ByteArray(4).also {check(input.read(it)==4)}}
         when(kind) {
-            ModelKind.STT -> check(String(magic) in setOf("lmgg","ggml")) { "Expected whisper.cpp GGML" }
+            ModelKind.STT, ModelKind.STT_V6 -> check(String(magic) in setOf("lmgg","ggml")) { "Expected whisper.cpp GGML" }
             ModelKind.FORMATTER -> check(String(magic)=="GGUF") { "Expected GGUF" }
             ModelKind.FORMATTER_V6 -> V6Tagger.load(temporary.readBytes())
         }
