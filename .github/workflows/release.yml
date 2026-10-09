@@ -3,7 +3,6 @@ name: Publish Vaani release
 on:
   push:
     tags: ["v*.*.*"]
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,34 +11,110 @@ jobs:
   android-apk:
     name: Publish Android APK
     runs-on: ubuntu-24.04
-    env:
-      # Repository/organization secrets must point to files made available to
-      # the runner (for example via an internal model-artifact step). The
-      # workflow refuses to claim model assets when these are absent.
-      ANDROID_STT_MODEL: ${{ secrets.ANDROID_STT_MODEL }}
-      ANDROID_FORMATTER_MODEL: ${{ secrets.ANDROID_FORMATTER_MODEL }}
-      V6_TAGGER_MODEL: ${{ secrets.V6_TAGGER_MODEL }}
     defaults:
       run:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
+      - name: Stage verified baseline Android models
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.parse, urllib.request
+
+          catalog = json.loads(pathlib.Path("../models/android-models.json").read_text())
+          required = {
+              "whisper-base-android-starter": "ANDROID_STT_MODEL",
+              "vaani-v5-formatter-q8-android": "ANDROID_FORMATTER_MODEL",
+          }
+          assets = {item["id"]: item for item in catalog["models"]}
+          output = pathlib.Path(os.environ["RUNNER_TEMP"]) / "vaani-release-models"
+          output.mkdir(parents=True, exist_ok=True)
+          paths = {}
+          for ident, variable in required.items():
+              item = assets[ident]
+              parsed = urllib.parse.urlparse(item.get("url", ""))
+              filename = pathlib.PurePosixPath(parsed.path).name
+              expected_size = item.get("size_bytes")
+              expected_hash = item.get("sha256", "")
+              if parsed.scheme != "https" or not parsed.netloc or not filename:
+                  raise SystemExit(f"invalid HTTPS model URL for {ident}")
+              if type(expected_size) is not int or not 1 <= expected_size <= 1_073_741_824:
+                  raise SystemExit(f"invalid model size for {ident}")
+              if len(expected_hash) != 64 or any(c not in "0123456789abcdef" for c in expected_hash.lower()):
+                  raise SystemExit(f"invalid model checksum for {ident}")
+              destination = output / filename
+              temporary = destination.with_name(destination.name + ".part")
+              digest = hashlib.sha256()
+              size = 0
+              with urllib.request.urlopen(item["url"], timeout=120) as response, temporary.open("wb") as target:
+                  while chunk := response.read(1024 * 1024):
+                      size += len(chunk)
+                      if size > expected_size:
+                          raise SystemExit(f"download exceeded declared model size for {ident}")
+                      target.write(chunk)
+                      digest.update(chunk)
+              if digest.hexdigest() != expected_hash.lower() or size != expected_size:
+                  temporary.unlink(missing_ok=True)
+                  raise SystemExit(f"download verification failed for {ident}")
+              os.replace(temporary, destination)
+              paths[variable] = destination
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              for variable, path in paths.items():
+                  env.write(f"{variable}={path}\n")
+          PY
+      - name: Validate release tag and versions
+        run: |
+          if [[ ! "$GITHUB_REF" =~ ^refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release must use a canonical vMAJOR.MINOR.PATCH tag" >&2
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          python3 - "$version" <<'PY'
+          import os, pathlib, sys, tomllib
+          expected = sys.argv[1]
+          major, minor, patch = map(int, expected.split("."))
+          if minor > 999 or patch > 999:
+              raise SystemExit("Android versionCode encoding requires MINOR and PATCH <= 999")
+          version_code = major * 1_000_000 + minor * 1_000 + patch
+          if not 1 <= version_code <= 2_100_000_000:
+              raise SystemExit(f"Android versionCode {version_code} is outside the supported range 1..2100000000")
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"ANDROID_VERSION_CODE={version_code}\n")
+          root = pathlib.Path("..")
+          workspace = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]
+          manifests = [root / member / "Cargo.toml" for member in workspace["members"]]
+          bad = [str(path.relative_to(root)) for path in manifests
+                 if tomllib.loads(path.read_text()).get("package", {}).get("version") != expected]
+          pkgver = next((line.removeprefix("pkgver=") for line in (root / "packaging/PKGBUILD").read_text().splitlines()
+                         if line.startswith("pkgver=")), None)
+          if pkgver != expected:
+              bad.append("packaging/PKGBUILD")
+          if bad:
+              raise SystemExit(f"Tag {expected} does not match: {', '.join(bad)}")
+          PY
+          if [[ -z "$ANDROID_STT_MODEL" || -z "$ANDROID_FORMATTER_MODEL" ]]; then
+            echo "Baseline Android model artifacts are required to publish" >&2
+            exit 1
+          fi
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - name: Build the installable debug APK
+        id: build
         run: |
-          ./gradlew testDebugUnitTest assembleDebug --stacktrace
+          version="${GITHUB_REF_NAME#v}"
+          ./gradlew -PreleaseVersionName="$version" -PreleaseVersionCode="$ANDROID_VERSION_CODE" testDebugUnitTest assembleDebug --stacktrace
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/Vaani-Android-1.2.0-debug.apk"
+          apk_name="Vaani-Android-${version}-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/${apk_name}"
+          echo "apk_name=${apk_name}" >> "$GITHUB_OUTPUT"
       - name: Verify native runtimes
         run: |
-          unzip -l dist/Vaani-Android-1.2.0-debug.apk | grep -q 'lib/arm64-v8a/libwhisper.so'
-          unzip -l dist/Vaani-Android-1.2.0-debug.apk | grep -q 'lib/arm64-v8a/libllama.so'
+          unzip -l "dist/${{ steps.build.outputs.apk_name }}" | grep -q 'lib/arm64-v8a/libwhisper.so'
+          unzip -l "dist/${{ steps.build.outputs.apk_name }}" | grep -q 'lib/arm64-v8a/libllama.so'
       - name: Stage and verify model release assets
-        if: ${{ env.ANDROID_STT_MODEL != '' && env.ANDROID_FORMATTER_MODEL != '' && env.V6_TAGGER_MODEL != '' }}
         run: |
           cd ..
           RELEASE_TAG="${GITHUB_REF_NAME}" \
@@ -52,11 +127,11 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Vaani ${{ github.ref_name }}
           generate_release_notes: true
-          prerelease: true
+          prerelease: false
           files: |
-            android/dist/Vaani-Android-1.2.0-debug.apk
+            android/dist/${{ steps.build.outputs.apk_name }}
             android/dist/models/*
           body: |
-            Install `Vaani-Android-1.2.0-debug.apk` on an arm64 Android device.
+            Install `${{ steps.build.outputs.apk_name }}` on an arm64 Android device.
 
-            This is an installable debug build for the Vaani 1.2.0 desktop/mobile integration milestone. Model packages are downloaded and verified by the app; they are not bundled in the APK.
+            This is an installable debug build for Vaani ${{ github.ref_name }}. Model packages are downloaded and verified by the app; they are not bundled in the APK.

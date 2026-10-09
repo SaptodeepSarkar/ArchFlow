@@ -36,6 +36,10 @@ To remove the user-local installation while keeping personal config and models:
 ./uninstall.sh
 ```
 
+Before uninstalling, remove the `source = ~/.config/hypr/vaani.conf` line you
+added to `hyprland.conf` (or the equivalent Lua include). The uninstaller
+leaves user-owned compositor configuration untouched.
+
 Add the installed app-owned Hyprland include:
 
 ```ini
@@ -47,7 +51,8 @@ Run `vaani doctor` to inspect available capabilities. CUDA is optional; use
 
 ## Session flow
 
-1. `SUPER+H` starts a live-preview session; preview words remain in the overlay.
+1. `SUPER+H` toggles dictation; `SUPER+ALT+H` enables live-preview words in
+   the overlay.
 2. Silence or `SUPER+J` stops capture. Final STT transcribes the complete
    utterance; long recordings use bounded overlapping segments.
 3. Every non-empty final transcript goes through the local, source-grounded
@@ -57,7 +62,7 @@ Run `vaani doctor` to inspect available capabilities. CUDA is optional; use
    focus check. `SUPER+J` is the explicit “save to clipboard” action; terminal
    windows, review mode, and unsafe focus changes remain copy-only.
 
-`SUPER+ALT+SPACE` toggles regular dictation, `SUPER+ALT+ESC` cancels, and
+`SUPER+ALT+H` toggles live-preview dictation, `SUPER+ALT+ESC` cancels, and
 `SUPER+ALT+C` copies pending text.
 
 ## Resource policy

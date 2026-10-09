@@ -54,11 +54,11 @@ def main() -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from peft import PeftModel
 
-    tok = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+    tok = AutoTokenizer.from_pretrained(model_dir)
     if not tok.pad_token:
         tok.pad_token = tok.eos_token
     base = AutoModelForCausalLM.from_pretrained(
-        model_dir, dtype=torch.bfloat16, trust_remote_code=True
+        model_dir, dtype=torch.bfloat16
     ).to("cuda")
     if os.path.isdir(adapter_dir):
         model = PeftModel.from_pretrained(base, adapter_dir)
@@ -98,8 +98,8 @@ def main() -> None:
                     )
                 gen = tok.decode(out[0][ids["input_ids"].shape[1]:], skip_special_tokens=True).strip()
                 sys.stdout.write(json.dumps({"id": jid, "text": gen if gen else text}) + "\n")
-        except Exception as e:  # never wedge the controller: report, keep serving
-            sys.stdout.write(json.dumps({"id": jid, "error": str(e)[:200], "text": text}) + "\n")
+        except Exception:  # never wedge the controller or expose request data
+            sys.stdout.write(json.dumps({"id": jid, "error": "inference failed"}) + "\n")
         sys.stdout.flush()
 
 

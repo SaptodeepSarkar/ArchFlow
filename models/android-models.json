@@ -27,7 +27,7 @@
       "id": "vaani-v6-tagger",
       "kind": "formatter_v6",
       "runtime": "vaani-v6-tagger",
-      "android_compatible": true,
+      "android_compatible": false,
       "url": "https://github.com/SaptodeepSarkar/ArchFlow/releases/download/v1.2.0/vaani-v6-tagger.v6tg",
       "sha256": "bc813025c6c7cf844fec826510af5a5555de9fa676cb0658bca738e01435e81f",
       "size_bytes": 834512,

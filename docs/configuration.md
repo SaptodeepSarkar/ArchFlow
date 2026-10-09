@@ -18,6 +18,7 @@ saved `copy-only` keep that choice; restore the typing behavior with
 |---|---|---|
 | general.residency_profile | economy (default) / balanced / ready | Economy exits sidecars after an operation; Balanced keeps supported sidecars warm for at least 60 seconds; Ready keeps them warm for up to 10 minutes. |
 | general.review_before_insertion | bool | Stricter control; window match ≠ same cursor field |
+| privacy.save_history | bool (off) | Retention + delete controls when enabled |
 | audio.device_selector | "" or stable source name | "" = PipeWire default each session; never numeric node ids |
 | audio.worker_threads | 1–16 (4) | Responsiveness vs CPU |
 | recognition.model | tiny/base/base.en/small/cozy/v5 | Final transcript model; v5 = local V5 Whisper-derived CT2 candidate |
@@ -39,7 +40,6 @@ acronyms --max 80` and copy the result into `[cleanup]`. This is decoder
 context, not training data, so difficult terms can be selected per task
 without enlarging the model. It is a recognition hint, not a guarantee; the
 audio still has to support the term.
-| privacy.save_history | bool (off) | Retention + delete controls when enabled |
 
 ## UWSM / session integration
 

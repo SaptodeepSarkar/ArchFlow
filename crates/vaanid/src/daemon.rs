@@ -1142,6 +1142,10 @@ async fn start_flow(
             resp_ok("", &s, Some(started_msg), None)
         }
         Err(e) => {
+            if let Some(mut overlay) = g.overlay.take() {
+                let _ = overlay.kill();
+                let _ = overlay.wait();
+            }
             let _ = g.session.transition(State::Error);
             let sid = g.session.id.clone();
             emit(
@@ -1658,19 +1662,41 @@ async fn stop_flow(
                     text: final_text.clone(),
                     at: std::time::Instant::now(),
                 });
-                let _ = g.session.transition(State::Idle);
                 drop(g);
-                let _ = clipboard::offer_text(&final_text);
-                if let Some(mut ov) = shared.lock().await.overlay.take() {
+                let clipboard_text = final_text.clone();
+                let copied = tokio::task::spawn_blocking(move || {
+                    clipboard::offer_text(&clipboard_text).is_ok()
+                })
+                .await
+                .unwrap_or(false);
+                let (mut overlay, session) = {
+                    let mut g = shared.lock().await;
+                    if g.session.id != sid || !matches!(g.session.state, State::Cleaning) {
+                        let s = g.session.clone();
+                        return resp_ok("", &s, Some("stale clipboard result discarded".into()), None);
+                    }
+                    let _ = g.session.transition(State::Idle);
+                    (g.overlay.take(), g.session.clone())
+                };
+                if let Some(mut ov) = overlay.take() {
                     let _ = ov.kill();
                     let _ = ov.wait();
                 }
-                let s = shared.lock().await.session.clone();
+                let message = if copied {
+                    "Saved to clipboard"
+                } else {
+                    "Clipboard offer failed — text is available for recovery"
+                };
+                let data = serde_json::json!({"text": final_text, "copied": copied});
+                emit(
+                    tx,
+                    &ev_state_data(Some(sid.clone()), State::Idle, Some(message), Some(data.clone())),
+                );
                 return resp_ok(
                     "",
-                    &s,
-                    Some("Saved to clipboard".into()),
-                    Some(serde_json::json!({"text": final_text})),
+                    &session,
+                    Some(message.into()),
+                    Some(data),
                 );
             }
             // Focus must still be the original target after cleanup. If it
@@ -1683,19 +1709,51 @@ async fn stop_flow(
                     at: std::time::Instant::now(),
                 });
                 drop(g);
-                let _ = clipboard::offer_text(&final_text_c);
-                if let Some(mut ov) = shared.lock().await.overlay.take() {
+                let clipboard_text = final_text_c.clone();
+                let copied = tokio::task::spawn_blocking(move || {
+                    clipboard::offer_text(&clipboard_text).is_ok()
+                })
+                .await
+                .unwrap_or(false);
+                let mut overlay = {
+                    let mut g = shared.lock().await;
+                    if g.session.id != sid || !matches!(g.session.state, State::Cleaning) {
+                        let s = g.session.clone();
+                        return resp_ok("", &s, Some("stale clipboard result discarded".into()), None);
+                    }
+                    g.overlay.take()
+                };
+                if let Some(mut ov) = overlay.take() {
                     let _ = ov.kill();
                     let _ = ov.wait();
                 }
                 let mut g = shared.lock().await;
+                if g.session.id != sid || !matches!(g.session.state, State::Cleaning) {
+                    let s = g.session.clone();
+                    return resp_ok("", &s, Some("stale clipboard result discarded".into()), None);
+                }
                 let _ = g.session.transition(State::Idle);
+                let message = if copied {
+                    format!("Saved to clipboard — target changed ({reason})")
+                } else {
+                    format!("Clipboard offer failed — target changed ({reason})")
+                };
+                let data = serde_json::json!({"text": final_text_c, "copied": copied});
+                emit(
+                    tx,
+                    &ev_state_data(
+                        Some(sid.clone()),
+                        State::Idle,
+                        Some(&message),
+                        Some(data.clone()),
+                    ),
+                );
                 let s = g.session.clone();
                 return resp_ok(
                     "",
                     &s,
-                    Some(format!("Saved to clipboard — target changed ({reason})")),
-                    Some(serde_json::json!({"text": final_text_c, "copied": true})),
+                    Some(message),
+                    Some(data),
                 );
             }
             // There is one delivery implementation. It applies configured
@@ -1729,7 +1787,14 @@ async fn stop_flow(
                 inserter::insert_automatic(&text_to_insert, &target_for_insert, &configured_mode)
             })
             .await;
-            if let Some(mut ov) = shared.lock().await.overlay.take() {
+            let mut g = shared.lock().await;
+            if g.session.id != sid || !matches!(g.session.state, State::Inserting) {
+                let s = g.session.clone();
+                return resp_ok("", &s, Some("stale delivery discarded".into()), None);
+            }
+            let mut overlay = g.overlay.take();
+            drop(g);
+            if let Some(mut ov) = overlay.take() {
                 let _ = ov.kill();
                 let _ = ov.wait();
             }
@@ -1751,11 +1816,16 @@ async fn stop_flow(
             let message = outcome.to_string();
             let _ = g.session.transition(State::Idle);
             let s = g.session.clone();
+            let data = serde_json::json!({"delivered": delivered, "pending": true});
+            emit(
+                tx,
+                &ev_state_data(Some(sid), State::Idle, Some(&message), Some(data.clone())),
+            );
             resp_ok(
                 "",
                 &s,
                 Some(message),
-                Some(serde_json::json!({"delivered": delivered, "pending": true})),
+                Some(data),
             )
         }
         _ => {

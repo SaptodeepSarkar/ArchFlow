@@ -119,6 +119,7 @@ private fun VaaniApp() {
     val accountClient = remember { VaaniAccountClient(context) }
     val accountScope = rememberCoroutineScope()
     var accountMessage by remember { mutableStateOf<String?>(null) }
+    var micPermissionReturnPage by remember { mutableIntStateOf(9) }
     fun beginModelPreparation() {
         ModelRelease.enqueue(context)
         page = 4
@@ -128,7 +129,7 @@ private fun VaaniApp() {
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         micGranted = it
-        if (it) page = 9
+        if (it) page = micPermissionReturnPage
     }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         page = 14
@@ -200,6 +201,7 @@ private fun VaaniApp() {
         else -> VaaniWorkspace(
             onEnableOverlay = {
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    micPermissionReturnPage = 17
                     micPermission.launch(Manifest.permission.RECORD_AUDIO)
                 } else if (!AccessibilityBridge.isTextBoxAccessEnabled(context)) {
                     context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))

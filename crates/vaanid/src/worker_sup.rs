@@ -32,7 +32,9 @@ impl TempAudioDir {
         let path = std::env::temp_dir().join(format!("{prefix}-{}-{id}", std::process::id()));
         // `create_dir`, rather than create_dir_all, refuses a pre-existing
         // attacker-controlled path in the shared temp directory.
-        std::fs::create_dir(&path)?;
+        use std::os::unix::fs::DirBuilderExt;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700).create(&path)?;
         Ok(Self(path))
     }
 
@@ -308,10 +310,20 @@ fn fw_ensure_locked(
         let res = reader.read_line(&mut line).map(|_| (reader, line));
         let _ = tx.send(res);
     });
-    let (reader_back, line) = rx
-        .recv_timeout(std::time::Duration::from_secs(120))
-        .map_err(|_| anyhow::anyhow!("fw-server ready timeout"))?
-        .map_err(|e| anyhow::anyhow!("fw-server ready failed: {e}"))?;
+    let ready = rx.recv_timeout(std::time::Duration::from_secs(120));
+    let (reader_back, line) = match ready {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("fw-server ready failed: {error}");
+        }
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("fw-server ready timeout");
+        }
+    };
     if !line.contains("\"ready\"") {
         let _ = child.kill();
         let _ = child.wait();
@@ -327,7 +339,10 @@ fn fw_ensure_locked(
     Ok(())
 }
 
-fn fw_read_line_locked(slot: &mut Option<FwServer>, secs: u64) -> anyhow::Result<String> {
+fn fw_read_line_locked(
+    slot: &mut Option<FwServer>,
+    timeout: std::time::Duration,
+) -> anyhow::Result<String> {
     let mut reader = slot
         .as_mut()
         .and_then(|srv| srv.reader.take())
@@ -338,7 +353,7 @@ fn fw_read_line_locked(slot: &mut Option<FwServer>, secs: u64) -> anyhow::Result
         let res = reader.read_line(&mut line).map(|_| (reader, line));
         let _ = tx.send(res);
     });
-    match rx.recv_timeout(std::time::Duration::from_secs(secs)) {
+    match rx.recv_timeout(timeout) {
         Ok(Ok((reader_back, line))) => {
             if let Some(srv) = slot.as_mut() {
                 srv.reader = Some(reader_back);
@@ -403,32 +418,51 @@ fn fw_server_transcribe(
     let srv = slot
         .as_mut()
         .ok_or_else(|| anyhow::anyhow!("fw-server missing"))?;
-    srv.writer
+    let write_result = srv
+        .writer
         .write_all(format!("{}\n", job).as_bytes())
-        .map_err(|e| anyhow::anyhow!("fw-server write failed: {e}"))?;
-    srv.writer
-        .flush()
-        .map_err(|e| anyhow::anyhow!("fw-server flush failed: {e}"))?;
+        .and_then(|()| srv.writer.flush());
+    if let Err(error) = write_result {
+        fw_kill_locked(&mut slot);
+        return Err(anyhow::anyhow!("fw-server request write failed: {error}"));
+    }
     let mut answer = String::new();
+    let mut matched = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
     for _ in 0..32 {
-        let line = fw_read_line_locked(&mut slot, 120)?;
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            fw_kill_locked(&mut slot);
+            anyhow::bail!("fw-server response timed out");
+        }
+        let line = fw_read_line_locked(&mut slot, remaining)?;
         if line.trim().is_empty() {
             continue;
         }
-        let v: serde_json::Value = serde_json::from_str(line.trim())
-            .map_err(|e| anyhow::anyhow!("fw-server protocol error: {e}"))?;
+        let v: serde_json::Value = match serde_json::from_str(line.trim()) {
+            Ok(value) => value,
+            Err(error) => {
+                fw_kill_locked(&mut slot);
+                anyhow::bail!("fw-server protocol error: {error}");
+            }
+        };
         if v.get("id").and_then(|x| x.as_u64()) != Some(id) {
             continue; // stale line from a previous job; keep reading
         }
         if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
             anyhow::bail!("fw-server job failed: {err}");
         }
-        answer = v
-            .get("text")
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string();
-        break;
+        if let Some(text) = v.get("text").and_then(|t| t.as_str()) {
+            answer = text.to_string();
+            matched = true;
+            break;
+        }
+        fw_kill_locked(&mut slot);
+        anyhow::bail!("fw-server response omitted text");
+    }
+    if !matched {
+        fw_kill_locked(&mut slot);
+        anyhow::bail!("fw-server response stream was invalid");
     }
     Ok((answer, t0.elapsed().as_millis() as u64))
 }
@@ -948,7 +982,7 @@ fn run_once(
             s.spawn(move || {
                 let _ = stdin.write_all(&bytes);
             });
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(125);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(140);
             loop {
                 match child.try_wait() {
                     Ok(Some(_)) => break,

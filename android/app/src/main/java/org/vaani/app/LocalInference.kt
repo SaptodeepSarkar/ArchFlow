@@ -24,9 +24,6 @@ object LocalInference {
     }
 
     private suspend fun formatOne(context: Context, source: String): String {
-        LocalModels(context).v6FormatterFile()?.let { file ->
-            runCatching { return formatV6(file.readBytes(), source) }
-        }
         val modelPath = LocalModels(context).formatterModelFile() ?: return SafeFormatter.format(source)
         return runCatching {
             val model = Llama.loadModel(

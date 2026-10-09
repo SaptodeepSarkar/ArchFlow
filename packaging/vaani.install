@@ -11,4 +11,5 @@ post_install() {
 post_remove() {
   echo "==> vaani removed. User config (~/.config/vaani) and models"
   echo "    (~/.local/share/vaani/models) were left in place by design."
+  echo "    Remove the Vaani source line from hyprland.conf or your Lua config manually."
 }

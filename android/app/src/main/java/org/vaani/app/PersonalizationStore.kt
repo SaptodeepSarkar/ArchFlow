@@ -142,10 +142,14 @@ class PersonalizationStore(context: Context) {
     }
 
     private fun remove(key: String, items: JSONArray, id: String) {
+        val now = System.currentTimeMillis()
         repeat(items.length()) { index ->
             items.optJSONObject(index)?.takeIf { it.optString("id") == id }?.apply {
-                put("deleted_at_ms", System.currentTimeMillis())
-                put("updated_at_ms", System.currentTimeMillis())
+                put("deleted_at_ms", now)
+                put("updated_at_ms", now)
+                val previousClock = optLong("logical_clock", optLong("updated_at_ms"))
+                put("logical_clock", if (previousClock >= now && previousClock < Long.MAX_VALUE) previousClock + 1L else now)
+                put("revision", optLong("revision", 1L) + 1L)
             }
         }
         preferences.edit().putString(key, items.toString()).apply()

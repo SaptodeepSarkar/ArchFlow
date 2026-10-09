@@ -45,11 +45,11 @@ SYSTEM = (
 
 
 def load_model(model_dir, adapter_dir):
-    tok = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+    tok = AutoTokenizer.from_pretrained(model_dir)
     if not tok.pad_token:
         tok.pad_token = tok.eos_token
     base = AutoModelForCausalLM.from_pretrained(
-        model_dir, torch_dtype=torch.bfloat16, trust_remote_code=True
+        model_dir, torch_dtype=torch.bfloat16
     ).to("cuda")
     model = PeftModel.from_pretrained(base, adapter_dir) if os.path.isdir(adapter_dir) else base
     model.config.use_cache = True

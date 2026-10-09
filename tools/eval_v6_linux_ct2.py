@@ -103,7 +103,8 @@ def load_rows(manifest: Path, limit: int) -> list[dict]:
 def row_audio(row: dict, audio_root: Path) -> Path:
     audio_path = row.get("audio_path")
     if isinstance(audio_path, str) and audio_path:
-        return Path(audio_path)
+        path = Path(audio_path).expanduser()
+        return path if path.is_absolute() else audio_root / path
     audio = row.get("audio", {})
     ref = audio.get("ref") if isinstance(audio, dict) else None
     if isinstance(ref, str) and ref:

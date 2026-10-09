@@ -237,16 +237,13 @@ impl<S: SyncStorage, P: SyncProvider> SyncCoordinator<S, P> {
     }
 
     pub fn run_once(&self) -> Result<SyncCycle, EngineError> {
+        // Keep the cursor locked through the cycle. Concurrent callers must
+        // not pull from the same cursor and then overwrite a newer cursor.
         let mut cursor = self
             .cursor
             .lock()
-            .map_err(|_| storage_error("sync cursor lock poisoned"))?
-            .clone();
+            .map_err(|_| storage_error("sync cursor lock poisoned"))?;
         let cycle = run_sync_cycle(&self.storage, &self.provider, &mut cursor)?;
-        *self
-            .cursor
-            .lock()
-            .map_err(|_| storage_error("sync cursor lock poisoned"))? = cursor;
         Ok(cycle)
     }
 }
@@ -313,14 +310,6 @@ impl JsonlStorage {
         Ok(*clock)
     }
 
-    fn commit(&self, records: Vec<PersonalizationRecord>) -> Result<(), EngineError> {
-        write_records(&self.path, &records)?;
-        *self
-            .state
-            .lock()
-            .map_err(|_| storage_error("state lock poisoned"))? = records;
-        Ok(())
-    }
 }
 
 impl StorageProvider for JsonlStorage {
@@ -337,12 +326,16 @@ impl StorageProvider for JsonlStorage {
     }
 
     fn upsert(&self, record: PersonalizationRecord) -> Result<(), EngineError> {
-        let queued = record.clone();
-        let mut records = self
+        let identity = record.clone();
+        let mut clock = self
+            .logical_clock
+            .lock()
+            .map_err(|_| storage_error("clock lock poisoned"))?;
+        let mut state = self
             .state
             .lock()
-            .map_err(|_| storage_error("state lock poisoned"))?
-            .clone();
+            .map_err(|_| storage_error("state lock poisoned"))?;
+        let mut records = state.clone();
         if let Some(slot) = records
             .iter_mut()
             .find(|existing| same_record(existing, &record))
@@ -351,13 +344,28 @@ impl StorageProvider for JsonlStorage {
         } else {
             records.push(record);
         }
-        self.commit(records)?;
+        let queued = records
+            .iter()
+            .find(|current| same_record(current, &identity))
+            .cloned()
+            .ok_or_else(|| storage_error("upserted personalization record disappeared"))?;
+        let next_clock = record_clock(&queued);
         let mut outbox = self
             .outbox
             .lock()
             .map_err(|_| storage_error("sync outbox lock poisoned"))?;
-        outbox.push(queued);
-        write_records(&self.outbox_path, &outbox)?;
+        let mut next_outbox = outbox.clone();
+        next_outbox.push(queued);
+        write_records(&self.outbox_path, &next_outbox)?;
+        if let Err(error) = write_records(&self.path, &records) {
+            if write_records(&self.outbox_path, &outbox).is_err() {
+                *outbox = next_outbox;
+            }
+            return Err(error);
+        }
+        *state = records;
+        *outbox = next_outbox;
+        *clock = (*clock).max(next_clock);
         Ok(())
     }
 
@@ -432,16 +440,24 @@ impl SyncStorage for JsonlStorage {
             .outbox
             .lock()
             .map_err(|_| storage_error("sync outbox lock poisoned"))?;
-        outbox.retain(|pending| !records.iter().any(|sent| sent == pending));
-        write_records(&self.outbox_path, &outbox)
+        let mut remaining = outbox.clone();
+        remaining.retain(|pending| !records.iter().any(|sent| sent == pending));
+        write_records(&self.outbox_path, &remaining)?;
+        *outbox = remaining;
+        Ok(())
     }
 
     fn merge_remote(&self, record: PersonalizationRecord) -> Result<(), EngineError> {
-        let mut records = self
+        let remote_clock = record_clock(&record);
+        let mut clock = self
+            .logical_clock
+            .lock()
+            .map_err(|_| storage_error("clock lock poisoned"))?;
+        let mut state = self
             .state
             .lock()
-            .map_err(|_| storage_error("state lock poisoned"))?
-            .clone();
+            .map_err(|_| storage_error("state lock poisoned"))?;
+        let mut records = state.clone();
         if let Some(slot) = records
             .iter_mut()
             .find(|existing| same_record(existing, &record))
@@ -450,7 +466,10 @@ impl SyncStorage for JsonlStorage {
         } else {
             records.push(record);
         }
-        self.commit(records)
+        write_records(&self.path, &records)?;
+        *state = records;
+        *clock = (*clock).max(remote_clock);
+        Ok(())
     }
 }
 
@@ -480,6 +499,13 @@ fn storage_error(message: impl Into<String>) -> EngineError {
 }
 
 fn read_records(path: &Path) -> Result<Vec<PersonalizationRecord>, EngineError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(path, permissions)
+            .map_err(|e| storage_error(format!("secure personalization store: {e}")))?;
+    }
     let text = std::fs::read_to_string(path)
         .map_err(|e| storage_error(format!("read personalization store: {e}")))?;
     text.lines()
@@ -492,11 +518,13 @@ fn read_records(path: &Path) -> Result<Vec<PersonalizationRecord>, EngineError> 
 }
 
 fn write_records(path: &Path, records: &[PersonalizationRecord]) -> Result<(), EngineError> {
+    static TEMP_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| storage_error(format!("create personalization directory: {e}")))?;
     }
-    let tmp = path.with_extension("tmp");
+    let id = TEMP_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp.{}.{}", std::process::id(), id));
     let body = records
         .iter()
         .map(|record| {
@@ -506,10 +534,28 @@ fn write_records(path: &Path, records: &[PersonalizationRecord]) -> Result<(), E
         .collect::<Result<Vec<_>, _>>()?
         .join("\n")
         + if records.is_empty() { "" } else { "\n" };
-    std::fs::write(&tmp, body)
-        .map_err(|e| storage_error(format!("write personalization store: {e}")))?;
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&tmp)
+        .map_err(|e| storage_error(format!("create personalization temp file: {e}")))?;
+    file.write_all(body.as_bytes())
+        .and_then(|()| file.sync_all())
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            storage_error(format!("write personalization store: {e}"))
+        })?;
     std::fs::rename(&tmp, path)
-        .map_err(|e| storage_error(format!("commit personalization store: {e}")))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            storage_error(format!("commit personalization store: {e}"))
+        })
 }
 
 #[cfg(test)]

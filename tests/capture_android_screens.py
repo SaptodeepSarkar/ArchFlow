@@ -42,7 +42,6 @@ class Device:
 def adb(args: list[str], *, binary: bool = False) -> bytes | str:
     """Run one ADB command, retrying transient daemon/socket failures."""
     command = ["adb", *args]
-    last_error = "unknown ADB error"
     for attempt in range(ADB_RETRIES):
         try:
             result = subprocess.run(
@@ -53,15 +52,10 @@ def adb(args: list[str], *, binary: bool = False) -> bytes | str:
                 check=True,
             )
             return result.stdout if binary else result.stdout.decode("utf-8", "replace")
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-            if isinstance(error, subprocess.CalledProcessError):
-                detail = error.stderr.decode("utf-8", "replace").strip()
-            else:
-                detail = str(error)
-            last_error = detail or type(error).__name__
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
             if attempt + 1 < ADB_RETRIES:
                 time.sleep(ADB_RETRY_DELAY_SECONDS * (attempt + 1))
-    raise RuntimeError(f"ADB command failed after {ADB_RETRIES} attempts: {' '.join(command)}\n{last_error}")
+    raise RuntimeError(f"ADB operation failed after {ADB_RETRIES} attempts")
 
 
 def connected_devices() -> list[Device]:
@@ -111,9 +105,7 @@ def capture(device: Device, output: Path) -> dict[str, object]:
     output.write_bytes(screenshot)
     return {
         "role": device.role,
-        "serial": device.serial,
-        "attributes": device.attributes,
-        "file": str(output),
+        "file": output.name,
         "width": width,
         "height": height,
     }
@@ -142,7 +134,7 @@ def main() -> int:
 
     for record in records:
         print(f"{record['role']}: {record['file']} ({record['width']}x{record['height']})")
-    print(f"metadata: {metadata_path}")
+    print(f"metadata: {metadata_path.name}")
     return 0
 
 

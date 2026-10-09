@@ -10,7 +10,7 @@
 //! One-shot `vaani_inject.py` remains the fallback when the server cannot
 //! start or a read fails.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 use vaani_core::config::Config;
 
@@ -207,10 +207,20 @@ fn llm_ensure_locked(
         let res = reader.read_line(&mut line).map(|_| (reader, line));
         let _ = tx.send(res);
     });
-    let (reader_back, line) = rx
-        .recv_timeout(std::time::Duration::from_secs(120))
-        .map_err(|_| anyhow::anyhow!("llm-server ready timeout"))?
-        .map_err(|e| anyhow::anyhow!("llm-server ready failed: {e}"))?;
+    let ready = rx.recv_timeout(std::time::Duration::from_secs(120));
+    let (reader_back, line) = match ready {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("llm-server ready failed: {error}");
+        }
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("llm-server ready timeout");
+        }
+    };
     if !line.contains("\"ready\"") {
         let _ = child.kill();
         let _ = child.wait();
@@ -306,31 +316,57 @@ fn llm_oneshot(text: &str, cfg: &Config) -> String {
         .arg(&model_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
     {
         Ok(c) => c,
         Err(_) => return text_llm,
     };
-    {
-        let mut stdin = match child.stdin.take() {
-            Some(s) => s,
-            None => return text_llm,
-        };
-        if stdin.write_all(text_llm.as_bytes()).is_err() {
-            return text_llm;
-        }
-    }
-    match child.wait_with_output() {
-        Ok(out) => {
-            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !s.is_empty() {
-                s
-            } else {
-                text_llm
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return text_llm;
+    };
+    let input_text = text_llm.clone();
+    let writer = std::thread::spawn(move || stdin.write_all(input_text.as_bytes()));
+    let Some(mut stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = writer.join();
+        return text_llm;
+    };
+    let reader = std::thread::spawn(move || {
+        let mut output = Vec::new();
+        stdout
+            .take((vaani_core::MAX_TRANSCRIPT_CHARS * 4 + 1) as u64)
+            .read_to_end(&mut output)
+            .map(|_| output)
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(25)),
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
             }
         }
-        Err(_) => text_llm,
+    };
+    let _ = writer.join();
+    let output = reader.join().ok().and_then(Result::ok).unwrap_or_default();
+    match status {
+        Some(status) if status.success() && output.len() <= vaani_core::MAX_TRANSCRIPT_CHARS * 4 => {
+            let formatted = String::from_utf8_lossy(&output).trim().to_string();
+            if formatted.is_empty() { text_llm } else { formatted }
+        }
+        _ => text_llm,
     }
 }
 

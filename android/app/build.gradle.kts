@@ -14,12 +14,14 @@ if (file("google-services.json").isFile) {
 android {
     namespace = "org.vaani.app"
     compileSdk = 35
+    val releaseVersionCode = providers.gradleProperty("releaseVersionCode").orNull?.toIntOrNull() ?: 101
+    val releaseVersionName = providers.gradleProperty("releaseVersionName").orNull ?: "1.2.0"
     defaultConfig {
         applicationId = "org.vaani.keyboard"
         minSdk = 31
         targetSdk = 35
-        versionCode = 101
-        versionName = "1.2.0"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {

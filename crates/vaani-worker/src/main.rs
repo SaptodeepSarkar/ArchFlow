@@ -13,7 +13,39 @@
 //! only if the user selected a GPU build (env VAANI_CUDA=1 + cuda binary).
 
 use std::io::Read;
+use std::path::PathBuf;
+use std::process::{Command, Output, Stdio};
 use vaani_core::vad::{Vad, BLOCK_SAMPLES};
+
+struct TempWorkDir(PathBuf);
+
+impl TempWorkDir {
+    fn create(prefix: &str) -> anyhow::Result<Self> {
+        static NEXT_ID: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(1);
+        let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("{prefix}-{}-{id}", std::process::id()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            let mut builder = std::fs::DirBuilder::new();
+            builder.mode(0o700).create(&path)?;
+        }
+        #[cfg(not(unix))]
+        std::fs::create_dir(&path)?;
+        Ok(Self(path))
+    }
+
+    fn join(&self, name: &str) -> PathBuf {
+        self.0.join(name)
+    }
+}
+
+impl Drop for TempWorkDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -62,8 +94,13 @@ fn main() {
             std::process::exit(2);
         }
     }
+    if pcm_bytes.len() > max_bytes {
+        emit_error("audio exceeds the maximum duration");
+        std::process::exit(2);
+    }
     if pcm_bytes.len() % 4 != 0 {
-        pcm_bytes.truncate(pcm_bytes.len() - (pcm_bytes.len() % 4));
+        emit_error("audio data is not aligned to float32 samples");
+        std::process::exit(2);
     }
     let samples: Vec<f32> = pcm_bytes
         .chunks_exact(4)
@@ -237,8 +274,7 @@ fn run_faster_whisper(
 ) -> anyhow::Result<String> {
     let script = fw_script()?;
     let python = fw_python()?;
-    let dir = std::env::temp_dir().join(format!("vaani-fw-{}", std::process::id()));
-    std::fs::create_dir_all(&dir)?;
+    let dir = TempWorkDir::create("vaani-fw")?;
     let wav = dir.join("in.wav");
     write_wav_mono16(&wav, samples)?;
     let mut cmd = std::process::Command::new(&python);
@@ -254,10 +290,8 @@ fn run_faster_whisper(
     if !prompt.is_empty() {
         cmd.arg("--prompt").arg(prompt);
     }
-    let out = cmd
-        .output()
-        .map_err(|e| anyhow::anyhow!("fw sidecar spawn failed: {e}"))?;
-    let _ = std::fs::remove_dir_all(&dir);
+    let out = command_output_timeout(&mut cmd, std::time::Duration::from_secs(115))
+        .map_err(|e| anyhow::anyhow!("fw sidecar failed: {e}"))?;
     if !out.status.success() {
         anyhow::bail!(
             "fw sidecar exit {}: {}",
@@ -379,8 +413,7 @@ fn run_whisper_cli(
     samples: &[f32],
 ) -> anyhow::Result<String> {
     use std::io::Write;
-    let dir = std::env::temp_dir().join(format!("vaani-{}", std::process::id()));
-    std::fs::create_dir_all(&dir)?;
+    let dir = TempWorkDir::create("vaani-worker")?;
     let wav = dir.join("in.wav");
     write_wav_mono16(&wav, samples)?;
     let out_prefix = dir.join("out");
@@ -416,12 +449,27 @@ fn run_whisper_cli(
     // Bounded inference time: 120 s audio + margin.
     let mut child = cmd
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
         .spawn()?;
-    let status = child.wait()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(115);
+    let status = loop {
+        match child.try_wait() {
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error.into());
+            }
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                anyhow::bail!("whisper-cli timed out after 115s");
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(25)),
+        }
+    };
     let txt_path = out_prefix.with_extension("txt");
     let text = std::fs::read_to_string(&txt_path).unwrap_or_default();
-    let _ = std::fs::remove_dir_all(&dir);
     if !status.success() {
         anyhow::bail!("whisper-cli exit {}", status);
     }
@@ -434,6 +482,65 @@ fn run_whisper_cli(
         .join(" ")
         .trim()
         .to_string())
+}
+
+fn command_output_timeout(
+    command: &mut Command,
+    timeout: std::time::Duration,
+) -> anyhow::Result<Output> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("subprocess stdout unavailable"))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("subprocess stderr unavailable"))?;
+    let stdout_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                anyhow::bail!("subprocess timed out after {}s", timeout.as_secs());
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(25)),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Err(error.into());
+            }
+        }
+    };
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("subprocess stdout reader panicked"))??;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("subprocess stderr reader panicked"))??;
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 /// Deterministic stub used when no model/binary is configured: never invents

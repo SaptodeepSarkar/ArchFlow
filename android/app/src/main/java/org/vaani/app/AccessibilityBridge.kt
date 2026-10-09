@@ -84,19 +84,7 @@ object AccessibilityBridge {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Vaani dictation", text))
         val pasted = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-        if (pasted) {
-            node.recycle()
-            return true
-        }
-        // Some editors expose SET_TEXT but not PASTE. Keep this fallback
-        // limited to safe editable, non-password fields.
-        val existing = node.text?.toString().orEmpty()
-        val value = if (existing.isBlank()) text else "$existing $text"
-        val args = android.os.Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
-        }
-        val set = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
         node.recycle()
-        return set
+        return pasted
     }
 }

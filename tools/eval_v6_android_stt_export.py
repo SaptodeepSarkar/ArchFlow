@@ -78,8 +78,16 @@ def main() -> None:
     substitutions = deletions = insertions = reference_words = 0
     duration_seconds = runtime_seconds = 0.0
     failures = 0
+    audio_root = args.audio_root.resolve()
     for row in rows:
-        audio = args.audio_root / row["audio"]["ref"]
+        reference_path = row.get("audio", {}).get("ref")
+        if not isinstance(reference_path, str) or not reference_path:
+            raise SystemExit("a frozen-slice audio reference is invalid")
+        audio = (audio_root / reference_path).resolve()
+        try:
+            audio.relative_to(audio_root)
+        except ValueError:
+            raise SystemExit("a frozen-slice audio reference escapes the audio root")
         if not audio.is_file():
             raise SystemExit("a frozen-slice audio file is missing")
         started = time.monotonic()

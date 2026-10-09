@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 
 Rectangle {
     id: page
@@ -48,15 +49,19 @@ Rectangle {
     }
     function finishSetup() {
         finishError = "";
-        // Completion is durable only after the daemon has acknowledged the
-        // saved setting; closing optimistically repeats first-run next time.
-        if (!bridge.sendOp("config_set", {key: "general.onboarding_complete", value: "true"}, function(reply) {
-            if (reply.ok)
-                finished();
-            else
-                finishError = reply.message || "Vaani could not save setup. Try again.";
-        }))
-            finishError = "Start Vaani’s service, then try again."
+        finishWriter.exec(["vaani-desktop", "config-set", "general.onboarding_complete", "true"]);
+    }
+
+    Process {
+        id: finishWriter
+        onExited: function(exitCode) {
+            if (exitCode === 0) {
+                bridge.sendOp("config_set", {key: "general.onboarding_complete", value: "true"});
+                page.finished();
+            } else {
+                page.finishError = "Vaani could not save setup. Check that vaani-desktop is available, then try again.";
+            }
+        }
     }
     function playEntrance() {
         if (!animationEnabled) {
@@ -312,7 +317,8 @@ Rectangle {
         }
         Item { Layout.fillWidth: true }
         VaaniButton {
-            text: page.step === 0 ? "Get started" : page.step === 3 ? "Open Vaani" : "Next"
+            text: finishWriter.running ? "Saving…" : page.step === 0 ? "Get started" : page.step === 3 ? "Open Vaani" : "Next"
+            enabled: !finishWriter.running
             onClicked: {
                 if (page.step < 3)
                     page.step++;

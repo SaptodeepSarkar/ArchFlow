@@ -3,7 +3,7 @@
 # Sizes/memories are upstream estimates to display, not guarantees.
 # Sources: https://huggingface.co/ggerganov/whisper.cpp
 schema_version = 1
-whisper_cpp_pin = "see native/worker/WHISPER_PIN"
+whisper_cpp_pin = "ggerganov/whisper.cpp@c521a4b02f422512d734391fdf08bb08c0862f68"
 
 [[model]]
 name = "tiny"
@@ -11,7 +11,7 @@ ggml_file = "ggml-tiny.bin"
 bytes = 75975616
 est_mem_mb = 200
 license = "MIT"
-sha256 = "PUT_SHA256_HERE_AFTER_PIN_VERIFICATION"
+sha256 = "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21"
 
 [[model]]
 name = "base"
@@ -30,7 +30,7 @@ ggml_file = "ggml-base.en.bin"
 bytes = 147964211
 est_mem_mb = 400
 license = "MIT"
-sha256 = "PUT_SHA256_HERE_AFTER_PIN_VERIFICATION"
+sha256 = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"
 
 [[model]]
 name = "small"
@@ -38,7 +38,7 @@ ggml_file = "ggml-small.bin"
 bytes = 487626665
 est_mem_mb = 900
 license = "MIT"
-sha256 = "PUT_SHA256_HERE_AFTER_PIN_VERIFICATION"
+sha256 = "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"
 
 [[model]]
 name = "cozy"

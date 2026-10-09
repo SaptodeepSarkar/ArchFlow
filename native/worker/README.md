@@ -14,7 +14,8 @@
 Build whisper.cpp (pinned) — reproducible inputs, documented versions:
 
 ```sh
-git clone --branch v1.7.6 --depth 1 https://github.com/ggml-org/whisper.cpp native/worker/upstream
+git clone https://github.com/ggml-org/whisper.cpp native/worker/upstream
+git -C native/worker/upstream checkout --detach a8d002cfd879315632a579e73f0148d06959de36
 cmake -S native/worker/upstream -B native/worker/build -DWHISPER_BUILD_TESTS=OFF
 cmake --build native/worker/build -j"$(nproc)"
 sudo install -m755 native/worker/build/bin/whisper-cli /usr/local/bin/whisper-cli

@@ -2,8 +2,10 @@
 
 Vaani is a user-local Wayland dictation daemon for Hyprland. It captures
 16 kHz mono audio through PipeWire, shows a Quickshell preview, runs final
-speech recognition, optionally cleans the complete transcript with a local
-LLM, then follows the configured copy-only/review/automatic delivery policy.
+speech recognition, runs the complete transcript through the local formatter,
+then follows the configured copy-only/review/automatic delivery policy. If the
+formatter cannot start or its output fails validation, Vaani keeps the raw
+transcript.
 
 ## Requirements
 
@@ -31,9 +33,13 @@ systemctl --user enable --now vaanid.service
 
 `install.sh` also installs a visible **Vaani Desktop** launcher. Its actions
 open settings, start/stop `vaanid.service`, and enable the service at login.
-Remove the user-local installation with `./uninstall.sh`; it intentionally
-keeps `~/.config/vaani` and `~/.local/share/vaani` so models and personalization
-are not deleted.
+Before removing the user-local installation, remove the `source =
+~/.config/hypr/vaani.conf` line you added to `hyprland.conf` (or the equivalent
+Lua include). Then run `./uninstall.sh`. The uninstaller leaves user-owned
+compositor configuration untouched and keeps `~/.config/vaani` and
+`~/.local/share/vaani` so models and personalization are not deleted. It also
+leaves separately installed STT executables in `~/.local/bin` because those
+names may predate Vaani.
 
 Add one of these app-owned shortcut files to the user's Hyprland setup:
 
@@ -84,16 +90,18 @@ raw transcript if model startup or validation fails.
 
 ## Exact runtime flow
 
-1. `SUPER+H` invokes `vaani live-toggle`.
+1. `SUPER+H` invokes `vaani toggle`; `SUPER+ALT+H` invokes
+   `vaani live-toggle` and shows provisional words in the overlay.
 2. The daemon records the focused window identity and starts `pw-record`.
-3. Quickshell opens a bottom-centered overlay: 320×94 px card, 18 px radius,
-   14 px internal margin, waveform plus at most five recent preview words.
+3. Quickshell opens a bottom-centered overlay: 440×72 px card, 22 px radius,
+   12 px internal margin, waveform plus the latest preview words.
 4. STT preview ticks update the overlay only. No target application receives
    preview text or clipboard changes.
 5. Silence VAD ends capture, or `SUPER+J` ends it manually.
 6. Final STT processes the complete utterance; preview text is never merged
    into final text.
-7. In opt-in `stream` mode the local LLM cleans the final text.
+7. Every non-empty final transcript runs through the local formatter; if
+   startup or validation fails, Vaani keeps the raw transcript.
 8. Focus is checked again. If it changed, the result is copied and not typed.
 9. Automatic mode enters the cleaned final text through the virtual keyboard
    after one final focus check. It never sends Enter. Copy-only and review

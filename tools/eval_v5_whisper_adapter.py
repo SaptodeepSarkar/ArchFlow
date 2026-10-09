@@ -41,27 +41,42 @@ def load_audio(path: str) -> np.ndarray:
         return audio.astype("float32")
 
 
+def manifest_audio_path(path: str, manifest: Path) -> str:
+    audio_path = Path(path).expanduser()
+    if not audio_path.is_absolute():
+        audio_path = manifest.resolve().parent / audio_path
+    return str(audio_path.resolve())
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", type=Path, required=True)
     ap.add_argument("--model", type=Path, required=True)
-    ap.add_argument("--adapter", type=Path, required=True)
+    ap.add_argument("--adapter", type=Path)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--beams", type=int, default=5)
     ap.add_argument("--batch-size", type=int, default=2)
+    ap.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
     ap.add_argument("--initial-prompt", default="")
     ap.add_argument("--initial-prompt-file", type=Path)
     ap.add_argument("--limit", type=int, default=100,
                     help="number of deterministic holdout rows; 0 evaluates every row")
     args = ap.parse_args()
-    rows = [json.loads(x) for x in args.report.read_text().splitlines() if x.strip()]
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise SystemExit("CUDA is unavailable for evaluation")
+    rows = [json.loads(x) for x in args.report.read_text(encoding="utf-8").splitlines() if x.strip()]
+    for row in rows:
+        if isinstance(row.get("audio_path"), str):
+            row["audio_path"] = manifest_audio_path(row["audio_path"], args.report)
     random.Random(SEED).shuffle(rows)
     if args.limit > 0:
         rows = rows[-min(len(rows), args.limit):]
     processor = WhisperProcessor.from_pretrained(str(args.model), language="english", task="transcribe")
-    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    model = WhisperForConditionalGeneration.from_pretrained(str(args.model), torch_dtype=dtype).to("cuda")
-    model = PeftModel.from_pretrained(model, str(args.adapter)).eval()
+    dtype = (torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16) if args.device == "cuda" else torch.float32
+    model = WhisperForConditionalGeneration.from_pretrained(str(args.model), torch_dtype=dtype).to(args.device)
+    if args.adapter:
+        model = PeftModel.from_pretrained(model, str(args.adapter))
+    model.eval()
     model.config.forced_decoder_ids = None
     model.config.suppress_tokens = []
     prompt_ids = None
@@ -69,14 +84,14 @@ def main():
     if args.initial_prompt_file:
         prompt = args.initial_prompt_file.read_text()
     if prompt:
-        prompt_ids = processor.get_prompt_ids(prompt, return_tensors="pt").to("cuda")
+        prompt_ids = processor.get_prompt_ids(prompt, return_tensors="pt").to(args.device)
     outputs = []
     elapsed = 0.0
     for start in range(0, len(rows), args.batch_size):
         chunk = rows[start:start + args.batch_size]
         feats = [processor(load_audio(r["audio_path"]), sampling_rate=SR,
                            return_tensors="pt").input_features[0] for r in chunk]
-        batch = torch.stack(feats).to("cuda", dtype=dtype)
+        batch = torch.stack(feats).to(args.device, dtype=dtype)
         t0 = time.perf_counter()
         with torch.inference_mode():
             ids = model.generate(batch, language="english", task="transcribe",

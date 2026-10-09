@@ -8,24 +8,25 @@ arch=('x86_64')
 url="https://github.com/SaptodeepSarkar/ArchFlow"
 license=('MIT')
 # Official repo dependencies (verify with `pacman -Si <pkg>`):
-depends=('pipewire' 'wl-clipboard' 'wtype' 'hyprland' 'quickshell' 'qt6-base' 'qt6-declarative' 'curl' 'gcc-libs' 'glibc')
+depends=('pipewire' 'wireplumber' 'wl-clipboard' 'wtype' 'hyprland' 'quickshell' 'qt6-base' 'qt6-declarative' 'curl' 'gcc-libs' 'glibc')
 # whisper.cpp is OPTIONAL at runtime (cpu-stub is silence-safe without it).
 # For real transcription: build pinned whisper.cpp per native/worker/README.md
 # or install whisper.cpp from AUR (aur/whisper.cpp) — kept optdepends on purpose.
 optdepends=('whisper.cpp: local transcription backend'
+            'python: faster-whisper sidecar backend'
             'cuda: optional GPU worker (user-selected build only)')
 makedepends=('rust' 'cargo' 'cmake' 'pkgconf')
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')  # release tarballs get pinned checksums; VCS builds use --skipinteg in dev only
+source=("$pkgname::git+$url.git#tag=v$pkgver")
+sha256sums=('SKIP')  # Git sources are pinned to the release tag matching pkgver.
 
 build() {
-  cd "ArchFlow-$pkgver"
+  cd "$pkgname"
   # Reproducible build inputs: locked deps via Cargo.lock, pinned toolchain.
   cargo build --locked --release
 }
 
 package() {
-  cd "ArchFlow-$pkgver"
+  cd "$pkgname"
   install -Dm755 target/release/vaanid "$pkgdir/usr/bin/vaanid"
   install -Dm755 target/release/vaani "$pkgdir/usr/bin/vaani"
   install -Dm755 target/release/vaani-desktop "$pkgdir/usr/bin/vaani-desktop"

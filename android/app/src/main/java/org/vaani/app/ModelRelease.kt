@@ -29,6 +29,7 @@ object ModelRelease {
     private const val UNIQUE_WORK = "vaani-model-release"
     private const val PREFERENCES = "vaani_model_release"
     private const val KEY_STATUS = "status"
+    internal const val MAX_MODEL_BYTES = 1_073_741_824L
     const val PROGRESS_PHASE = "download_phase"
     const val PROGRESS_MODEL = "download_model"
     const val PROGRESS_DOWNLOADED_BYTES = "downloaded_bytes"
@@ -64,16 +65,37 @@ object ModelRelease {
 
     fun status(context: Context): Status {
         if (hasRequiredModels(context)) return Status.READY
-        return runCatching {
-        Status.valueOf(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-            .getString(KEY_STATUS, Status.NOT_STARTED.name) ?: Status.NOT_STARTED.name)
+        val saved = runCatching {
+            Status.valueOf(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+                .getString(KEY_STATUS, Status.NOT_STARTED.name) ?: Status.NOT_STARTED.name)
         }.getOrDefault(Status.NOT_STARTED)
+        return if (saved == Status.READY) Status.FAILED else saved
     }
 
     fun isReady(context: Context): Boolean = hasRequiredModels(context)
 
     private fun hasRequiredModels(context: Context): Boolean =
-        LocalModels(context).status().ready
+        isVerified(context, ModelKind.STT) && isVerified(context, ModelKind.FORMATTER)
+
+    internal fun isVerified(context: Context, kind: ModelKind): Boolean {
+        val file = LocalModels(context).modelFile(kind) ?: return false
+        val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        val prefix = "verified_${kind.name.lowercase()}_"
+        return preferences.getString("${prefix}path", null) == file.absolutePath &&
+            preferences.getLong("${prefix}length", -1L) == file.length() &&
+            preferences.getLong("${prefix}modified", -1L) == file.lastModified() &&
+            preferences.getString("${prefix}sha256", null)?.matches(Regex("[0-9a-fA-F]{64}")) == true
+    }
+
+    internal fun recordVerified(context: Context, kind: ModelKind, file: File, sha256: String) {
+        val prefix = "verified_${kind.name.lowercase()}_"
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
+            .putString("${prefix}path", file.absolutePath)
+            .putLong("${prefix}length", file.length())
+            .putLong("${prefix}modified", file.lastModified())
+            .putString("${prefix}sha256", sha256)
+            .apply()
+    }
 
     internal fun update(context: Context, status: Status) {
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -114,12 +136,20 @@ class ModelReleaseWorker(appContext: Context, params: WorkerParameters) : Corout
                 sha256 = item.getString("sha256"),
                 expectedBytes = item.optLong("size_bytes", -1L),
             )
+            check(assets.last().expectedBytes in 1L..MAX_MODEL_BYTES) {
+                "Model size is missing or exceeds the Android download limit."
+            }
+            check(assets.last().sha256.matches(Regex("[0-9a-fA-F]{64}"))) {
+                "Model checksum is invalid."
+            }
+            check(java.net.URL(assets.last().url).protocol.equals("https", ignoreCase = true)) {
+                "Model downloads must use HTTPS."
+            }
         }
         val knownTotalBytes = assets.map { it.expectedBytes }.takeIf { it.all { bytes -> bytes > 0L } }?.sum() ?: -1L
-        val localModels = LocalModels(applicationContext)
         var completedBytes = 0L
         for (asset in assets) {
-            if (localModels.modelFile(asset.kind) != null) {
+            if (isVerified(applicationContext, asset.kind, asset.expectedBytes, asset.sha256)) {
                 completedBytes += asset.expectedBytes.coerceAtLeast(0L)
                 continue
             }
@@ -127,7 +157,7 @@ class ModelReleaseWorker(appContext: Context, params: WorkerParameters) : Corout
         }
         if (assets.isEmpty()) {
             ModelRelease.update(applicationContext, ModelRelease.Status.WAITING_FOR_ANDROID_PACKAGE)
-        } else if (localModels.status().ready) {
+        } else if (ModelRelease.isReady(applicationContext)) {
             ModelRelease.update(applicationContext, ModelRelease.Status.READY)
             notifyReady()
         } else {
@@ -160,11 +190,25 @@ class ModelReleaseWorker(appContext: Context, params: WorkerParameters) : Corout
             .build())
     }
 
-    private fun open(url: String) = (java.net.URL(url).openConnection() as HttpsURLConnection).apply {
-        connectTimeout = 15_000
-        readTimeout = 60_000
-        instanceFollowRedirects = true
-    }.inputStream
+    private fun open(url: String) = httpsConnection(url).inputStream
+
+    private fun httpsConnection(address: String): HttpsURLConnection {
+        var url = java.net.URL(address)
+        repeat(MAX_REDIRECTS + 1) { redirectCount ->
+            check(url.protocol.equals("https", ignoreCase = true)) { "Model downloads must use HTTPS." }
+            val connection = url.openConnection() as HttpsURLConnection
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 60_000
+            connection.instanceFollowRedirects = false
+            val response = connection.responseCode
+            if (response !in REDIRECT_CODES) return connection
+            val location = connection.getHeaderField("Location")
+            connection.disconnect()
+            check(redirectCount < MAX_REDIRECTS && !location.isNullOrBlank()) { "Model download redirect is invalid." }
+            url = java.net.URL(url, location)
+        }
+        error("Too many model download redirects.")
+    }
 
     private suspend fun downloadVerified(asset: ModelAsset, completedBytes: Long, knownTotalBytes: Long): Long {
         val destination = File(LocalModels(applicationContext).installPath(asset.kind), asset.kind.filename)
@@ -197,11 +241,7 @@ class ModelReleaseWorker(appContext: Context, params: WorkerParameters) : Corout
             lastPublishedBytes = downloadedBytes
         }
         try {
-            (java.net.URL(asset.url).openConnection() as HttpsURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 60_000
-                instanceFollowRedirects = true
-            }.let { connection ->
+            httpsConnection(asset.url).let { connection ->
                 val assetBytes = connection.contentLengthLong
                 if (knownTotalBytes <= 0L && assetBytes > 0L) totalBytes = assetBytes
                 connection.inputStream.use { input ->
@@ -213,16 +253,21 @@ class ModelReleaseWorker(appContext: Context, params: WorkerParameters) : Corout
                         output.write(buffer, 0, read)
                         digest.update(buffer, 0, read)
                         downloadedBytes += read
+                        check(downloadedBytes <= asset.expectedBytes && downloadedBytes <= ModelRelease.MAX_MODEL_BYTES) {
+                            "Model download exceeded its declared size."
+                        }
                         publish("Downloading")
                     }
                 }
                 }
             }
             publish("Verifying", force = true)
+            check(downloadedBytes == asset.expectedBytes) { "Model size did not match the release manifest." }
             val actual = digest.digest().joinToString("") { "%02x".format(it) }
             check(actual.equals(asset.sha256, ignoreCase = true)) { "Model checksum did not match the release manifest." }
             if (destination.exists()) check(destination.delete()) { "The incomplete model could not be replaced." }
             check(part.length() > 0L && part.renameTo(destination)) { "Model could not be activated." }
+            ModelRelease.recordVerified(applicationContext, asset.kind, destination, actual)
             publish("Verified", force = true)
             return downloadedBytes
         } finally {
@@ -237,4 +282,18 @@ class ModelReleaseWorker(appContext: Context, params: WorkerParameters) : Corout
         val sha256: String,
         val expectedBytes: Long,
     )
+
+    private fun isVerified(context: Context, kind: ModelKind, expectedBytes: Long, expectedSha256: String): Boolean {
+        if (!ModelRelease.isVerified(context, kind)) return false
+        val preferences = context.getSharedPreferences("vaani_model_release", Context.MODE_PRIVATE)
+        val prefix = "verified_${kind.name.lowercase()}_"
+        val file = LocalModels(context).modelFile(kind) ?: return false
+        return file.length() == expectedBytes &&
+            preferences.getString("${prefix}sha256", null).equals(expectedSha256, ignoreCase = true)
+    }
+
+    private companion object {
+        const val MAX_REDIRECTS = 5
+        val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+    }
 }

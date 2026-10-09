@@ -14,7 +14,6 @@ systemctl --user daemon-reload 2>/dev/null || true
 
 for file in \
   vaani vaanid vaani-worker vaani-desktop \
-  whisper-cli whisper-cli-cuda vad-speech-segments \
   fw-transcribe.py fw-server.py vaani_inject.py llm-server.py; do
   rm -f "$bin_root/$file"
 done
@@ -23,4 +22,5 @@ rm -f "$data_root/applications/vaani.desktop"
 rm -rf "$config_root/quickshell/vaani"
 
 printf '%s\n' 'Removed Vaani binaries, service unit, launcher, Hyprland include, and Quickshell UI.'
-printf '%s\n' 'Kept ~/.config/vaani, ~/.local/share/vaani, and caches so personal data/models are safe.'
+printf '%s\n' 'If you added a Vaani source line to hyprland.conf or a Lua config, remove that line manually.'
+printf '%s\n' 'Kept ~/.config/vaani, ~/.local/share/vaani, caches, and separately installed STT tools/models.'

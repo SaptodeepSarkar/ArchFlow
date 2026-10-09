@@ -12,5 +12,12 @@ exports.notifyEncryptedSync = onDocumentWritten('users/{uid}/personalization/{re
   const devices = await getFirestore().collection('users').doc(event.params.uid).collection('devices').get();
   const tokens = devices.docs.map(doc => doc.get('push_token')).filter(token => typeof token === 'string' && token.length > 0);
   if (!tokens.length) return;
-  await getMessaging().sendEachForMulticast({ tokens, data: { kind: 'sync_available' }, android: { priority: 'high' } });
+  const messaging = getMessaging();
+  for (let offset = 0; offset < tokens.length; offset += 500) {
+    await messaging.sendEachForMulticast({
+      tokens: tokens.slice(offset, offset + 500),
+      data: { kind: 'sync_available' },
+      android: { priority: 'high' },
+    });
+  }
 });

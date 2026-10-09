@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
+import sqlite3
 import wave
 from pathlib import Path
 
@@ -66,6 +68,13 @@ def read_audio(path: str, augment: bool) -> np.ndarray:
     return np.clip(audio, -1.0, 1.0).astype("float32")
 
 
+def manifest_audio_path(path: str, manifest: Path) -> str:
+    audio_path = Path(path).expanduser()
+    if not audio_path.is_absolute():
+        audio_path = manifest.resolve().parent / audio_path
+    return str(audio_path.resolve())
+
+
 def make_dataset(rows, processor, augment: bool):
     """Build a disk-backed dataset instead of retaining every mel in RAM."""
     import datasets as hfds
@@ -101,9 +110,11 @@ class Collator:
     def __call__(self, items):
         batch = self.processor.feature_extractor.pad(
             [{"input_features": x["input_features"]} for x in items], return_tensors="pt")
-        labels = self.processor.tokenizer.pad(
-            [{"input_ids": x["labels"]} for x in items], return_tensors="pt")["input_ids"]
-        labels[labels == self.processor.tokenizer.pad_token_id] = -100
+        padded_labels = self.processor.tokenizer.pad(
+            [{"input_ids": x["labels"]} for x in items],
+            return_tensors="pt", return_attention_mask=True)
+        labels = padded_labels["input_ids"].masked_fill(
+            padded_labels["attention_mask"].eq(0), -100)
         batch["labels"] = labels
         batch["sample_weight"] = torch.tensor([x["weight"] for x in items], dtype=torch.float32)
         return batch
@@ -111,27 +122,88 @@ class Collator:
 
 class StreamingRows(torch.utils.data.IterableDataset):
     """Infinite shuffled feature stream for fixed-step training without caches."""
-    def __init__(self, rows, processor, augment: bool):
+    def __init__(self, rows, processor, augment: bool, sqlite_sources=None,
+                 source_fractions=None, combined_fraction=None,
+                 sqlite_sample_weight: float = 1.0):
         self.rows = rows
         self.processor = processor
         self.augment = augment
+        self.sqlite_sources = sqlite_sources or []
+        self.sqlite_sample_weight = sqlite_sample_weight
+        self.source_fractions = source_fractions
+        self.combined_fraction = combined_fraction
 
-    def __iter__(self):
-        order = list(range(len(self.rows)))
+    def _training_sources(self):
+        if not self.sqlite_sources:
+            return [self.rows], [1.0]
+        if self.source_fractions is None and self.combined_fraction is None:
+            combined = self.rows + [row for source in self.sqlite_sources for row in source]
+            return [combined], [1.0]
+        if self.source_fractions is not None:
+            fractions = [1.0 - sum(self.source_fractions), *self.source_fractions]
+        else:
+            total_rows = sum(len(source) for source in self.sqlite_sources)
+            sqlite_fractions = [self.combined_fraction * len(source) / total_rows
+                                for source in self.sqlite_sources]
+            fractions = [1.0 - self.combined_fraction, *sqlite_fractions]
+        return [self.rows, *self.sqlite_sources], fractions
+
+    def _row_stream(self, source):
+        order = list(range(len(source)))
         while True:
             random.shuffle(order)
             for index in order:
-                row = self.rows[index]
-                audio = read_audio(row["audio_path"], self.augment)
-                features = self.processor(audio, sampling_rate=SR).input_features[0]
-                labels = self.processor.tokenizer(row["text"], truncation=True, max_length=224).input_ids
-                if labels and labels[0] == self.processor.tokenizer.bos_token_id:
-                    labels = labels[1:]
+                yield source[index]
+
+    def __iter__(self):
+        sources, fractions = self._training_sources()
+        if any(not source and fraction > 0 for source, fraction in zip(sources, fractions)):
+            raise ValueError("a training source with a positive sample fraction is empty")
+        streams = [self._row_stream(source) for source in sources]
+        while True:
+            source_index = random.choices(range(len(sources)), weights=fractions, k=1)[0]
+            row = next(streams[source_index])
+            audio = read_audio(row["audio_path"], self.augment)
+            features = self.processor(audio, sampling_rate=SR).input_features[0]
+            labels = self.processor.tokenizer(row["text"], truncation=True, max_length=224).input_ids
+            if labels and labels[0] == self.processor.tokenizer.bos_token_id:
+                labels = labels[1:]
+            if row.get("_sqlite_source"):
+                weight = float(row.get("sample_weight", self.sqlite_sample_weight))
+            else:
                 reward = float(row.get("feedback_reward", 1.0))
                 protected = len(row.get("missing_protected_terms", []))
                 weight = min(2.0, max(0.85, 1.0 + 0.6 * (1.0 - reward) + 0.2 * protected))
-                yield {"input_features": np.asarray(features, dtype=np.float32),
-                       "labels": labels, "weight": weight}
+            if not math.isfinite(weight) or weight <= 0:
+                raise ValueError("training sample weights must be finite and positive")
+            yield {"input_features": np.asarray(features, dtype=np.float32),
+                   "labels": labels, "weight": weight}
+
+
+def read_sqlite_manifest(path: Path, fallback_weight: float) -> list[dict]:
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(examples)")}
+        if not {"audio_path", "target_text"}.issubset(columns):
+            raise ValueError(f"SQLite training manifest {path.name} lacks audio_path or target_text")
+        selected = ["audio_path", "target_text"]
+        if "sample_weight" in columns:
+            selected.append("sample_weight")
+        rows = []
+        for values in connection.execute(f"SELECT {', '.join(selected)} FROM examples"):
+            row = {"audio_path": manifest_audio_path(values[0], path), "text": values[1], "_sqlite_source": True}
+            if len(values) > 2 and values[2] is not None:
+                row["sample_weight"] = float(values[2])
+            else:
+                row["sample_weight"] = fallback_weight
+            if not isinstance(row["audio_path"], str) or not row["audio_path"] or not isinstance(row["text"], str) or not row["text"].strip():
+                raise ValueError(f"SQLite training manifest {path.name} contains an invalid row")
+            rows.append(row)
+        if not rows:
+            raise ValueError(f"SQLite training manifest {path.name} is empty")
+        return rows
+    finally:
+        connection.close()
 
 
 class WeightedTrainer(Seq2SeqTrainer):
@@ -149,7 +221,11 @@ class WeightedTrainer(Seq2SeqTrainer):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--manifest", type=Path, required=True)
+    ap.add_argument("--manifest", type=Path, action="append", required=True)
+    ap.add_argument("--sqlite-manifest", type=Path, action="append", default=[])
+    ap.add_argument("--sqlite-source-fraction", type=float, action="append")
+    ap.add_argument("--sqlite-sample-fraction", type=float)
+    ap.add_argument("--sqlite-sample-weight", type=float, default=1.0)
     ap.add_argument("--model", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--steps", type=int, default=250)
@@ -158,21 +234,64 @@ def main():
     ap.add_argument("--learning-rate", type=float, default=1e-5)
     ap.add_argument("--streaming", action="store_true",
                     help="generate features per batch; requires a finite --steps")
+    ap.add_argument("--pre-split", action="store_true",
+                    help="use every supplied row for training; the manifest already owns its split")
+    ap.add_argument("--resume-from-checkpoint", type=Path)
+    ap.add_argument("--no-augment", action="store_true")
     args = ap.parse_args()
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required for this training run")
     random.seed(SEED)
-    rows = [json.loads(x) for x in args.manifest.read_text().splitlines() if x.strip()]
+    rows = []
+    for manifest in args.manifest:
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                if isinstance(row.get("audio_path"), str):
+                    row["audio_path"] = manifest_audio_path(row["audio_path"], manifest)
+                rows.append(row)
+    if not rows:
+        raise ValueError("training manifests are empty")
+    for row in rows:
+        if "text" not in row and "target_text" in row:
+            row["text"] = row["target_text"]
+        if not isinstance(row.get("audio_path"), str) or not isinstance(row.get("text"), str):
+            raise ValueError("training manifests must provide audio_path and text")
     random.Random(SEED).shuffle(rows)
-    train_rows, eval_rows = rows[:-100], rows[-100:]
+    if args.pre_split:
+        if len(rows) < 1:
+            raise ValueError("pre-split training manifest is empty")
+        train_rows, eval_rows = rows, []
+    else:
+        train_rows, eval_rows = rows[:-100], rows[-100:]
+    sqlite_sources = [read_sqlite_manifest(path, args.sqlite_sample_weight) for path in args.sqlite_manifest]
+    source_fractions = args.sqlite_source_fraction
+    if (source_fractions is not None or args.sqlite_sample_fraction is not None) and not sqlite_sources:
+        raise ValueError("SQLite sampling fractions require at least one --sqlite-manifest")
+    if sqlite_sources and not args.streaming:
+        raise ValueError("--sqlite-manifest requires --streaming so its sampling and weights are applied")
+    if source_fractions is not None:
+        if len(source_fractions) != len(sqlite_sources) or any(not math.isfinite(value) or value <= 0 for value in source_fractions) or sum(source_fractions) >= 1:
+            raise ValueError("provide one positive SQLite source fraction per manifest; total must be below one")
+        if args.sqlite_sample_fraction is not None:
+            raise ValueError("choose per-source or combined SQLite sampling, not both")
+    if args.sqlite_sample_fraction is not None and (
+        not math.isfinite(args.sqlite_sample_fraction) or not 0 < args.sqlite_sample_fraction < 1
+    ):
+        raise ValueError("SQLite sampling fraction must be between zero and one")
+    if not math.isfinite(args.sqlite_sample_weight) or args.sqlite_sample_weight <= 0:
+        raise ValueError("SQLite sample weight must be finite and positive")
     processor = WhisperProcessor.from_pretrained(str(args.model), language="english", task="transcribe")
     if args.streaming:
         if args.steps <= 0:
             raise ValueError("--streaming requires a positive --steps")
-        train = StreamingRows(train_rows, processor, True)
+        train = StreamingRows(
+            train_rows, processor, not args.no_augment, sqlite_sources,
+            source_fractions, args.sqlite_sample_fraction, args.sqlite_sample_weight,
+        )
         evaluation = None
     else:
-        train = make_dataset(train_rows, processor, True)
+        train = make_dataset(train_rows, processor, not args.no_augment)
         evaluation = make_dataset(eval_rows, processor, False)
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     model = WhisperForConditionalGeneration.from_pretrained(
@@ -201,7 +320,7 @@ def main():
     trainer = WeightedTrainer(model=model, args=training, train_dataset=train,
                               eval_dataset=evaluation, data_collator=Collator(processor),
                               processing_class=processor)
-    trainer.train()
+    trainer.train(resume_from_checkpoint=str(args.resume_from_checkpoint) if args.resume_from_checkpoint else None)
     args.out.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(str(args.out / "adapter"))
     processor.save_pretrained(str(args.out / "adapter"))

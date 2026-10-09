@@ -180,7 +180,7 @@ def evaluate(model: nn.Module, rows: list[dict], max_len: int, batch_size: int,
                             "speech_act": r["speech_act"],
                             "emoji_intent": r["emoji_intent"]}
                 token_correct = sum(a == b for a, b in zip(got_tok, expected["token_labels"]))
-                results.append({"id": r["id"], "source": r["source"],
+                results.append({"id": r["id"],
                                 "expected": expected, "generated": got,
                                 "token_correct": token_correct,
                                 "token_count": len(expected["token_labels"]),

@@ -54,6 +54,10 @@ fi
 if ! command -v wtype >/dev/null 2>&1 && [ ! -x "$bin_root/wtype" ]; then
   printf '%s\n' 'NOTE: wtype not found — automatic paste falls back to Hyprland send_shortcut, which some native Wayland apps ignore.' 'For dependable injection: pacman -S wtype (official repo, no sudo performed here).'
 fi
-systemctl --user daemon-reload || true
-systemctl --user try-restart vaanid.service || true
+if ! systemctl --user daemon-reload; then
+  printf '%s\n' 'NOTE: systemd could not reload the user unit; run systemctl --user daemon-reload from your desktop session.' >&2
+fi
+if ! systemctl --user try-restart vaanid.service; then
+  printf '%s\n' 'NOTE: the running service could not be restarted; run systemctl --user restart vaanid.service from your desktop session.' >&2
+fi
 printf '%s\n' 'Installed Vaani. Caelestia is optional.' 'Next: add ~/.local/bin to PATH, run ./tools/setup-stt.sh, then:' '  systemctl --user enable --now vaanid.service' '  vaani doctor' 'See README.md for compositor shortcuts and system package installation.'

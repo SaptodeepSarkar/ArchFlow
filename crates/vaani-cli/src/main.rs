@@ -105,14 +105,20 @@ async fn main() -> anyhow::Result<()> {
     let (r, mut w) = stream.split();
     let mut lines = BufReader::new(r).lines();
     // First line is the state snapshot.
-    let snapshot = lines.next_line().await?.unwrap_or_default();
+    let snapshot = lines
+        .next_line()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("daemon disconnected before sending its state snapshot"))?;
     let want_id = req.request_id.clone();
     w.write_all(req.to_line().unwrap().as_bytes()).await?;
     // The connection also carries async event lines (state/amplitude/
     // provisional have no request_id). Skip them until OUR response.
     let mut response = String::new();
     loop {
-        let line = lines.next_line().await?.unwrap_or_default();
+        let line = lines
+            .next_line()
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("daemon disconnected before replying to the request"))?;
         if line.trim().is_empty() {
             continue;
         }

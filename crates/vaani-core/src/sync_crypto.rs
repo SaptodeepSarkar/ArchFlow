@@ -17,9 +17,16 @@ use std::io::{Read, Write};
 
 pub const SYNC_CIPHER_SCHEMA: u32 = 1;
 const AAD_PREFIX: &str = "vaani-sync-envelope-v1:";
+const MAX_RECORD_BYTES: usize = 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RecoveryKey([u8; 32]);
+
+impl std::fmt::Debug for RecoveryKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RecoveryKey([REDACTED])")
+    }
+}
 
 impl RecoveryKey {
     pub fn generate() -> Result<Self, SyncCryptoError> {
@@ -107,6 +114,9 @@ pub fn encrypt_record<T: Serialize>(
         return Err(SyncCryptoError::InvalidEnvelope);
     }
     let serialized = serde_json::to_vec(value).map_err(|_| SyncCryptoError::Serialize)?;
+    if serialized.len() > MAX_RECORD_BYTES {
+        return Err(SyncCryptoError::InvalidEnvelope);
+    }
     let mut compressor = GzEncoder::new(Vec::new(), Compression::default());
     compressor
         .write_all(&serialized)
@@ -146,6 +156,11 @@ pub fn decrypt_record<T: for<'a> Deserialize<'a>>(
         || envelope.compression != "gzip"
         || envelope.cipher != "aes-256-gcm"
         || envelope.record_id.is_empty()
+        || envelope.record_id.len() > 128
+        || envelope.writer_device_id.is_empty()
+        || envelope.writer_device_id.len() > 128
+        || envelope.ciphertext.len() > (MAX_RECORD_BYTES * 2)
+        || envelope.nonce.len() > 32
     {
         return Err(SyncCryptoError::InvalidEnvelope);
     }
@@ -175,8 +190,12 @@ pub fn decrypt_record<T: for<'a> Deserialize<'a>>(
     let mut decoder = GzDecoder::new(compressed.as_slice());
     let mut serialized = Vec::new();
     decoder
+        .take((MAX_RECORD_BYTES + 1) as u64)
         .read_to_end(&mut serialized)
         .map_err(|_| SyncCryptoError::Decompress)?;
+    if serialized.len() > MAX_RECORD_BYTES {
+        return Err(SyncCryptoError::InvalidEnvelope);
+    }
     serde_json::from_slice(&serialized).map_err(|_| SyncCryptoError::Deserialize)
 }
 

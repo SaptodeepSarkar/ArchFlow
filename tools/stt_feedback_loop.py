@@ -179,8 +179,9 @@ def audio_array(path: Path):
 
 def run_record(args) -> None:
     prompts = [line.strip() for line in args.prompts.read_text().splitlines() if line.strip()]
-    out_dir = args.out / "private" / f"session_{time.strftime('%Y%m%d_%H%M%S')}"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    private_dir = args.out / "private"
+    private_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(tempfile.mkdtemp(prefix="session_", dir=private_dir))
     transcribe = transcriber(args.model, args.device, args.compute_type)
     report = out_dir / "feedback.jsonl"
     with report.open("w", encoding="utf-8") as handle:

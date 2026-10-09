@@ -3,6 +3,7 @@ package org.vaani.app
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -25,6 +26,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Final STT evidence supplied by the Android backend.
@@ -81,7 +83,9 @@ class OnDeviceStt(private val context: Context) : SttSession {
             onError("On-device speech is unavailable. Install an offline speech service first.")
             return
         }
-        recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context).also { speech ->
+        try {
+            val speech = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+            recognizer = speech
             speech.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) = onReady()
                 override fun onResults(results: Bundle) {
@@ -103,6 +107,9 @@ class OnDeviceStt(private val context: Context) : SttSession {
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             })
+        } catch (_: Exception) {
+            cancel()
+            onError("On-device speech could not start")
         }
     }
 
@@ -118,7 +125,7 @@ class NativeWhisperStt(
 ) : SttSession {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var recorder: AudioRecord? = null
-    private var recording = false
+    private val recording = AtomicBoolean(false)
     private var job: Job? = null
 
     override fun start(onReady: () -> Unit, onResult: (SttFinalEvidence) -> Unit, onError: (String) -> Unit, onRms: (Float) -> Unit) {
@@ -127,24 +134,29 @@ class NativeWhisperStt(
             return
         }
         if (!modelFile.isFile) { onError("Embedded STT model is missing"); return }
-        val minimum = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING)
+        val minimum = runCatching { AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, ENCODING) }
+            .getOrElse { onError("Audio input is unavailable"); return }
         if (minimum <= 0) { onError("Audio input is unavailable"); return }
-        val audio = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE, CHANNEL_CONFIG, ENCODING, minimum * 2)
+        val audio = runCatching {
+            AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE, CHANNEL_CONFIG, ENCODING, minimum * 2)
+        }.getOrElse { onError("Audio input could not start"); return }
         if (audio.state != AudioRecord.STATE_INITIALIZED) { audio.release(); onError("Audio input could not start"); return }
         recorder = audio
-        recording = true
+        recording.set(true)
         onReady()
         job = scope.launch {
             val pcm = ByteArrayOutputStream()
             val buffer = ByteArray(minimum)
             try {
                 audio.startRecording()
-                val started = System.currentTimeMillis()
-                while (recording && System.currentTimeMillis() - started < MAX_RECORDING_MS) {
+                val started = SystemClock.elapsedRealtime()
+                while (recording.get() && SystemClock.elapsedRealtime() - started < MAX_RECORDING_MS) {
                     val read = audio.read(buffer, 0, buffer.size)
                     if (read > 0) {
                         pcm.write(buffer, 0, read)
                         onRms(rmsLevel(buffer, read))
+                    } else if (read < 0) {
+                        error("AudioRecord read failed ($read)")
                     }
                 }
                 audio.stop()
@@ -191,10 +203,10 @@ class NativeWhisperStt(
         }
     }
 
-    override fun stop() { recording = false }
+    override fun stop() { recording.set(false) }
 
     override fun cancel() {
-        recording = false
+        recording.set(false)
         recorder?.runCatching { stop() }
         recorder?.release()
         recorder = null

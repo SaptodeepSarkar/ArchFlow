@@ -11,8 +11,8 @@ elif [ -n "${1:-}" ]; then
   exit 2
 fi
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PIN="$(cat "$REPO_ROOT/native/worker/WHISPER_PIN" 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-PIN="${PIN:-v1.7.6}"
+PIN="$(cat "$REPO_ROOT/native/worker/WHISPER_PIN" 2>/dev/null | grep -oE '[0-9a-f]{40}' | head -1)"
+PIN="${PIN:-a8d002cfd879315632a579e73f0148d06959de36}"
 SRC="$REPO_ROOT/native/worker/upstream"
 BUILD="$REPO_ROOT/native/worker/build"
 if [ "$USE_CUDA" -eq 1 ]; then
@@ -25,11 +25,15 @@ if [ "$USE_CUDA" -eq 1 ]; then
   TARGET_NAME="whisper-cli-cuda"
 fi
 
+if [ ! -d "$SRC" ]; then
+  mkdir -p "$SRC"
+  git -C "$SRC" init -q
+fi
+git -C "$SRC" fetch --depth 1 https://github.com/ggml-org/whisper.cpp "$PIN"
+git -C "$SRC" checkout --detach FETCH_HEAD
+
 if [ ! -x "$HOME/.local/bin/$TARGET_NAME" ]; then
   echo "==> whisper.cpp $PIN build ($([ "$USE_CUDA" -eq 1 ] && echo CUDA || echo CPU), a few minutes)..."
-  if [ ! -d "$SRC" ]; then
-    git clone --branch "$PIN" --depth 1 https://github.com/ggml-org/whisper.cpp "$SRC"
-  fi
   CMAKE_ARGS=(-DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF)
   if [ "$USE_CUDA" -eq 1 ]; then
     if ! command -v nvcc >/dev/null; then
@@ -58,15 +62,13 @@ else
   echo "==> silero VAD model already present, skipping download"
 fi
 
-if [ ! -f "$MODEL" ]; then
-  echo "==> base model (~148 MB)..."
-  python3 "$REPO_ROOT/tools/model-setup.py" --model base
-else
-  echo "==> base model already present, skipping download"
-fi
+echo "==> verifying base model (~148 MB)..."
+python3 "$REPO_ROOT/tools/model-setup.py" --model base
 
 echo "==> verifying on the upstream speech sample..."
+verify_dir="$(mktemp -d "${TMPDIR:-/tmp}/vaani-verify.XXXXXX")"
+trap 'rm -rf -- "$verify_dir"' EXIT
 "$HOME/.local/bin/$TARGET_NAME" -m "$MODEL" \
-  -f "$SRC/samples/jfk.wav" -otxt -of /tmp/vaani-verify -t 4 -l en 2>/dev/null
-echo "--- transcript:"; cat /tmp/vaani-verify.txt; rm -f /tmp/vaani-verify.txt
+  -f "$SRC/samples/jfk.wav" -otxt -of "$verify_dir/transcript" -t 4 -l en 2>/dev/null
+echo "--- transcript:"; cat "$verify_dir/transcript.txt"
 echo "OK: $TARGET_NAME ready. Restart the service: systemctl --user restart vaanid"

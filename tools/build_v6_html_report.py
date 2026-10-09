@@ -5,11 +5,39 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import math
 from pathlib import Path
+
+STT_METRICS = {
+    "rows", "reference_words", "literal_errors", "normalized_errors",
+    "literal_wer_percent", "normalized_wer_percent",
+    "mean_row_normalized_wer_percent", "protected_terms",
+    "protected_terms_recognized", "protected_term_accuracy_percent",
+    "decode_seconds", "real_time_factor",
+}
+ANDROID_METRICS = {"rows", "launch_ms", "peak_rss_mb", "latency_ms", "memory_mb"}
 
 
 def rows(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    result = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if not isinstance(row, dict):
+            raise SystemExit("evaluation input contains a non-object row")
+        result.append(row)
+    return result
+
+
+def index_rows(path: Path) -> dict[str, dict]:
+    indexed = {}
+    for row in rows(path):
+        row_id = row.get("id")
+        if not isinstance(row_id, str) or not row_id or row_id in indexed:
+            raise SystemExit("evaluation input has a missing or duplicate row ID")
+        indexed[row_id] = row
+    return indexed
 
 
 def esc(value: object) -> str:
@@ -27,43 +55,44 @@ def main() -> None:
     ap.add_argument("--android-summary", default="", help="JSON object with measured Android smoke metrics")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
-    data = {r["id"]: r for r in rows(args.data)}
-    learned = {r["id"]: r for r in rows(args.learned)}
-    hybrid = json.loads(args.hybrid.read_text())
+    data = index_rows(args.data)
+    learned = index_rows(args.learned)
+    if not data or set(data) != set(learned):
+        raise SystemExit("learned results do not cover the complete source set")
+    hybrid = json.loads(args.hybrid.read_text(encoding="utf-8"))
     stt = json.loads(args.stt_summary) if args.stt_summary else {}
-    stt_cases = rows(args.stt_cases) if args.stt_cases else []
-    formatter_cases = rows(args.formatter_cases) if args.formatter_cases else []
     android = json.loads(args.android_summary) if args.android_summary else {}
+    if not all(isinstance(value, dict) for value in (hybrid, stt, android)):
+        raise SystemExit("aggregate summaries must be JSON objects")
 
-    exact = sum(bool(r["exact"]) for r in learned.values())
+    if any(type(row.get("exact")) is not bool for row in learned.values()):
+        raise SystemExit("learned results contain invalid exact-match flags")
+    exact = sum(row["exact"] for row in learned.values())
     body = ["<!doctype html><meta charset='utf-8'><title>Vaani V6 benchmark</title>",
             "<style>body{font:14px system-ui;margin:2rem;background:#f5f6f8;color:#17202a}section{background:#fff;padding:1rem;margin:1rem 0;border-radius:10px;box-shadow:0 1px 4px #ccd}table{border-collapse:collapse;width:100%}td,th{border:1px solid #d9dee5;padding:.5rem;text-align:left;vertical-align:top}pre{white-space:pre-wrap;margin:0}.bad{background:#fff1f1}.good{background:#effff1}.mono{font-family:ui-monospace,monospace}</style>",
             "<h1>Vaani V6 STT + formatter benchmark</h1>",
             "<p>This report separates learned-plan accuracy from the deterministic hybrid renderer. It does not claim the closed fallback is learned accuracy.</p>"]
-    body.append("<section><h2>STT control</h2><table><tr><th>Metric</th><th>Measured value</th></tr>" + "".join(f"<tr><td>{esc(k)}</td><td>{esc(v)}</td></tr>" for k, v in stt.items()) + "</table></section>")
-    body.append("<section><h2>Android smoke benchmark</h2><p>This is a launch/memory smoke test only. It does not measure speech WER, transcription quality, or speech-end to insertion latency.</p><table><tr><th>Metric</th><th>Measured value</th></tr>" + "".join(f"<tr><td>{esc(k)}</td><td>{esc(v)}</td></tr>" for k, v in android.items()) + "</table></section>")
-    body.append("<section><h2>Per-audio STT cases</h2><p>These are the recorded control rows used for the STT audit. The reference is the verified transcript; raw STT is shown before formatter cleanup. Audio remains local and is not copied into this repository.</p><table><tr><th>Run</th><th>Audio</th><th>Reference</th><th>Raw STT</th><th>WER</th><th>Errors</th></tr>")
-    for row in stt_cases:
-        audio = row.get("audio_path", "")
-        audio_cell = f"<audio controls src='{esc('file://' + audio if audio.startswith('/') else audio)}'></audio><br><span class='mono'>{esc(audio)}</span>"
-        cls = "good" if not row.get("wer", 1) else "bad"
-        body.append(f"<tr class='{cls}'><td>{esc(row.get('run'))}</td><td>{audio_cell}</td><td><pre>{esc(row.get('reference'))}</pre></td><td><pre>{esc(row.get('hypothesis'))}</pre></td><td>{esc(row.get('wer'))}</td><td><pre>{esc(json.dumps(row.get('errors', []), ensure_ascii=False))}</pre></td></tr>")
-    body.append("</table></section>")
-    body.append("<section><h2>Prior formatter audit</h2><p>These transcript-only formatter cases are retained as historical evidence. They are separate from the V6 source-grounded challenge above and are not treated as a mobile benchmark.</p><table><tr><th>Run</th><th>Input</th><th>Expected plan</th><th>Generated plan</th><th>Exact</th><th>Valid</th></tr>")
-    for row in formatter_cases:
-        cls = "good" if row.get("exact") == "True" and row.get("valid") == "True" else "bad"
-        body.append(f"<tr class='{cls}'><td>{esc(row.get('run'))}</td><td><pre>{esc(row.get('input'))}</pre></td><td><pre>{esc(row.get('expected'))}</pre></td><td><pre>{esc(row.get('generated'))}</pre></td><td>{esc(row.get('exact'))}</td><td>{esc(row.get('valid'))}</td></tr>")
-    body.append("</table></section>")
-    body.append(f"<section><h2>Formatter summary</h2><p>Learned plan exact: {exact}/{len(learned)}. Hybrid rendered exact: {hybrid.get('rendered_exact', 0)}/{hybrid.get('rows', 0)}. Hybrid protected-span failures: {hybrid.get('protected_failures', 0)}.</p></section>")
-    body.append("<section><h2>Challenge cases</h2><table><tr><th>Category</th><th>Raw source</th><th>Expected</th><th>Learned plan</th><th>Hybrid output</th><th>Status</th></tr>")
-    hybrid_rows = {r["id"]: r for r in hybrid.get("rows_detail", [])}
-    for ident, row in data.items():
-        learned_row = learned[ident]; hybrid_row = hybrid_rows.get(ident, {})
-        ok = bool(hybrid_row.get("exact")); cls = "good" if ok else "bad"
-        body.append(f"<tr class='{cls}'><td>{esc(', '.join(row.get('metadata', {}).get('categories', [])))}</td><td><pre>{esc(row['source'])}</pre></td><td><pre>{esc(row['target_text'])}</pre></td><td><pre>{esc(json.dumps(learned_row['generated'], ensure_ascii=False, indent=2))}</pre></td><td><pre>{esc(hybrid_row.get('rendered'))}</pre></td><td>{'PASS' if ok else 'FAIL'}</td></tr>")
-    body.append("</table></section>")
+    def metric_rows(values: dict, allowed: set[str]) -> str:
+        safe = ((key, value) for key, value in values.items()
+                if key in allowed and isinstance(value, (int, float))
+                and not isinstance(value, bool) and math.isfinite(value)
+                and value >= 0)
+        return "".join(f"<tr><td>{esc(key)}</td><td>{esc(value)}</td></tr>" for key, value in safe)
+
+    hybrid_rows = hybrid.get("rows", 0)
+    hybrid_exact = hybrid.get("rendered_exact", 0)
+    protected_failures = hybrid.get("protected_failures", 0)
+    counts = (hybrid_rows, hybrid_exact, protected_failures)
+    if (any(type(value) is not int or value < 0 for value in counts)
+            or hybrid_exact > hybrid_rows or protected_failures > hybrid_rows
+            or hybrid_rows != len(data)):
+        raise SystemExit("hybrid summary contains invalid or incomplete aggregate counts")
+    body.append("<section><h2>STT control</h2><table><tr><th>Metric</th><th>Measured value</th></tr>" + metric_rows(stt, STT_METRICS) + "</table></section>")
+    body.append("<section><h2>Android smoke benchmark</h2><p>Launch and memory smoke metrics only.</p><table><tr><th>Metric</th><th>Measured value</th></tr>" + metric_rows(android, ANDROID_METRICS) + "</table></section>")
+    body.append(f"<section><h2>Formatter summary</h2><p>Challenge rows: {len(data)}. Learned plan exact: {exact}/{len(learned)}. Hybrid rendered exact: {hybrid_exact}/{hybrid_rows}. Hybrid protected-span failures: {protected_failures}.</p></section>")
+    body.append("<section><h2>Privacy boundary</h2><p>Per-row transcripts, paths, references, model outputs, and failures are intentionally excluded from this report.</p></section>")
     args.out.parent.mkdir(parents=True, exist_ok=True); args.out.write_text("".join(body), encoding="utf-8")
-    print(json.dumps({"out": str(args.out), "learned_exact": exact, "hybrid_exact": hybrid.get("rendered_exact", 0), "rows": len(data)}))
+    print(json.dumps({"learned_exact": exact, "hybrid_exact": hybrid_exact, "rows": len(data)}))
 
 
 if __name__ == "__main__":

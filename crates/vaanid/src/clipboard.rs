@@ -39,19 +39,24 @@ pub fn run_timeout(
         })
         .spawn()
         .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))?;
-    if let Some(data) = input {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(data);
-        }
-        // stdin dropped here -> EOF so wl-copy can proceed to fork/serve.
-    }
     let deadline = Instant::now() + Duration::from_secs(secs);
+    let writer = input.and_then(|data| {
+        child.stdin.take().map(|mut stdin| {
+            let bytes = data.to_vec();
+            std::thread::spawn(move || {
+                let _ = stdin.write_all(&bytes);
+            })
+        })
+    });
     loop {
         match child
             .try_wait()
             .map_err(|e| anyhow::anyhow!("wait failed: {e}"))?
         {
             Some(status) => {
+                if let Some(writer) = writer {
+                    let _ = writer.join();
+                }
                 if capture {
                     return child
                         .wait_with_output()
