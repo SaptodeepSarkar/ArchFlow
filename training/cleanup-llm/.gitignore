@@ -1,6 +1,0 @@
-.venv/
-.hf_cache/
-data/
-output/
-__pycache__/
-*.pyc

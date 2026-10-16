@@ -1,0 +1,22 @@
+[
+  {"id": "filler-umm", "raw": "umm so I think hmm we should ship it", "expected": "So I think we should ship it."},
+  {"id": "filler-mixed", "raw": "uh like the meeting is at noon you know", "expected": "The meeting is at noon."},
+  {"id": "self-correct", "raw": "deploy on Friday no wait deploy on Thursday", "expected": "Deploy on Thursday."},
+  {"id": "wrong-sentence", "raw": "delete the database I mean restart the service", "expected": "Restart the service."},
+  {"id": "restart-phrase", "raw": "open the file manager no actually open the terminal", "expected": "Open the terminal."},
+  {"id": "name-person", "raw": "send it to saptodeep", "expected": "Send it to Saptodeep Sarkar."},
+  {"id": "link-github", "raw": "my github is in the readme", "expected": "My https://github.com/SaptodeepSarkar is in the readme."},
+  {"id": "link-bare", "raw": "check github for the release", "expected": "Check https://github.com/SaptodeepSarkar for the release."},
+  {"id": "punct-statement", "raw": "the build passed", "expected": "The build passed."},
+  {"id": "punct-question", "raw": "did the build pass", "expected": "Did the build pass?"},
+  {"id": "numbers", "raw": "call me at five pm", "expected": "Call me at 5 PM."},
+  {"id": "contraction", "raw": "dont merge it yet", "expected": "Don't merge it yet."},
+  {"id": "runon-split", "raw": "tests pass docs updated ready to merge", "expected": "Tests pass. Docs updated. Ready to merge."},
+  {"id": "repeat-word", "raw": "the the server is down", "expected": "The server is down."},
+  {"id": "false-start", "raw": "I I mean we need more logs", "expected": "We need more logs."},
+  {"id": "trailing-off", "raw": "so basically the thing is", "expected": "So, basically, the thing is ..."},
+  {"id": "caps-tech", "raw": "use wayland not x eleven", "expected": "Use Wayland, not X11."},
+  {"id": "email-shape", "raw": "mail me at ops at example dot com", "expected": "Mail me at ops@example.com."},
+  {"id": "clean-passthrough", "raw": "Restart the service after deploy.", "expected": "Restart the service after deploy."},
+  {"id": "multi-rule", "raw": "umm tell saptodeep uh the build passed on github", "expected": "Tell Saptodeep Sarkar the build passed on https://github.com/SaptodeepSarkar."}
+]

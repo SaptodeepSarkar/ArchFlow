@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://vanni-archflow.vercel.app/sitemap.xml
