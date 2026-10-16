@@ -2,7 +2,7 @@
 
 ## Components
 
-- `key-service` (Rust, resident): hotkey, config, lifecycle. Only idle process.
+- `key-service` (Rust, resident): config, lifecycle, pid file. Only idle process. Receives SUPER+H from a static `hyprland.lua` bind via `vaani-trigger`; it never registers keybinds at runtime (Hyprland 0.56.2 crashes on that — see PRD/key-service.md).
 - `audio-helper` (Rust): PipeWire RAM stream, on demand.
 - `stt-manager` (Rust): faster-whisper, streams words to UI.
 - `llm-formatter` (Rust + llama.cpp): formats raw transcript.

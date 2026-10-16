@@ -34,12 +34,12 @@ else
   bad "PREFIX=$T ./install.sh succeeds (see $T/install.log)"
 fi
 
-# 2. all binaries installed and executable.
+# 2. all binaries + the trigger script installed and executable.
 miss=""
-for b in vaani-key-service capture transcribe llm-format type-text; do
+for b in vaani-key-service capture transcribe llm-format type-text vaani-trigger; do
   [ -x "$T/bin/$b" ] || miss="$miss $b"
 done
-if [ -z "$miss" ]; then ok "all 5 binaries in $T/bin"; else bad "binaries installed (missing:$miss)"; fi
+if [ -z "$miss" ]; then ok "all 6 binaries+trigger in $T/bin"; else bad "binaries installed (missing:$miss)"; fi
 
 # 3. unit file validates.
 if systemd-analyze verify "$T/unit/vaani-key.service" >"$T/verify.log" 2>&1; then

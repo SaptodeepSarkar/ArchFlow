@@ -11,7 +11,7 @@ CONF="$CONF_DIR/vaani.conf"
 UNIT_DIR="${UNIT_DIR:-$HOME/.config/systemd/user}"
 UNIT="$UNIT_DIR/vaani-key.service"
 ENVFILE="$PREFIX/vaani-stt.env"
-BINS="vaani-key-service capture transcribe llm-format type-text"
+BINS="vaani-key-service capture transcribe llm-format type-text vaani-trigger"
 
 die() { echo "install.sh: error: $1" >&2; exit 1; }
 note() { echo "install.sh: $1"; }
@@ -37,14 +37,20 @@ done
 [ -z "$missing" ] || die "missing deps:$missing (install them, then re-run)"
 command -v systemd-analyze >/dev/null 2>&1 || note "warning: systemd-analyze absent, skipping unit verify"
 
-# 2. binaries: reuse cargo output, else build.
+# 2. binaries: reuse cargo output, else build (vaani-trigger is a script).
 need_build=0
-for b in $BINS; do [ -x "$ROOT/target/release/$b" ] || need_build=1; done
+for b in $BINS; do
+  [ "$b" = "vaani-trigger" ] && continue
+  [ -x "$ROOT/target/release/$b" ] || need_build=1
+done
 if [ "$need_build" -eq 1 ]; then
   command -v cargo >/dev/null 2>&1 || die "no release binaries and no cargo to build them"
   (cd "$ROOT" && cargo build --release) || die "cargo build --release failed"
 fi
-for b in $BINS; do [ -x "$ROOT/target/release/$b" ] || die "binary missing after build: $b"; done
+for b in $BINS; do
+  [ "$b" = "vaani-trigger" ] && continue
+  [ -x "$ROOT/target/release/$b" ] || die "binary missing after build: $b"
+done
 
 # 3. STT discovery: env override wins, else Kyuma reuse, else warn-and-continue.
 # shortcut: stt-manager still hardcodes Kyuma paths (src/lib.rs:18-21,
@@ -75,9 +81,16 @@ else
   note "warning: no STT model dir found (tried VAANI_STT_MODEL, Kyuma models); STT will fail at runtime"
 fi
 
-# 4. install binaries + record STT env for shells and the gate.
+# 4. install binaries (vaani-trigger is a script, not a cargo artifact)
+# + record STT env for shells and the gate.
 mkdir -p "$BINDIR"
-for b in $BINS; do install -m755 "$ROOT/target/release/$b" "$BINDIR/$b"; done
+for b in $BINS; do
+  if [ "$b" = "vaani-trigger" ]; then
+    install -m755 "$ROOT/packaging/vaani-trigger" "$BINDIR/$b"
+  else
+    install -m755 "$ROOT/target/release/$b" "$BINDIR/$b"
+  fi
+done
 { echo "export VAANI_STT_PYTHON=\"$py\""; [ -n "$model" ] && echo "export VAANI_STT_MODEL=\"$model\""; } >"$ENVFILE"
 note "binaries -> $BINDIR ; stt env -> $ENVFILE"
 
@@ -133,3 +146,15 @@ else
   note "test prefix: unit staged at $UNIT (bus left alone)"
 fi
 note "done. uninstall: ./install.sh --uninstall (keeps $CONF)"
+cat <<EOF
+
+Next (one-time): add the SUPER+H bind to your hyprland.lua.
+  Vaani never binds keys at runtime: hyprctl eval + :remove() on Hyprland
+  0.56.2 frees same-key binds by signature and leaves Lua handles dangling,
+  which crashes the whole compositor (upstream bug, no released fix yet).
+  Use the static bind instead:
+
+    hl.bind("SUPER + H", hl.dsp.exec_cmd("$BINDIR/vaani-trigger"))
+
+  Then: systemctl --user enable --now vaani-key.service
+EOF

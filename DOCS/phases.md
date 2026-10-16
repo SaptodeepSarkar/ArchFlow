@@ -7,7 +7,7 @@ Gates 02+ unlock as components land; a gate is GREEN only on this machine, no st
 |---|---|---|---|
 | 01 | fixtures-contracts | nothing | 20+ formatting fixtures valid, repo contracts present |
 | 02 | config-parse | 01 | sample `vaani.conf` parses, defaults apply, unknown keys warn-not-crash |
-| 03 | hotkey-idle | 02 | SUPER+H grab via compositor, idle resident under 20MB, clean shutdown |
+| 03 | hotkey-idle | 02 | static hyprland.lua bind + trigger script (no runtime keybind calls), idle resident under 20MB, clean shutdown |
 | 04 | audio-helper | 03 | PipeWire RAM stream opens on demand, zero bytes hit disk, busy/killable flags correct |
 | 05 | stt-stream | 04 | faster-whisper streams words, RTF under 0.3 on RTX 3050, unloads fully |
 | 06 | pill-ui | 03 | pill shows Listening/Transcribing/Writing + error, 4-word window, cancel signal fires |
@@ -53,10 +53,10 @@ Goal: `vaani.conf` is the single source of settings; nothing hardcoded in helper
 
 Goal: resident key service that listens and does nothing else, measurably small.
 
-- [ ] Grab SUPER+H through the compositor binding (no raw evdev)
-- [ ] Idle loop: parse config once, wait, handle shutdown signal cleanly
-- [ ] Log every state transition (idle, triggered, shutting down)
-- [ ] Gate: `gate.sh 03` checks hotkey fires, RSS under 20MB idle, zero helpers spawned
+- [x] Trigger via static `hyprland.lua` bind + `vaani-trigger` script (no runtime keybind registration — Hyprland 0.56.2 crashes on `hyprctl eval` bind/unbind)
+- [x] Pid file published for the trigger script; idle loop parses config once, handles shutdown cleanly
+- [x] Log every state transition (idle, triggered, shutting down)
+- [x] Gate: `gate.sh 03` checks source has zero hyprctl calls, pid file published/removed, RSS under 20MB idle, toggle run via the real trigger script
 
 ## Phase 04 — audio-helper
 

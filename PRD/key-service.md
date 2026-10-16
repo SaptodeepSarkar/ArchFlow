@@ -4,12 +4,22 @@ The only always-on process. Owns the hotkey, the config, and the lifecycle of ev
 
 ## Responsibilities
 
-1. Grab SUPER+H globally (via the compositor binding, not raw evdev, to avoid Hyprland conflicts).
-2. On trigger: show the pill UI, start audio helper, load STT.
+1. Receive the SUPER+H trigger: a static bind in the user's `hyprland.lua` runs `vaani-trigger`, which signals this service (pid file + `SIGUSR1`). Vaani never binds or unbinds keys at runtime.
+2. On trigger: start audio helper, load STT.
 3. Manage STT → LLM handoff: unload STT, load formatter, feed raw transcript.
 4. Load the typing helper with formatted output.
 5. Offload pill, STT, LLM, typing helper after their timeouts; helpers reporting busy are never killed mid-work.
 6. Return to idle listen. Parse `.conf` once at boot into variables.
+
+## Why no runtime keybind registration
+
+Hyprland 0.56.2's `removeKeybind` removes binds by signature (mod+key), not
+identity: removing one of two same-key binds frees both objects and leaves
+Lua holding a dangling pointer. The next time that handle is touched the
+compositor SIGSEGVs. Upstream fixed it on git main (identity-based removal,
+weak-pointer locking); no released package carries the fix. So the bind is
+static config and this service only ever receives signals — there is no
+handle that can dangle.
 
 ## Kill-state model
 

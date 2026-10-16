@@ -116,5 +116,19 @@ if [ -x "$BIN" ]; then
   fi
 fi
 
+# 8. clipboard failure must not lose the text: with a failing wl-copy the
+# keystrokes still fire (typing is the delivery, the copy is the fallback).
+rm -f "$VAANI_WTYPE_SCRATCH"
+mkdir -p "$TMP/badshim"
+printf '#!/usr/bin/env bash\nexit 1\n' >"$TMP/badshim/wl-copy"
+chmod +x "$TMP/badshim/wl-copy"
+if PATH="$TMP/badshim:$TMP/shim:$PATH" "$BIN" --pill-hidden 'Type despite no clipboard.' \
+    >"$TMP/noclip.log" 2>&1 \
+    && [ "$(cat "$VAANI_WTYPE_SCRATCH" 2>/dev/null)" = "Type despite no clipboard." ]; then
+  ok "clipboard failure still types (text not lost)"
+else
+  bad "clipboard failure lost the text (see $TMP/noclip.log)"
+fi
+
 printf 'gate-08: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -eq 0 ]; then echo "gate-08 GREEN"; exit 0; else echo "gate-08 RED"; exit 1; fi

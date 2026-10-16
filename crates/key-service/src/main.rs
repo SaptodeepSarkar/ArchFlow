@@ -37,62 +37,69 @@ fn log(state: &str, detail: &str) {
     let _ = std::io::stderr().flush();
 }
 
-// ---- hyprctl binding ----
+// ---- trigger (no runtime compositor calls) ----
 //
-// "SUPER+H" -> `hyprctl eval 'vaani_hotkey_<pid> = hl.bind("SUPER + H",
-// hl.dsp.exec_cmd("kill -USR1 <pid>"))'`.
-// Compositor-owned grab: no raw evdev, no conflict with Hyprland.
-// (On Hyprland >= 0.56 `hyprctl keyword bind` is a no-op under the Lua
-// parser, so we register through the Lua API instead.)
-// Cleanup removes only our handle (`:remove()`), never the user's binds.
-fn lua_hotkey(hotkey: &str) -> Result<String, String> {
-    if !hotkey
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == ' ')
-    {
-        return Err(format!("refusing suspicious hotkey: {hotkey:?}"));
+// Vaani MUST NOT call `hyprctl eval` to bind/unbind keys. On Hyprland
+// 0.56.2 `CKeybindManager::removeKeybind` removes binds by signature
+// (mod+key), so removing one of two SUPER+H binds frees both objects and
+// leaves Lua holding a dangling handle -> use-after-free SIGSEGV that
+// kills the whole compositor (upstream bug, fixed only on git main; no
+// released package has the fix).
+//
+// Instead the bind is static in the user's hyprland.lua and only signals
+// us:
+//   hl.bind("SUPER + H", hl.dsp.exec_cmd("vaani-trigger"))
+// `vaani-trigger` reads the pid file below and sends SIGUSR1. No Lua
+// handle is ever created or removed from this process, so there is
+// nothing to dangle.
+
+/// Pid file the trigger script reads: XDG_RUNTIME_DIR when available,
+/// else ~/.cache. `vaani-trigger` resolves the same path.
+fn pid_file_path() -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+        let p = std::path::PathBuf::from(dir).join("vaani-key.pid");
+        if p.parent().is_some_and(|d| d.is_dir()) {
+            return p;
+        }
     }
-    let spaced = hotkey
-        .split('+')
-        .map(str::trim)
-        .collect::<Vec<_>>()
-        .join(" + ");
-    if spaced.is_empty() {
-        return Err("empty hotkey".into());
-    }
-    Ok(spaced)
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    std::path::PathBuf::from(home).join(".cache/vaani-key.pid")
 }
 
-fn hyprctl(args: &[&str]) -> Result<String, String> {
-    let out = std::process::Command::new("hyprctl")
-        .args(args)
-        .output()
-        .map_err(|e| format!("hyprctl not runnable: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "hyprctl {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr)
-        ));
+fn write_pid_file(pid: u32) {
+    let path = pid_file_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    if let Err(e) = std::fs::write(&path, pid.to_string()) {
+        log("error", &format!("pid file write failed ({}): {e}", path.display()));
+    }
 }
 
-fn register_hotkey(hotkey: &str, pid: u32) -> Result<String, String> {
-    let key = lua_hotkey(hotkey)?;
-    let handle = format!("vaani_hotkey_{pid}");
-    let code = format!("{handle} = hl.bind(\"{key}\", hl.dsp.exec_cmd(\"kill -USR1 {pid}\"))");
-    hyprctl(&["eval", &code])?;
-    // Self-verify: the handle must exist or the bind silently did nothing
-    // (hyprctl eval exits 0 even when nothing registers).
-    hyprctl(&["eval", &format!("assert({handle} ~= nil, \"bind missing\")")]).map_err(|e| {
-        format!("hotkey bind verification failed: {e}")
-    })?;
-    Ok(handle)
+fn remove_pid_file() {
+    let _ = std::fs::remove_file(pid_file_path());
 }
 
-fn unregister_hotkey(handle: &str) -> Result<(), String> {
-    hyprctl(&["eval", &format!("{handle}:remove(); {handle} = nil")]).map(|_| ())
+/// Wayland env published by `vaani-trigger` (spawned by Hyprland, so it
+/// holds the live socket). systemd's env can point at a dead socket after
+/// a compositor restart, which makes wtype/wl-copy fail. Best-effort: an
+/// absent file just leaves the inherited env alone.
+fn adopt_live_wayland_env() {
+    let Some(env_path) = pid_file_path().parent().map(|d| d.join("vaani-key.env")) else {
+        return;
+    };
+    let Ok(text) = std::fs::read_to_string(&env_path) else {
+        return;
+    };
+    for line in text.lines() {
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
+        if v.is_empty() || !matches!(k, "WAYLAND_DISPLAY" | "XDG_RUNTIME_DIR" | "HYPRLAND_INSTANCE_SIGNATURE") {
+            continue;
+        }
+        std::env::set_var(k, v);
+    }
 }
 
 // ---- Phase 09: STT -> LLM handoff (VRAM-serialized) ----
@@ -500,26 +507,16 @@ fn main() {
         signal(SIGINT, on_shutdown);
     }
 
-    // The Lua bind API throws transiently on this Hyprland build, so
-    // registration retries before giving up (systemd would restart us
-    // into the same race anyway).
-    let handle = {
-        let mut attempt = 0;
-        loop {
-            attempt += 1;
-            match register_hotkey(&cfg.hotkey, pid) {
-                Ok(h) => break h,
-                Err(e) => {
-                    log("error", &format!("hotkey bind failed (try {attempt}): {e}"));
-                    if attempt >= 3 {
-                        std::process::exit(1);
-                    }
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                }
-            }
-        }
-    };
-    log("idle", &format!("listening pid={pid} hotkey={}", cfg.hotkey));
+    // No compositor calls: the bind is static in hyprland.lua and the
+    // trigger script signals us. All we publish is our pid.
+    write_pid_file(pid);
+    log(
+        "idle",
+        &format!(
+            "listening pid={pid} hotkey={} trigger=vaani-trigger bind=hyprland.lua",
+            cfg.hotkey
+        ),
+    );
 
     // Run-phase tracking for the idle sweep (timeouts::due_for_offload over
     // the helpers vec). The vec stays empty until the daemon spawns helpers;
@@ -541,7 +538,15 @@ fn main() {
             helpers.retain(|h| h.name != name);
         }
         if GOT_TRIGGER.swap(false, Ordering::SeqCst) {
-            log("triggered", &format!("hotkey {} fired", cfg.hotkey));
+            adopt_live_wayland_env();
+            log(
+                "triggered",
+                &format!(
+                    "hotkey {} fired display={}",
+                    cfg.hotkey,
+                    std::env::var("WAYLAND_DISPLAY").unwrap_or_default()
+                ),
+            );
             run_pipeline(&cfg);
             // A press landing mid-run must not start a second run.
             GOT_TRIGGER.swap(false, Ordering::SeqCst);
@@ -549,14 +554,8 @@ fn main() {
         }
         if GOT_SHUTDOWN.load(Ordering::SeqCst) {
             log("shutting down", &format!("pid={pid}"));
-            // Unbind retries once: the same transient Lua failures that hit
-            // registration can hit removal; a leftover handle dies with the
-            // compositor anyway, so this stays best-effort.
-            if unregister_hotkey(&handle).is_err()
-                && unregister_hotkey(&handle).is_err()
-            {
-                log("error", "hotkey unbind failed after retry");
-            }
+            // Nothing compositor-side to clean up: no bind handle exists.
+            remove_pid_file();
             break;
         }
     }

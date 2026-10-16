@@ -22,6 +22,9 @@ pub struct TypeReport {
 /// * `pill_hidden` must be true — the caller confirms the pill already hid.
 ///   A false value fails without touching keyboard or clipboard.
 /// * Clipboard first (`wl-copy` on stdin), keystrokes second (`wtype` argv).
+/// * A clipboard failure never blocks typing: typing is the actual delivery,
+///   so it proceeds and the report says the copy did not happen (otherwise
+///   a clipboard-only failure would silently lose the text).
 /// * `wtype` takes the text as one argv element, exactly its documented
 ///   `wtype <text-to-type>` form; it errors rather than mistypes on input
 ///   it cannot represent.
@@ -35,7 +38,13 @@ pub fn type_text(text: &str, pill_hidden: bool) -> std::io::Result<TypeReport> {
             "pill still visible: refusing to type (focus rule)",
         ));
     }
-    let clipboard_copied = copy_to_clipboard(text)?;
+    let clipboard_copied = match copy_to_clipboard(text) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("typing-helper: clipboard copy failed ({e}); typing anyway");
+            false
+        }
+    };
     let status = Command::new("wtype").arg(text).status()?;
     if !status.success() {
         return Err(std::io::Error::new(

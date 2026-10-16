@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Phase 03 gate (hotkey-idle): resident key service grabs SUPER+H through the
-# compositor, idles small, handles the trigger, shuts down cleanly.
+# Phase 03 gate (hotkey-idle): the resident key service publishes a pid file,
+# idles small, runs a toggle cycle on signal, and shuts down cleanly.
 # Exits 0 (GREEN) only if every check passes.
 #
-# NOTE: a live synthesized keypress (wtype) does NOT drive Hyprland binds on
-# this machine (verified: even the user's own config-file SUPER+9 bind ignores
-# wtype). The gate therefore fires the bind's exact registered dispatcher
-# (`kill -USR1 <pid>` — byte-for-byte what the compositor runs on SUPER+H)
-# instead of a fake keypress.
+# Vaani never binds keys at runtime. hyprctl eval + :remove() on Hyprland
+# 0.56.2 frees same-key binds by signature, so Lua handles dangle and the
+# compositor SIGSEGVs (upstream bug). The bind is static in hyprland.lua and
+# signals us via packaging/vaani-trigger; this gate therefore never calls
+# `hyprctl eval`, and check 1 asserts the source never does either.
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -17,42 +17,26 @@ ok()  { printf '  [GREEN] %s\n' "$1"; pass=$((pass + 1)); }
 bad() { printf '  [RED] %s\n' "$1"; fail=$((fail + 1)); }
 
 TMP="$(mktemp -d /tmp/vaani-gate03.XXXXXX)"
+export XDG_RUNTIME_DIR="$TMP/run"
+mkdir -p "$XDG_RUNTIME_DIR"
+PIDFILE="$XDG_RUNTIME_DIR/vaani-key.pid"
 SRV=0
 cleanup() {
   if [ "$SRV" -ne 0 ] && kill -0 "$SRV" 2>/dev/null; then
-    kill -TERM "$SRV" 2>/dev/null
-    sleep 1
     kill -KILL "$SRV" 2>/dev/null
-    hyprctl eval "vaani_hotkey_${SRV}:remove()" >/dev/null 2>&1
   fi
   rm -rf "$TMP"
 }
 trap cleanup EXIT
 
-# 0. live compositor socket (Hyprland may have restarted; find newest live one)
-if ! hyprctl binds >/dev/null 2>&1; then
-  for d in $(ls -dt /run/user/$(id -u)/hypr/*/ 2>/dev/null); do
-    if [ -S "${d}.socket.sock" ]; then
-      export HYPRLAND_INSTANCE_SIGNATURE
-      HYPRLAND_INSTANCE_SIGNATURE="$(basename "$d")"
-      break
-    fi
-  done
+# 1. source never calls hyprctl (the crash vector must not exist at all)
+if grep -rn "hyprctl" crates/key-service/src/*.rs 2>/dev/null | grep -qv '^\S*:[0-9]*://'; then
+  bad "key-service source is free of hyprctl calls (comment-only mentions allowed)"
+else
+  ok "key-service source is free of hyprctl calls"
 fi
-if ! hyprctl binds >/dev/null 2>&1; then
-  bad "hyprctl reachable (no live Hyprland socket)"
-  printf 'gate-03: %d passed, %d failed\n' "$pass" "$fail"
-  echo "gate-03 RED"; exit 1
-fi
-ok "hyprctl reachable (instance $HYPRLAND_INSTANCE_SIGNATURE)"
 
-hhandle() { # 1 if OUR Lua bind handle exists, else 0 (hyprctl binds -j
-  # cannot see Lua-registered binds, so classic-bind counting is vacuous;
-  # assert against the handle global instead).
-  if hyprctl eval "assert(vaani_hotkey_${SRV} ~= nil)" >/dev/null 2>&1; then echo 1; else echo 0; fi
-}
-
-# 1. binary builds
+# 2. binary builds
 if cargo build --release -p vaani-key-service >"$TMP/build.log" 2>&1; then
   ok "vaani-key-service builds"
 else
@@ -61,7 +45,7 @@ fi
 BIN="$ROOT/target/release/vaani-key-service"
 [ -x "$BIN" ] || { bad "release binary present at $BIN"; printf 'gate-03: %d passed, %d failed\n' "$pass" "$fail"; echo "gate-03 RED"; exit 1; }
 
-# 2. service starts, parses config once, reaches idle
+# 3. service starts, parses config once, publishes its pid
 printf 'hotkey = SUPER+H\nui_words = 4\nidle_timeout_s = 120\n' >"$TMP/vaani.conf"
 "$BIN" "$TMP/vaani.conf" >"$TMP/svc.log" 2>&1 &
 SRV=$!
@@ -76,12 +60,10 @@ if [ "$IDLE" -eq 1 ]; then
 else
   bad "service reaches idle (see $TMP/svc.log)"
 fi
-
-# 3. hotkey binding registered via the compositor (own Lua handle present)
-if [ "$(hhandle)" -eq 1 ]; then
-  ok "SUPER+H Lua handle vaani_hotkey_${SRV} registered via hyprctl"
+if [ -f "$PIDFILE" ] && [ "$(cat "$PIDFILE")" = "$SRV" ]; then
+  ok "pid file published for the trigger script ($PIDFILE)"
 else
-  bad "SUPER+H Lua handle registered (vaani_hotkey_${SRV} missing)"
+  bad "pid file published (got '$(cat "$PIDFILE" 2>/dev/null)', want $SRV)"
 fi
 
 # 4. idle RSS under 20MB
@@ -92,57 +74,60 @@ else
   bad "idle RSS under 20MB (got '${RSS}' kB)"
 fi
 
-# 5. hotkey dispatcher fires the service, which stays resident.
-# The trigger now starts a live run (toggle): send a 2nd press to stop it.
-# Stub wtype first on PATH so a non-silent mic can never type for real here.
+# 5. toggle cycle through the real trigger script (stub wtype on PATH so a
+# non-silent mic can never type for real here).
 mkdir -p "$TMP/shim"
 printf '#!/usr/bin/env bash\necho "stub-fired $1" >>"$VAANI_WTYPE_LOG"\n' >"$TMP/shim/wtype"
 chmod +x "$TMP/shim/wtype"
 export PATH="$TMP/shim:$PATH" VAANI_WTYPE_LOG="$TMP/wtype.log"
+# The trigger is spawned by Hyprland, so whatever display it sees is the
+# live socket; the service must adopt that instead of a stale systemd env.
+export WAYLAND_DISPLAY="wayland-gate-test"
 : >"$VAANI_WTYPE_LOG"
-kill -USR1 "$SRV" 2>/dev/null # exact command the bind's dispatcher runs
+"$ROOT/packaging/vaani-trigger"   # press 1
 TRIG=0
 for _ in $(seq 1 30); do
   grep -q 'state=triggered' "$TMP/svc.log" 2>/dev/null && { TRIG=1; break; }
   sleep 0.1
 done
-kill -USR1 "$SRV" 2>/dev/null # 2nd press: stop recording, run the pipeline
+if [ -f "$XDG_RUNTIME_DIR/vaani-key.env" ] \
+    && grep -q '^WAYLAND_DISPLAY=wayland-gate-test$' "$XDG_RUNTIME_DIR/vaani-key.env"; then
+  ok "trigger published the live wayland env"
+else
+  bad "trigger published the live wayland env (file: $(cat "$XDG_RUNTIME_DIR/vaani-key.env" 2>/dev/null | tr '\n' ' '))"
+fi
+if grep -q 'state=triggered .*display=wayland-gate-test' "$TMP/svc.log" 2>/dev/null; then
+  ok "service adopted the trigger's wayland display"
+else
+  bad "service adopted the trigger's display (see $TMP/svc.log)"
+fi
+"$ROOT/packaging/vaani-trigger"   # press 2
 FIN=0
 for _ in $(seq 1 120); do
   grep -q 'run finished' "$TMP/svc.log" 2>/dev/null && { FIN=1; break; }
   sleep 0.5
 done
 if [ "$TRIG" -eq 1 ] && [ "$FIN" -eq 1 ] && kill -0 "$SRV" 2>/dev/null; then
-  ok "hotkey trigger logged, toggle run finished, service still resident"
+  ok "trigger script drove a full toggle run, service still resident"
 else
-  bad "hotkey trigger logged and resident (trig=$TRIG fin=$FIN; see $TMP/svc.log)"
+  bad "trigger script toggle run (trig=$TRIG fin=$FIN; see $TMP/svc.log)"
 fi
 
-# 6. no helpers spawned (no children, no helper processes anywhere)
-CHILDREN="$(ps --ppid "$SRV" --no-headers 2>/dev/null | wc -l)"
-HELPERS="$(pgrep -f 'audio-helper|stt-manager|llm-formatter|typing-helper|quickshell.*pill' 2>/dev/null | wc -l)"
-if [ "$CHILDREN" -eq 0 ] && [ "$HELPERS" -eq 0 ]; then
-  ok "no helpers spawned (children=0, helpers=0)"
-else
-  bad "no helpers spawned (children=$CHILDREN helpers=$HELPERS)"
-fi
-
-# 7. clean shutdown on SIGTERM: exit 0, transition logged, bind removed
+# 6. clean shutdown on SIGTERM: exit 0, transition logged, pid file removed
 kill -TERM "$SRV" 2>/dev/null
 wait "$SRV" 2>/dev/null
 CODE=$?
 SHUT=0
 grep -q 'state=shutting down' "$TMP/svc.log" 2>/dev/null && SHUT=1
-END_H=1
+GONE=1
 for _ in $(seq 1 50); do
-  END_H="$(hhandle)"
-  [ "$END_H" -eq 0 ] && break
+  [ -f "$PIDFILE" ] || { GONE=0; break; }
   sleep 0.1
 done
-if [ "$CODE" -eq 0 ] && [ "$SHUT" -eq 1 ] && [ "$END_H" -eq 0 ]; then
-  ok "SIGTERM: exit 0, shutdown logged, Lua handle removed"
+if [ "$CODE" -eq 0 ] && [ "$SHUT" -eq 1 ] && [ "$GONE" -eq 0 ]; then
+  ok "SIGTERM: exit 0, shutdown logged, pid file removed"
 else
-  bad "SIGTERM shutdown (exit=$CODE logged=$SHUT handle-still-present=$END_H)"
+  bad "SIGTERM shutdown (exit=$CODE logged=$SHUT pidfile-still-present=$GONE)"
 fi
 SRV=0 # already reaped; trap becomes a no-op for the kill
 

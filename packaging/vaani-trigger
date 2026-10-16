@@ -1,0 +1,35 @@
+#!/bin/sh
+# Vaani trigger: signal the running key service (SUPER+H).
+# Bind this from hyprland.lua, never bind via runtime hyprctl eval:
+#   hl.bind("SUPER + H", hl.dsp.exec_cmd("vaani-trigger"))
+#
+# Runtime hl.bind/:remove() through hyprctl eval can crash Hyprland 0.56.2
+# (removeKeybind frees binds by signature, leaving Lua handles dangling),
+# so Vaani only ever *receives* signals.
+set -u
+
+# Same resolution as the Rust side (key-service pid_file_path).
+if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ]; then
+  PIDFILE="$XDG_RUNTIME_DIR/vaani-key.pid"
+else
+  PIDFILE="${HOME:-/tmp}/.cache/vaani-key.pid"
+fi
+ENVFILE="${PIDFILE%.pid}.env"
+
+# Publish the compositor's live Wayland env: Hyprland spawns this script,
+# so WAYLAND_DISPLAY here is the socket that actually works. The systemd
+# user environment can hold a stale socket after a compositor restart,
+# which makes wtype/wl-copy fail with "connection refused".
+if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+  {
+    echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+    [ -n "${XDG_RUNTIME_DIR:-}" ] && echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
+    [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && echo "HYPRLAND_INSTANCE_SIGNATURE=$HYPRLAND_INSTANCE_SIGNATURE"
+  } >"$ENVFILE" 2>/dev/null || true
+fi
+
+[ -f "$PIDFILE" ] || exit 0
+PID="$(cat "$PIDFILE" 2>/dev/null)"
+case "$PID" in ''|*[!0-9]*) exit 0 ;; esac
+kill -0 "$PID" 2>/dev/null || exit 0
+kill -USR1 "$PID" 2>/dev/null || exit 0
