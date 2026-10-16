@@ -420,15 +420,88 @@ pub fn transcribe_pcm(
     model: &str,
     on_word: &mut dyn FnMut(&Word),
 ) -> std::io::Result<Stats> {
+    run_stdin(
+        pcm,
+        python,
+        &backend_path(),
+        &[("VAANI_STT_MODEL", model.to_string())],
+        on_word,
+    )
+}
+
+/// End-of-utterance re-decode with the fine-tuned model.
+///
+/// Separate from `transcribe_pcm` because it runs a *different* backend (the
+/// re-decode client) and the model itself lives in a resident server, not in
+/// this process: only its endpoint is handed to the child.
+pub fn refine_pcm(
+    pcm: &[i16],
+    python: &str,
+    backend: &str,
+    endpoint: &str,
+    on_word: &mut dyn FnMut(&Word),
+) -> std::io::Result<Stats> {
+    run_stdin(
+        pcm,
+        python,
+        std::path::Path::new(backend),
+        &[("VAANI_STT_REFINE_ENDPOINT", endpoint.to_string())],
+        on_word,
+    )
+}
+
+/// Raw captured bytes -> i16 samples a backend accepts (odd byte dropped).
+pub fn bytes_to_pcm(bytes: &[u8]) -> Vec<i16> {
+    bytes[..bytes.len() & !1]
+        .chunks_exact(2)
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect()
+}
+
+/// Everything the optional second pass needs to run.
+pub struct Refine {
+    pub python: String,
+    pub backend: String,
+    pub endpoint: String,
+}
+
+/// The fine-tuned re-decode is opt-in: `None` here leaves the pipeline exactly
+/// as it was, streaming words are the final words. Enabled only when
+/// `VAANI_STT_REFINE_BACKEND` names a script that exists, so a box without the
+/// model behaves as before instead of failing runs.
+pub fn resolve_refine(default_python: &str) -> Option<Refine> {
+    let backend = std::env::var("VAANI_STT_REFINE_BACKEND").ok()?;
+    if !std::path::Path::new(&backend).is_file() {
+        return None;
+    }
+    Some(Refine {
+        python: std::env::var("VAANI_STT_REFINE_PYTHON")
+            .unwrap_or_else(|_| default_python.to_string()),
+        backend,
+        endpoint: std::env::var("VAANI_STT_REFINE_ENDPOINT")
+            .unwrap_or_else(|_| "http://127.0.0.1:8083".to_string()),
+    })
+}
+
+/// Shared `--stdin` driver: spawn a backend, hand it PCM, collect `W`/`DONE`.
+fn run_stdin(
+    pcm: &[i16],
+    python: &str,
+    backend: &std::path::Path,
+    env: &[(&str, String)],
+    on_word: &mut dyn FnMut(&Word),
+) -> std::io::Result<Stats> {
     use std::io::Write;
-    let mut child = Command::new(python)
-        .arg(backend_path())
+    let mut cmd = Command::new(python);
+    cmd.arg(backend)
         .arg("--stdin")
-        .env("VAANI_STT_MODEL", model)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .stdin(Stdio::piped())
-        .spawn()?;
+        .stdin(Stdio::piped());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn()?;
     if let Some(mut stdin) = child.stdin.take() {
         let mut bytes = Vec::with_capacity(pcm.len() * 2);
         for s in pcm {
@@ -479,4 +552,75 @@ pub fn transcribe_pcm(
         ));
     }
     Ok(stats)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Set env vars for the duration of `f`, then put them back. Tests in a
+    /// crate share a process, so every caller passes the keys it depends on.
+    fn with_env<T>(vars: &[(&str, Option<&str>)], f: impl FnOnce() -> T) -> T {
+        let old: Vec<(String, Option<String>)> = vars
+            .iter()
+            .map(|(k, _)| (k.to_string(), std::env::var(k).ok()))
+            .collect();
+        for (k, v) in vars {
+            match v {
+                Some(v) => std::env::set_var(k, v),
+                None => std::env::remove_var(k),
+            }
+        }
+        let out = f();
+        for (k, v) in old {
+            match v {
+                Some(v) => std::env::set_var(&k, v),
+                None => std::env::remove_var(&k),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn bytes_to_pcm_pairs_little_endian_and_drops_a_stray_byte() {
+        assert_eq!(bytes_to_pcm(&[0x01, 0x00, 0xff, 0xff]), vec![1, -1]);
+        assert_eq!(bytes_to_pcm(&[0x01, 0x00, 0x7f]), vec![1]);
+        assert!(bytes_to_pcm(&[]).is_empty());
+    }
+
+    #[test]
+    fn refine_stays_off_unless_a_real_script_is_configured() {
+        // The default must be the single-pass pipeline: a stale or wrong path
+        // would otherwise turn every run into a failed second pass.
+        let off = with_env(
+            &[
+                ("VAANI_STT_REFINE_BACKEND", None),
+                ("VAANI_STT_REFINE_ENDPOINT", None),
+                ("VAANI_STT_REFINE_PYTHON", None),
+            ],
+            || resolve_refine("python3"),
+        );
+        assert!(off.is_none(), "unset backend must keep the pipeline single-pass");
+
+        let missing = with_env(
+            &[("VAANI_STT_REFINE_BACKEND", Some("/nonexistent/refine.py"))],
+            || resolve_refine("python3"),
+        );
+        assert!(missing.is_none(), "a backend path that does not exist is ignored");
+
+        // Any existing file stands in for the client script.
+        let script = concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs");
+        let on = with_env(
+            &[
+                ("VAANI_STT_REFINE_BACKEND", Some(script)),
+                ("VAANI_STT_REFINE_ENDPOINT", None),
+                ("VAANI_STT_REFINE_PYTHON", None),
+            ],
+            || resolve_refine("python3"),
+        )
+        .expect("an existing backend enables the second pass");
+        assert_eq!(on.python, "python3");
+        assert_eq!(on.endpoint, "http://127.0.0.1:8083");
+        assert_eq!(on.backend, script);
+    }
 }

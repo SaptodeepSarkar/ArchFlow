@@ -22,3 +22,28 @@ STT and formatter are never in VRAM together. Helpers reporting busy are never k
 ## Why this shape
 
 The resident set is one small daemon because model loads are the slow, heavy part and must be demand-driven on a 6GB GPU. Killable/busy replaces a supervisor. Decisions and measured numbers: vault `Projects/Vaani/Hypothesis.md`.
+
+## Fine-tuned models (opt-in, both reversible)
+
+Two trained models can be wired into this same pipeline. Each is opt-in and each
+degrades to the previous behaviour, so a box without them runs exactly as before.
+
+**Two-pass STT.** The streaming model keeps emitting words while the user speaks
+(RTF ~0.09, live overlay: unchanged). When `VAANI_STT_REFINE_BACKEND` names the
+re-decode client and a model server answers on `VAANI_STT_REFINE_ENDPOINT`, the
+finished utterance is re-transcribed by the fine-tuned Whisper and *those* words
+are what get formatted and typed. The streaming words remain the fallback for
+every failure mode — no backend configured, server unreachable, empty answer —
+so a missing model can never lose what was said. Server:
+`packaging/serve-refine-stt.sh`; client: `crates/stt-manager/backend/refine_whisper.py`;
+covered by gate 20.
+
+**Trained formatter.** No code change and no new interface: point
+`VAANI_LLM_ENDPOINT` at the server `packaging/serve-formatter.sh` starts (the
+base GGUF plus the LoRA adapter the training run produced) instead of the
+untuned model. The deterministic rule engine stays the fallback; covered by
+gate 19.
+
+Measured base-vs-trained numbers, the checkpoint sweep, and the caveats behind
+them live in `.research/indic-stt-llm-training/08-training-results.md` and its
+rendered report.

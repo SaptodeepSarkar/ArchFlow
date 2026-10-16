@@ -377,6 +377,11 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
     let mut partial = String::new();
     let mut vad = vad::Vad::new();
     let t0 = std::time::Instant::now();
+    // Raw utterance, kept so the fine-tuned model can re-read exactly the audio
+    // the streaming pass saw. Bounded by MAX_RECORD_SECS (~2 MB).
+    let mut captured: Vec<u8> = Vec::new();
+    let refine = stt_manager::resolve_refine(&python);
+    let mut heard = false;
     loop {
         // 50 ms tick: chunk in, words out, then check the stop conditions.
         let mut got_ms = 0u32;
@@ -390,6 +395,7 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
                     let level = chunk_rms(&chunk);
                     control::amplitude((level * 4.0).min(1.0));
                     let _ = stt.feed(&chunk);
+                    captured.extend_from_slice(&chunk);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -427,8 +433,9 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
         // presses twice. A second press / the Stop button still end the
         // run early, and the cap covers a stuck detector.
         if got_ms > 0 {
-            if let vad::Decision::End { heard } = vad.tick(got_ms, changed) {
-                log("idle", &format!("end of speech (heard={heard})"));
+            if let vad::Decision::End { heard: h } = vad.tick(got_ms, changed) {
+                heard = h;
+                log("idle", &format!("end of speech (heard={h})"));
                 break;
             }
         }
@@ -455,7 +462,47 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
             return;
         }
     };
-    let text = committed.join(" ").trim().to_string();
+    // Second pass: the fine-tuned model re-reads the finished utterance and,
+    // when it answers, its words are the ones that get formatted and typed. The
+    // streaming words stay the fallback, so a missing model server can never
+    // lose what the user actually said.
+    let mut text = committed.join(" ").trim().to_string();
+    if let Some(r) = &refine {
+        if should_refine(heard, &text) {
+            let mut refined: Vec<String> = Vec::new();
+            let pcm = stt_manager::bytes_to_pcm(&captured);
+            match stt_manager::refine_pcm(&pcm, &r.python, &r.backend, &r.endpoint, &mut |w| {
+                refined.push(w.text.clone())
+            }) {
+                Ok(s) => {
+                    let (chosen, used) = pick_transcript(&committed, &refined);
+                    log(
+                        "refine",
+                        &format!(
+                            "fine-tuned re-decode: {} words in {:.2}s (streaming had {}); {}",
+                            refined.len(),
+                            s.infer_secs,
+                            committed.len(),
+                            if used {
+                                "using refined"
+                            } else {
+                                "keeping streaming words"
+                            }
+                        ),
+                    );
+                    if used {
+                        text = chosen;
+                    }
+                }
+                Err(e) => log(
+                    "refine",
+                    &format!("fine-tuned re-decode failed ({e}); keeping streaming words"),
+                ),
+            }
+        } else {
+            log("refine", "nothing heard; skipping the fine-tuned re-decode");
+        }
+    }
     if text.is_empty() {
         ui.dismiss();
         control::state("IDLE", "Nothing heard");
@@ -567,6 +614,86 @@ fn pcm_from_wav(bytes: &[u8]) -> Option<&[u8]> {
         i = body + len + (len & 1);
     }
     None
+}
+
+/// Whether the fine-tuned re-decode should run at all.
+///
+/// Whisper invents fluent text on silence ("Thank you."), so a run that heard
+/// nothing must not be re-decoded — the overlay would type words nobody said.
+/// Speech the VAD detected, or any word the streaming pass produced, is the
+/// evidence that someone spoke.
+fn should_refine(heard: bool, streamed_text: &str) -> bool {
+    heard || !streamed_text.trim().is_empty()
+}
+
+/// The final transcript: the fine-tuned re-decode when it produced words,
+/// otherwise the streaming words. Pure so the "never lose the utterance"
+/// fallback is unit-testable without a microphone.
+fn pick_transcript(streamed: &[String], refined: &[String]) -> (String, bool) {
+    let refined_text = refined.join(" ").trim().to_string();
+    if refined_text.is_empty() {
+        (streamed.join(" ").trim().to_string(), false)
+    } else {
+        (refined_text, true)
+    }
+}
+
+/// Gate/test entry: the two-pass path on a wav FILE (no mic) — streaming words
+/// first, then the fine-tuned re-decode — so a gate can assert the second pass
+/// replaced them (stub backend) or that it stayed out of the way (unreachable
+/// server), without needing a microphone or the real model.
+fn refine_test(wav: &str) -> i32 {
+    let (python, model) = match (stt_manager::resolve_python(), stt_manager::resolve_model()) {
+        (Some(p), Some(m)) => (p, m),
+        _ => {
+            println!("REFINE-FAIL no STT python/model");
+            return 1;
+        }
+    };
+    let Some(r) = stt_manager::resolve_refine(&python) else {
+        println!("REFINE-FAIL no refine backend configured (set VAANI_STT_REFINE_BACKEND)");
+        return 1;
+    };
+    let bytes = match std::fs::read(wav) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("REFINE-FAIL read {wav}: {e}");
+            return 1;
+        }
+    };
+    let Some(pcm_bytes) = pcm_from_wav(&bytes) else {
+        println!("REFINE-FAIL {wav} is not PCM wav data");
+        return 1;
+    };
+    let mut streamed: Vec<String> = Vec::new();
+    if stt_manager::transcribe_wav(wav, &python, &model, &mut |w| {
+        streamed.push(w.text.clone())
+    })
+    .is_err()
+    {
+        println!("REFINE-FAIL streaming pass failed");
+        return 1;
+    }
+    let pcm = stt_manager::bytes_to_pcm(pcm_bytes);
+    let mut refined: Vec<String> = Vec::new();
+    let stats = match stt_manager::refine_pcm(&pcm, &r.python, &r.backend, &r.endpoint, &mut |w| {
+        refined.push(w.text.clone())
+    }) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("REFINE-FAIL re-decode failed: {e}");
+            return 1;
+        }
+    };
+    let changed = refined.join(" ").trim() != streamed.join(" ").trim();
+    println!(
+        "REFINE-OK streaming={:?} refined={:?} words={} infer={:.2} changed={changed}",
+        streamed.join(" "),
+        refined.join(" "),
+        stats.words,
+        stats.infer_secs
+    );
+    0
 }
 
 /// Gate/test entry: full chain on a wav FILE (no mic): transcribe ->
@@ -745,6 +872,14 @@ fn main() {
         }
         std::process::exit(stream_test(&wav));
     }
+    if let Some(i) = args.iter().position(|a| a == "--refine-test") {
+        let wav = args.get(i + 1).cloned().unwrap_or_default();
+        if wav.is_empty() {
+            println!("REFINE-FAIL usage: --refine-test <wav>");
+            std::process::exit(2);
+        }
+        std::process::exit(refine_test(&wav));
+    }
     if let Some(i) = args.iter().position(|a| a == "--pipeline-test") {
         let wav = args.get(i + 1).cloned().unwrap_or_default();
         if wav.is_empty() {
@@ -839,7 +974,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{chunk_rms, live_window, pcm_from_wav};
+    use super::{chunk_rms, live_window, pcm_from_wav, pick_transcript, should_refine};
 
     fn w(s: &str) -> Vec<String> {
         s.split_whitespace().map(str::to_string).collect()
@@ -868,6 +1003,37 @@ mod tests {
         assert!(chunk_rms(&[1, 2, 3]) >= 0.0);
     }
 
+
+    #[test]
+    fn refined_words_replace_streaming_but_never_vanish() {
+        let streamed = vec!["hello".to_string(), "hello".to_string()];
+        // The fine-tuned pass wins when it answers.
+        let (text, used) = pick_transcript(&streamed, &["Hello, hello.".to_string()]);
+        assert!(used);
+        assert_eq!(text, "Hello, hello.");
+        // No words from the second pass: the streaming words must survive.
+        let (text, used) = pick_transcript(&streamed, &[]);
+        assert!(!used);
+        assert_eq!(text, "hello hello");
+        // Whitespace-only output counts as nothing.
+        let (text, used) = pick_transcript(&streamed, &["  ".to_string()]);
+        assert!(!used);
+        assert_eq!(text, "hello hello");
+        // Both empty stays empty, so the daemon types nothing.
+        let (text, _) = pick_transcript(&[], &[]);
+        assert!(text.is_empty());
+    }
+
+    #[test]
+    fn silence_is_never_re_decoded() {
+        // Nothing heard and nothing decoded: skip, or Whisper's invented text
+        // would be typed into the focused window.
+        assert!(!should_refine(false, ""));
+        assert!(!should_refine(false, "   "));
+        // The VAD heard speech, or the streaming pass produced a word: refine.
+        assert!(should_refine(true, ""));
+        assert!(should_refine(false, "hello"));
+    }
 
     #[test]
     fn wav_payload_is_found() {

@@ -108,6 +108,8 @@ map_row "all components build (key/audio/stt/llm/type/pill)" "DOCS/architecture"
 map_row "lifecycle SUPER+H to typed text" "DOCS/architecture" "13" load "-"
 map_row "killable/busy replaces supervisor" "DOCS/architecture" "09 10" load "-"
 map_row "one small daemon rationale" "DOCS/architecture" "-" struct "design note, vault Hypothesis.md"
+map_row "fine-tuned STT two-pass re-decode, streaming words as fallback" "DOCS/architecture" "20" load "-"
+map_row "trained formatter served at VAANI_LLM_ENDPOINT" "DOCS/architecture" "19" load "-"
 # --- DOCS/configuration.md ---
 map_row "sample vaani.conf parses round-trip" "DOCS/configuration" "02" load "-"
 map_row "unknown keys warn, never crash" "DOCS/configuration" "02" load "-"

@@ -50,6 +50,11 @@ jobs:
           cp UI/quickshell/*.qml "dist/$NAME/UI/quickshell/"
           install -m644 crates/stt-manager/backend/transcribe.py \
             "dist/$NAME/crates/stt-manager/backend/"
+          install -m644 crates/stt-manager/backend/refine_whisper.py \
+            "dist/$NAME/crates/stt-manager/backend/"
+          install -m755 packaging/serve-formatter.sh packaging/serve-refine-stt.sh \
+            "dist/$NAME/packaging/"
+          install -m644 packaging/serve-refine-stt.py "dist/$NAME/packaging/"
           install -m755 install.sh "dist/$NAME/install.sh"
           install -m644 README.md "dist/$NAME/README.md"
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"

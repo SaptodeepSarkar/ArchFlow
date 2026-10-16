@@ -2,3 +2,6 @@ target/
 __pycache__/
 *.pyc
 /tmp/vaani-gate-*.log
+
+# training research: models, venvs, logs (shipped as release assets, not source)
+.research/

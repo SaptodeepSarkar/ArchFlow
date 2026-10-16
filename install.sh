@@ -92,6 +92,16 @@ else
 fi
 BACKEND="$SHAREDIR/transcribe.py"
 
+# 3c. the fine-tuned re-decode client travels too, but stays dormant unless the
+# run opts in below: without VAANI_STT_REFINE_BACKEND the pipeline is exactly
+# the single-pass one (see stt_manager::resolve_refine).
+REFINE_BACKEND=""
+if [ -f "$ROOT/crates/stt-manager/backend/refine_whisper.py" ]; then
+  install -m644 "$ROOT/crates/stt-manager/backend/refine_whisper.py" \
+    "$SHAREDIR/refine_whisper.py"
+  REFINE_BACKEND="$SHAREDIR/refine_whisper.py"
+fi
+
 # 4. install binaries (vaani-trigger is a script, not a cargo artifact)
 # + record STT env for shells and the gate.
 mkdir -p "$BINDIR"
@@ -102,7 +112,19 @@ for b in $BINS; do
     install -m755 "$ROOT/target/release/$b" "$BINDIR/$b"
   fi
 done
-{ echo "export VAANI_STT_PYTHON=\"$py\""; [ -n "$model" ] && echo "export VAANI_STT_MODEL=\"$model\""; echo "export VAANI_STT_BACKEND=\"$BACKEND\""; } >"$ENVFILE"
+{
+  echo "export VAANI_STT_PYTHON=\"$py\""
+  [ -n "$model" ] && echo "export VAANI_STT_MODEL=\"$model\""
+  echo "export VAANI_STT_BACKEND=\"$BACKEND\""
+  # Opt-in: VAANI_STT_REFINE=1 turns on the fine-tuned second pass. The endpoint
+  # must be a running `packaging/serve-refine-stt.sh`.
+  if [ -n "${VAANI_STT_REFINE:-}" ] && [ -n "$REFINE_BACKEND" ]; then
+    echo "export VAANI_STT_REFINE_BACKEND=\"$REFINE_BACKEND\""
+    echo "export VAANI_STT_REFINE_ENDPOINT=\"${VAANI_STT_REFINE_ENDPOINT:-http://127.0.0.1:8083}\""
+  fi
+  # Pass-through for the trained formatter (packaging/serve-formatter.sh).
+  [ -n "${VAANI_LLM_ENDPOINT:-}" ] && echo "export VAANI_LLM_ENDPOINT=\"$VAANI_LLM_ENDPOINT\""
+} >"$ENVFILE"
 note "binaries -> $BINDIR ; stt env -> $ENVFILE"
 
 # 5. default config: never overwrite.
@@ -149,6 +171,15 @@ env_block="Environment=VAANI_STT_PYTHON=$py
 Environment=VAANI_STT_BACKEND=$BACKEND"
 [ -n "$model" ] && env_block="$env_block
 Environment=VAANI_STT_MODEL=$model"
+# The same two opt-ins as the env file above, so the unit and a login shell
+# agree. Absent them the daemon runs the single-pass pipeline exactly as before.
+if [ -n "${VAANI_STT_REFINE:-}" ] && [ -n "$REFINE_BACKEND" ]; then
+  env_block="$env_block
+Environment=VAANI_STT_REFINE_BACKEND=$REFINE_BACKEND
+Environment=VAANI_STT_REFINE_ENDPOINT=${VAANI_STT_REFINE_ENDPOINT:-http://127.0.0.1:8083}"
+fi
+[ -n "${VAANI_LLM_ENDPOINT:-}" ] && env_block="$env_block
+Environment=VAANI_LLM_ENDPOINT=$VAANI_LLM_ENDPOINT"
 tmp="$(mktemp)"
 sed "s|@BINDIR@|$BINDIR|g" "$ROOT/packaging/vaani-key.service" \
   | awk -v e="$env_block" '{ if ($0 == "# @STT_ENV@") print e; else print }' >"$tmp"

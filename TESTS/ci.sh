@@ -17,8 +17,21 @@ note() { printf '   %s\n' "$1"; }
 bad()  { printf '   FAIL: %s\n' "$1"; fail=1; }
 
 step "shell syntax"
-for f in install.sh TESTS/gate.sh TESTS/gates/*.sh packaging/vaani-trigger; do
+for f in install.sh TESTS/gate.sh TESTS/gates/*.sh packaging/vaani-trigger \
+         packaging/serve-formatter.sh packaging/serve-refine-stt.sh; do
   if bash -n "$f" 2>/dev/null; then note "ok $f"; else bad "syntax error in $f"; bash -n "$f"; fi
+done
+# Gate 20 (the fine-tuned two-pass path) needs vosk, so it stays off the
+# hermetic list like gate 18 -- but the scripts it drives are still parsed here
+# with ast, which writes nothing.
+for f in crates/stt-manager/backend/transcribe.py \
+         crates/stt-manager/backend/refine_whisper.py packaging/serve-refine-stt.py; do
+  if python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$f" 2>/dev/null; then
+    note "ok $f"
+  else
+    bad "python syntax error in $f"
+    python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$f"
+  fi
 done
 
 step "rust: build + tests (whole workspace)"
