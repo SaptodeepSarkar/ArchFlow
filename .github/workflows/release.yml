@@ -1,0 +1,72 @@
+name: Release
+
+# CD: tag `v*` -> build all binaries on the runner, package them with the
+# installer and the overlay config, and attach the tarball to a GitHub
+# release. Nothing here runs on a plain push; cutting a release is an explicit
+# act (`git tag v0.1.0 && git push origin v0.1.0`).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for a manual release (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Hermetic gates must pass before packaging
+        run: bash TESTS/ci.sh
+
+      - name: Build release binaries
+        run: cargo build --release --workspace
+
+      - name: Assemble the tarball
+        run: |
+          set -eu
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          NAME="vaani-$VERSION-x86_64-linux"
+          mkdir -p "dist/$NAME/bin"
+          for b in vaani-key-service capture transcribe llm-format type-text; do
+            install -m755 "target/release/$b" "dist/$NAME/bin/$b"
+          done
+          install -m755 packaging/vaani-trigger "dist/$NAME/bin/vaani-trigger"
+          mkdir -p "dist/$NAME/packaging" "dist/$NAME/UI"
+          install -m644 packaging/vaani-key.service "dist/$NAME/packaging/"
+          cp UI/quickshell/*.qml "dist/$NAME/UI/"
+          install -m755 install.sh "dist/$NAME/install.sh"
+          install -m644 README.md "dist/$NAME/README.md"
+          tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+          echo "ASSET=dist/$NAME.tar.gz" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          name: Vaani ${{ env.VERSION }}
+          body: |
+            Local-first voice typing for Linux. Press the hotkey, speak once,
+            and the cleaned text is typed into the focused window; the run ends
+            on its own when you stop talking.
+
+            Install: unpack, then `./install.sh`, add the one static
+            `hl.bind(...)` line it prints to your `hyprland.lua`, and restart
+            Hyprland. The overlay config and the trigger script ship inside.
+
+            Built by the Release workflow from ${{ github.sha }}; the
+            hermetic gate set (`TESTS/ci.sh`) passed before packaging.
+          files: ${{ env.ASSET }}
+          draft: false
+          prerelease: false

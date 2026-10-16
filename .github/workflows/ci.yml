@@ -1,0 +1,57 @@
+name: CI
+
+# Runs the hermetic gate set (TESTS/ci.sh): workspace build + tests, shell
+# syntax, and the gates that need no microphone, compositor, GPU or model
+# server. The remaining gates are hardware gates and stay on the machine
+# (`./TESTS/gate.sh` is 19/19 there) — a CI runner cannot fake a mic.
+on:
+  push:
+    branches: [vaani-scaffold, main]
+  pull_request:
+    branches: [vaani-scaffold, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hermetic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run hermetic gate set
+        run: bash TESTS/ci.sh
+
+      - name: Gate logs (on failure)
+        if: failure()
+        run: |
+          for f in /tmp/ci-gate-*.log; do
+            [ -f "$f" ] || continue
+            echo "===== $f"
+            tail -40 "$f"
+          done
+
+  gates-inventory:
+    # Keeps the full board honest: every gate the machine runs must exist and
+    # be wired into TESTS/gate.sh, so a gate can never quietly disappear.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every listed gate exists and is executable
+        run: |
+          missing=0
+          for n in $(seq -w 1 19); do
+            case "$n" in
+              01) f=TESTS/test_fixtures.py ;;
+              *)  f="TESTS/gates/gate-$n.sh" ;;
+            esac
+            if [ ! -f "$f" ]; then echo "missing: $f"; missing=1; fi
+          done
+          grep -q '19|formatter-pipeline' TESTS/gate.sh || { echo "gate 19 not wired into TESTS/gate.sh"; missing=1; }
+          exit "$missing"
