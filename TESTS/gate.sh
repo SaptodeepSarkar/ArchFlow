@@ -23,6 +23,9 @@ run_one() {
     11) exec gates/gate-11.sh ;;
     12) exec gates/gate-12.sh ;;
     13) exec gates/gate-13.sh ;;
+    14) exec gates/gate-14.sh ;;
+    15) exec gates/gate-15.sh ;;
+    16) exec gates/gate-16.sh ;;
     *) echo "gate $1 not implemented yet"; exit 2 ;;
   esac
 }
@@ -43,6 +46,6 @@ gate 10 timeouts-offload "gates/gate-10.sh"
 gate 11 cancel-error "gates/gate-11.sh"
 gate 12 names-links "gates/gate-12.sh"
 gate 13 integration "gates/gate-13.sh"
-gate 14 soak ""
-gate 15 packaging ""
-gate 16 harden-release ""
+gate 14 soak "gates/gate-14.sh"
+gate 15 packaging "gates/gate-15.sh"
+gate 16 harden-release "gates/gate-16.sh"

@@ -10,6 +10,16 @@
 //! transcript in, plain formatted text out, no commentary. Swap the body of
 //! [`format`] for an LLM call when a runtime lands; the gate is
 //! backend-agnostic.
+//!
+//! 2026-10-16 probe: the Qwen2.5-1.5B Q4 gguf IS on disk
+//! (Kyuma/models, 1.1 GB) but no runtime can serve it here: no
+//! llama-server/ollama binary, no `llama_cpp` module, no CUDA toolkit for
+//! a GPU build of llama.cpp. A CPU-only build would serve seconds per
+//! fixture while gate 07 spawns a fresh `llm-format` per fixture with p95
+//! under 300 ms end to end (the 1.1 GB model load alone blows that ~10x),
+//! and generative output cannot guarantee 20/20 exact. Rule engine holds
+//! 20/20 at p95 ~1 ms: kept (success-with-evidence, revisit only if the
+//! gate is redesigned around a warm server).
 
 pub mod vocab;
 

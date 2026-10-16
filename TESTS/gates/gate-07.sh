@@ -64,18 +64,26 @@ EOF
   cat "$TMP/score.log"
 fi
 
-# 5. model unloaded after: no llama runtime resident...
-if pgrep -f 'llama-server|llama_cpp|llama-cpp' >/dev/null 2>&1; then
+# 5. model unloaded after: no llama runtime of OURS resident (bracket
+# trick so this check can never match its own shell), ...
+if pgrep -f '[l]lama-server|[l]lama_cpp|[l]lama-cpp' >/dev/null 2>&1; then
   bad "llama runtime still resident after run"
 else
   ok "no llama runtime resident after run"
 fi
-# ...and no GPU compute processes left behind.
+# ...and no Vaani process holding VRAM (machine-wide GPU is shared with
+# the desktop; a foreign occupant must not fail this gate).
 if command -v nvidia-smi >/dev/null 2>&1; then
-  if [ -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null)" ]; then
-    ok "nvidia-smi shows zero compute processes"
+  VHOLD=""
+  for p in $(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null); do
+    if tr '\0' ' ' </proc/"$p"/cmdline 2>/dev/null | grep -qE 'llm-format|target/debug|vaani'; then
+      VHOLD="$VHOLD $p"
+    fi
+  done
+  if [ -z "$VHOLD" ]; then
+    ok "no Vaani process holds VRAM"
   else
-    bad "GPU still holds compute processes after run"
+    bad "Vaani process still holds VRAM: pids$VHOLD"
   fi
 else
   ok "nvidia-smi absent, GPU check skipped (nothing was ever loaded)"

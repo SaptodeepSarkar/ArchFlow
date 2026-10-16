@@ -3,8 +3,9 @@ name = "vaani-key-service"
 version = "0.9.0"
 edition = "2021"
 
-# Phase 09: std + vaani-config path-dep only. Sibling helpers are absent
-# so the handoff uses minimal local traits (see `shortcut:` in main.rs);
-# no path-deps added until those crates exist.
+# Phase 09: std + vaani-config + llm-formatter path-deps. The handoff's
+# LLM side delegates to the real llm-formatter crate; stt-manager stays
+# stubbed (API mismatch documented in the main.rs shortcut: comment).
 [dependencies]
 vaani-config = { path = "../vaani-config" }
+llm-formatter = { path = "../llm-formatter" }

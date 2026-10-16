@@ -40,12 +40,19 @@ for wav in "$FIXDIR"/s1-hello.wav "$FIXDIR"/s2-hello.wav "$FIXDIR"/s3-hello-slow
 done
 [ "$N" -eq 5 ] || fail "expected 5 samples, ran $N"
 
-# Unload proof: VRAM back to baseline, no backend processes lingering.
+# Unload proof: no Vaani backend lingering, and no Vaani process holding
+# VRAM. Machine-wide VRAM is informational only (/tmp and the GPU are
+# shared with the desktop; a foreign wake must not fail this gate).
 sleep 1
 AFTER="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1 | tr -d ' ')"
-python3 -c "exit(0 if int('$AFTER') <= int('$BASELINE') + 50 else 1)" \
-  || fail "VRAM not back to baseline: ${BASELINE}MiB -> ${AFTER}MiB"
+VHOLD=""
+for p in $(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null); do
+  if tr '\0' ' ' </proc/"$p"/cmdline 2>/dev/null | grep -qE 'transcribe\.py|target/debug|vaani'; then
+    VHOLD="$VHOLD $p"
+  fi
+done
+[ -z "$VHOLD" ] || fail "Vaani backend still holds VRAM: pids$VHOLD"
 LINGER="$(pgrep -f 'stt-manager/backend/transcribe.py' || true)"
 [ -z "$LINGER" ] || fail "backend still resident after unload: $LINGER"
 
-echo "GREEN: 5/5 samples streamed words, all RTF < $RTF_LIMIT, VRAM ${BASELINE}MiB -> ${AFTER}MiB, backends reaped"
+echo "GREEN: 5/5 samples streamed words, all RTF < $RTF_LIMIT, machine VRAM ${BASELINE}MiB -> ${AFTER}MiB (info only), backends reaped"

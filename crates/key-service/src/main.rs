@@ -98,9 +98,15 @@ fn unregister_hotkey(handle: &str) -> Result<(), String> {
 // Helpers reporting busy are never killed: offload requests return
 // false (deferred) while busy and are re-checked once idle.
 //
-// shortcut: SttBackend/LlmBackend are minimal local traits mirroring the
-// PRD interfaces of stt-manager/llm-formatter (absent crates); swap for
-// real path-deps + trait impls when those crates land.
+// shortcut: StubStt still stands in for stt-manager::Session, which does
+// not fit this trait: Session::start needs (wav path, python, model dir)
+// while the handoff owns only a sample String; its is_busy/is_killable
+// take &mut self (vs &self here); it has no is_loaded flag (residency =
+// live child process) and streams word-by-word instead of one-shot
+// string. Full swap needs the audio->wav->session pipeline (Phase 13).
+// The LLM side is REAL (llm-formatter path-dep): RealLlm::format
+// delegates to llm_formatter::format. The formatter is stateless, so
+// load/unload are just resident flags and busy brackets the call.
 mod handoff {
     /// PRD stt-manager interface: stream words, full unload, kill-state.
     pub trait SttBackend {
@@ -130,7 +136,8 @@ mod handoff {
         pub loaded: bool,
         pub busy: bool,
     }
-    pub struct StubLlm {
+    /// Real formatter backend: delegates to the llm-formatter crate.
+    pub struct RealLlm {
         pub loaded: bool,
         pub busy: bool,
     }
@@ -157,14 +164,14 @@ mod handoff {
         }
     }
 
-    impl LlmBackend for StubLlm {
+    impl LlmBackend for RealLlm {
         fn load(&mut self) -> Result<(), String> {
             self.loaded = true;
             Ok(())
         }
         fn format(&mut self, transcript: &str) -> Result<String, String> {
             self.busy = true;
-            let out = transcript.split_whitespace().collect::<Vec<_>>().join(" ");
+            let out = llm_formatter::format(transcript);
             self.busy = false;
             Ok(out)
         }
@@ -278,7 +285,7 @@ mod handoff {
             return 1;
         }
         let mut stt = StubStt { sample: sample.to_owned(), loaded: false, busy: false };
-        let mut llm = StubLlm { loaded: false, busy: false };
+        let mut llm = RealLlm { loaded: false, busy: false };
         match run_handoff(&mut stt, &mut llm) {
             Ok(steps) => {
                 let peak = steps.iter().map(|s| s.vram_mb).max().unwrap_or(0);
@@ -294,10 +301,12 @@ mod handoff {
     }
 }
 
-// Phase 10/11 decision modules. The run-phase daemon loop that feeds them
-// lands in Phase 13; until then they compile in (bitrot-proof) and are
-// covered by their own gates, not yet called.
-#[allow(dead_code)]
+// Phase 10/11 decision modules, wired into the poll loop below:
+// timeouts::due_for_offload sweeps the helpers vec every poll;
+// cancel::Phase tracks the run phase (full cancel/error hook lands with
+// the pipeline in Phase 13). cancel keeps allow(dead_code): only Phase +
+// decide are referenced so far; its remaining variants would warn until
+// Phase 13 constructs them.
 mod timeouts;
 #[allow(dead_code)]
 mod cancel;
@@ -343,13 +352,35 @@ fn main() {
     };
     log("idle", &format!("listening pid={pid} hotkey={}", cfg.hotkey));
 
+    // Run-phase tracking for the cancel hook (cancel::Phase) + idle sweep
+    // (timeouts::due_for_offload over the helpers vec). The vec stays empty
+    // until the daemon spawns helpers in Phase 13; the sweep is live code
+    // either way, and gate 03's zero-helpers check pins the empty case.
+    let boot = std::time::Instant::now();
+    let mut phase = cancel::Phase::Idle;
+    let mut helpers: Vec<timeouts::Helper> = Vec::new();
+
     loop {
         // Sleep-poll, not pause(): a signal landing between the flag check
         // and a pause() would sleep forever with no further wakeup.
         std::thread::sleep(std::time::Duration::from_millis(50));
+        // Idle sweep: offload helpers past idle_timeout_s. Busy helpers are
+        // never killed (timeouts::decide keeps them alive for re-check).
+        let now_s = boot.elapsed().as_secs();
+        for name in timeouts::due_for_offload(cfg.idle_timeout_s, now_s, &helpers) {
+            log("offload", &format!("helper {name} idle past timeout"));
+            helpers.retain(|h| h.name != name);
+        }
         if GOT_TRIGGER.swap(false, Ordering::SeqCst) {
-            // Phase 03: no pipeline yet — record the transition, stay resident.
-            log("triggered", &format!("hotkey {} fired", cfg.hotkey));
+            if phase == cancel::Phase::Idle {
+                // Phase 03: no pipeline yet — record the transition, stay resident.
+                phase = cancel::Phase::Listening;
+                log("triggered", &format!("hotkey {} fired", cfg.hotkey));
+            } else {
+                // Double-trigger mid-run: never two pipelines (cancel::decide).
+                let plan = cancel::decide(phase, cancel::Signal::Trigger);
+                log("triggered", &format!("double-trigger ignored actions={:?}", plan.actions));
+            }
         }
         if GOT_SHUTDOWN.load(Ordering::SeqCst) {
             log("shutting down", &format!("pid={pid}"));

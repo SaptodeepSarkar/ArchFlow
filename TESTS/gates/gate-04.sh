@@ -38,10 +38,16 @@ SAMPLES="$(echo "$OUT" | sed -n 's/^capture samples=\([0-9]*\).*/\1/p')"
   || fail "expected ~80000 samples for 5s, got $SAMPLES"
 
 NEW_AUDIO=""
+AUDIO_EXPR="\( -iname '*.wav' -o -iname '*.raw' -o -iname '*.pcm' -o -iname '*.au' -o -iname '*.snd' -o -iname '*.ogg' -o -iname '*.flac' \)"
 for d in "${AUDIT_DIRS[@]}"; do
-  FOUND="$(find "$d" -newer "$MARKER" -type f \
-    \( -iname '*.wav' -o -iname '*.raw' -o -iname '*.pcm' \
-     -o -iname '*.au' -o -iname '*.snd' -o -iname '*.ogg' -o -iname '*.flac' \) 2>/dev/null)"
+  if [ "$d" = "${TMPDIR:-/tmp}" ]; then
+    # /tmp is shared with the whole desktop: only flag names Vaani's own
+    # stack could produce (our crates structurally write no audio files).
+    FOUND="$(find "$d" -maxdepth 1 -newer "$MARKER" -type f $AUDIO_EXPR \
+      \( -iname 'vaani*' -o -iname '*vosk*' -o -iname '*transcribe*' -o -iname '*pw-record*' \) 2>/dev/null)"
+  else
+    FOUND="$(find "$d" -newer "$MARKER" -type f $AUDIO_EXPR 2>/dev/null)"
+  fi
   [ -n "$FOUND" ] && NEW_AUDIO+="$FOUND "
 done
 rm -f "$MARKER"

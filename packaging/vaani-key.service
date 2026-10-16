@@ -1,0 +1,18 @@
+[Unit]
+Description=Vaani key service (SUPER+H voice typing)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@BINDIR@/vaani-key-service
+Restart=on-failure
+RestartSec=2s
+StandardOutput=journal
+StandardError=journal
+# @STT_ENV@
+# (install.sh replaces @STT_ENV@ with VAANI_STT_PYTHON/_MODEL Environment=
+# lines. Logs go to the journal: `journalctl --user -u vaani-key.service`.)
+
+[Install]
+WantedBy=default.target
