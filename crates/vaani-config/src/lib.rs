@@ -47,6 +47,9 @@ pub struct VaaniConfig {
     pub llm_model: String,
     pub prefer_device: PreferDevice,
     pub idle_timeout_s: u64,
+    /// Quiet time after speech that ends a dictation run, in ms. The same
+    /// number as `key_service::vad::DEFAULT_SILENCE_MS`.
+    pub end_of_speech_ms: u32,
     /// `spoken = typed` pairs from `[names]`, in file order.
     pub names: Vec<(String, String)>,
     /// `spoken = url` pairs from `[links]`, in file order.
@@ -63,6 +66,7 @@ impl Default for VaaniConfig {
             llm_model: "qwen2.5-1.5B-q4".to_owned(),
             prefer_device: PreferDevice::Auto,
             idle_timeout_s: 120,
+            end_of_speech_ms: 2000,
             names: Vec::new(),
             links: Vec::new(),
         }
@@ -83,6 +87,10 @@ impl VaaniConfig {
         s.push_str(&format!("llm_model = {}\n", self.llm_model));
         s.push_str(&format!("prefer_device = {}\n", self.prefer_device));
         s.push_str(&format!("idle_timeout_s = {}\n", self.idle_timeout_s));
+        s.push_str(&format!(
+            "end_of_speech_ms = {}\n",
+            self.end_of_speech_ms
+        ));
         s.push_str("\n[names]\n");
         for (spoken, typed) in &self.names {
             s.push_str(&format!("{spoken} = {typed}\n"));
@@ -186,6 +194,12 @@ fn set_top(out: &mut ParseOutcome, lineno: usize, key: &str, value: &str) {
                 "line {lineno}: bad idle_timeout_s '{value}' (want seconds), using default"
             )),
         },
+        "end_of_speech_ms" => match value.parse::<u32>() {
+            Ok(n) if n > 0 => cfg.end_of_speech_ms = n,
+            _ => out.warnings.push(format!(
+                "line {lineno}: bad end_of_speech_ms '{value}' (want ms > 0), using default"
+            )),
+        },
         _ => out.warnings.push(format!(
             "line {lineno}: unknown key '{key}', ignoring"
         )),
@@ -220,6 +234,7 @@ mod tests {
         llm_model = qwen2.5-1.5B-q4\n\
         prefer_device = auto\n\
         idle_timeout_s = 120\n\
+        end_of_speech_ms = 2000\n\
         \n\
         [names]\n\
         saptodeep = Saptodeep Sarkar\n\
@@ -239,6 +254,7 @@ mod tests {
         assert_eq!(c.llm_model, "qwen2.5-1.5B-q4");
         assert_eq!(c.prefer_device, PreferDevice::Auto);
         assert_eq!(c.idle_timeout_s, 120);
+        assert_eq!(c.end_of_speech_ms, 2000);
         assert_eq!(
             c.names,
             vec![("saptodeep".to_owned(), "Saptodeep Sarkar".to_owned())]
@@ -275,12 +291,13 @@ mod tests {
     #[test]
     fn broken_values_keep_defaults() {
         let o = parse_str(
-            "ui_words = lots\nidle_timeout_s = -3\nprefer_device = hyper\n=\ngarbage line\n",
+            "ui_words = lots\nidle_timeout_s = -3\nend_of_speech_ms = soon\nprefer_device = hyper\n=\ngarbage line\n",
         );
         assert_eq!(o.config.ui_words, 4);
         assert_eq!(o.config.idle_timeout_s, 120);
+        assert_eq!(o.config.end_of_speech_ms, 2000);
         assert_eq!(o.config.prefer_device, PreferDevice::Auto);
-        assert_eq!(o.warnings.len(), 5, "warnings: {:?}", o.warnings);
+        assert_eq!(o.warnings.len(), 6, "warnings: {:?}", o.warnings);
     }
 
     #[test]

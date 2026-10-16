@@ -10,6 +10,7 @@ stt_fallback_model = base.en
 llm_model = qwen2.5-1.5B-q4
 prefer_device = auto
 idle_timeout_s = 120
+end_of_speech_ms = 2000
 
 [names]
 saptodeep = Saptodeep Sarkar
@@ -19,6 +20,20 @@ github = https://github.com/SaptodeepSarkar
 ```
 
 Rules: unknown keys are ignored with a warning, never a crash. Missing file means all defaults. `[names]` and `[links]` match whole spoken phrases, longest match wins.
+
+Keys must sit **above** the first `[section]` header. Anything inside an
+unrecognised section is ignored (with a warning in
+`journalctl --user -u vaani-key.service`), which is the usual reason an edited
+setting does nothing.
+
+## End of speech
+
+`end_of_speech_ms` (default `2000`) is how long the decoder must produce
+nothing before the run ends and the text is typed. Raise it if Vaani cuts you
+off mid-thought; lower it if the text appears too late after you stop talking.
+The decoder's own output is the speech signal (the mic sits behind a
+noise-suppression chain with a hot floor), so this is a hangover on *new
+words*, not a level threshold.
 
 ## Formatter LLM endpoint
 

@@ -375,7 +375,7 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
 
     let mut committed: Vec<String> = Vec::new();
     let mut partial = String::new();
-    let mut vad = vad::Vad::new();
+    let mut vad = vad::Vad::new(cfg.end_of_speech_ms);
     let t0 = std::time::Instant::now();
     // Raw utterance, kept so the fine-tuned model can re-read exactly the audio
     // the streaming pass saw. Bounded by MAX_RECORD_SECS (~2 MB).

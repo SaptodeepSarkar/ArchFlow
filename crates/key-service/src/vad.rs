@@ -9,14 +9,16 @@
 //!
 //! Rules:
 //!   * any decoder output (a final word or a changed partial) = activity
-//!   * once activity has been seen, end after [`SILENCE_MS`] without any
+//!   * once activity has been seen, end after `silence_ms` without any
 //!   * end after [`NO_SPEECH_MS`] with no activity at all (nothing was said,
 //!     so nothing is typed)
 //!
 //! Pure logic: the timing rules are unit-testable without a microphone.
 
-/// Quiet time after speech that ends the run.
-const SILENCE_MS: u32 = 900;
+/// Quiet time after speech that ends the run, used when `end_of_speech_ms` is
+/// absent from `vaani.conf`. Long enough to survive a mid-sentence think: a
+/// short hangover transcribed half-finished thoughts.
+pub const DEFAULT_SILENCE_MS: u32 = 2000;
 /// Give up if the decoder never produces anything.
 const NO_SPEECH_MS: u32 = 5000;
 
@@ -29,6 +31,7 @@ pub enum Decision {
 }
 
 pub struct Vad {
+    silence_ms: u32,
     total_ms: u32,
     idle_ms: u32,
     heard: bool,
@@ -36,13 +39,15 @@ pub struct Vad {
 
 impl Default for Vad {
     fn default() -> Self {
-        Self::new()
+        Self::new(DEFAULT_SILENCE_MS)
     }
 }
 
 impl Vad {
-    pub fn new() -> Self {
+    /// `silence_ms` is the `end_of_speech_ms` setting.
+    pub fn new(silence_ms: u32) -> Self {
         Self {
+            silence_ms,
             total_ms: 0,
             idle_ms: 0,
             heard: false,
@@ -59,7 +64,7 @@ impl Vad {
         } else {
             self.idle_ms = self.idle_ms.saturating_add(chunk_ms);
         }
-        if self.heard && self.idle_ms >= SILENCE_MS {
+        if self.heard && self.idle_ms >= self.silence_ms {
             return Decision::End { heard: true };
         }
         if !self.heard && self.total_ms >= NO_SPEECH_MS {
@@ -74,8 +79,8 @@ mod tests {
     use super::*;
 
     /// Feed (chunk_ms, activity) pairs; return the first End decision.
-    fn run(chunks: &[(u32, bool)]) -> Option<Decision> {
-        let mut v = Vad::new();
+    fn run(chunks: &[(u32, bool)], silence_ms: u32) -> Option<Decision> {
+        let mut v = Vad::new(silence_ms);
         for (ms, activity) in chunks {
             let d = v.tick(*ms, *activity);
             if matches!(d, Decision::End { .. }) {
@@ -89,30 +94,60 @@ mod tests {
     fn speech_then_quiet_ends_the_run() {
         let mut chunks: Vec<(u32, bool)> = vec![(100, true); 10]; // ~1s of words
         chunks.extend(vec![(100, false); 12]); // then quiet
-        assert_eq!(run(&chunks), Some(Decision::End { heard: true }));
+        assert_eq!(run(&chunks, 900), Some(Decision::End { heard: true }));
     }
 
     #[test]
     fn silent_room_ends_without_typing() {
         let chunks: Vec<(u32, bool)> = vec![(100, false); 60]; // 6s of nothing
-        assert_eq!(run(&chunks), Some(Decision::End { heard: false }));
+        assert_eq!(run(&chunks, 900), Some(Decision::End { heard: false }));
     }
 
     #[test]
     fn ongoing_speech_is_not_cut_short() {
-        // Activity every chunk: a pause shorter than SILENCE_MS must not end
+        // Activity every chunk: a pause shorter than the hangover must not end
         // the run mid-sentence.
         let mut chunks: Vec<(u32, bool)> = vec![(100, true); 5];
         chunks.extend(vec![(100, false); 5]); // a 500 ms pause
         chunks.extend(vec![(100, true); 5]);
         chunks.extend(vec![(100, false); 3]);
-        assert_eq!(run(&chunks), None, "a half-second pause is not the end");
+        assert_eq!(
+            run(&chunks, 900),
+            None,
+            "a half-second pause is not the end"
+        );
     }
 
     #[test]
     fn one_word_then_quiet_still_ends_as_heard() {
         let mut chunks: Vec<(u32, bool)> = vec![(100, true)];
         chunks.extend(vec![(100, false); 10]);
-        assert_eq!(run(&chunks), Some(Decision::End { heard: true }));
+        assert_eq!(run(&chunks, 900), Some(Decision::End { heard: true }));
+    }
+
+    /// The reported bug: pausing to think for a moment ended the run and
+    /// transcribed a half-finished sentence.
+    #[test]
+    fn a_think_pause_is_not_the_end_of_speech() {
+        let mut pause: Vec<(u32, bool)> = vec![(100, true); 5];
+        pause.extend(vec![(100, false); 12]); // 1.2 s of thinking
+        assert_eq!(
+            run(&pause, 900),
+            Some(Decision::End { heard: true }),
+            "the old 900 ms hangover ended it here"
+        );
+        assert_eq!(
+            run(&pause, DEFAULT_SILENCE_MS),
+            None,
+            "the default lets a 1.2 s think pass"
+        );
+        // ...and the default still ends once the speaker is actually finished.
+        let mut finished = pause.clone();
+        finished.extend(vec![(100, true); 5]);
+        finished.extend(vec![(100, false); 30]); // 3 s of quiet
+        assert_eq!(
+            run(&finished, DEFAULT_SILENCE_MS),
+            Some(Decision::End { heard: true })
+        );
     }
 }
