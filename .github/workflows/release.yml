@@ -33,18 +33,23 @@ jobs:
         run: cargo build --release --workspace
 
       - name: Assemble the tarball
+        # The layout mirrors the paths install.sh already reads (target/release,
+        # packaging/, UI/quickshell, the STT backend script), so the installer
+        # needs no second layout to keep in sync: unpack, run ./install.sh.
         run: |
           set -eu
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           NAME="vaani-$VERSION-x86_64-linux"
-          mkdir -p "dist/$NAME/bin"
+          mkdir -p "dist/$NAME/target/release" "dist/$NAME/packaging" \
+                   "dist/$NAME/UI/quickshell" "dist/$NAME/crates/stt-manager/backend"
           for b in vaani-key-service capture transcribe llm-format type-text; do
-            install -m755 "target/release/$b" "dist/$NAME/bin/$b"
+            install -m755 "target/release/$b" "dist/$NAME/target/release/$b"
           done
-          install -m755 packaging/vaani-trigger "dist/$NAME/bin/vaani-trigger"
-          mkdir -p "dist/$NAME/packaging" "dist/$NAME/UI"
+          install -m755 packaging/vaani-trigger "dist/$NAME/packaging/"
           install -m644 packaging/vaani-key.service "dist/$NAME/packaging/"
-          cp UI/quickshell/*.qml "dist/$NAME/UI/"
+          cp UI/quickshell/*.qml "dist/$NAME/UI/quickshell/"
+          install -m644 crates/stt-manager/backend/transcribe.py \
+            "dist/$NAME/crates/stt-manager/backend/"
           install -m755 install.sh "dist/$NAME/install.sh"
           install -m644 README.md "dist/$NAME/README.md"
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"

@@ -10,6 +10,7 @@ CONF_DIR="$HOME/.config/vaani"
 CONF="$CONF_DIR/vaani.conf"
 UNIT_DIR="${UNIT_DIR:-$HOME/.config/systemd/user}"
 UNIT="$UNIT_DIR/vaani-key.service"
+SHAREDIR="$PREFIX/share/vaani"
 ENVFILE="$PREFIX/vaani-stt.env"
 BINS="vaani-key-service capture transcribe llm-format type-text vaani-trigger"
 
@@ -81,6 +82,16 @@ else
   note "warning: no STT model dir found (tried VAANI_STT_MODEL, Kyuma models); STT will fail at runtime"
 fi
 
+# 3b. the STT backend script travels with the install, so the binaries never
+# depend on where they were compiled (see backend_path()).
+mkdir -p "$SHAREDIR"
+if [ -f "$ROOT/crates/stt-manager/backend/transcribe.py" ]; then
+  install -m644 "$ROOT/crates/stt-manager/backend/transcribe.py" "$SHAREDIR/transcribe.py"
+else
+  note "warning: crates/stt-manager/backend/transcribe.py missing; using the compiled-in path"
+fi
+BACKEND="$SHAREDIR/transcribe.py"
+
 # 4. install binaries (vaani-trigger is a script, not a cargo artifact)
 # + record STT env for shells and the gate.
 mkdir -p "$BINDIR"
@@ -91,7 +102,7 @@ for b in $BINS; do
     install -m755 "$ROOT/target/release/$b" "$BINDIR/$b"
   fi
 done
-{ echo "export VAANI_STT_PYTHON=\"$py\""; [ -n "$model" ] && echo "export VAANI_STT_MODEL=\"$model\""; } >"$ENVFILE"
+{ echo "export VAANI_STT_PYTHON=\"$py\""; [ -n "$model" ] && echo "export VAANI_STT_MODEL=\"$model\""; echo "export VAANI_STT_BACKEND=\"$BACKEND\""; } >"$ENVFILE"
 note "binaries -> $BINDIR ; stt env -> $ENVFILE"
 
 # 5. default config: never overwrite.
@@ -134,7 +145,8 @@ note "overlay config -> $QS_DIR ($(ls "$ROOT"/UI/quickshell/*.qml | wc -l) QML f
 # 6. user unit: template ExecStart gets the real bindir, STT env spliced
 # into [Service] (appending at EOF would land under [Install], where
 # systemd silently ignores Environment=).
-env_block="Environment=VAANI_STT_PYTHON=$py"
+env_block="Environment=VAANI_STT_PYTHON=$py
+Environment=VAANI_STT_BACKEND=$BACKEND"
 [ -n "$model" ] && env_block="$env_block
 Environment=VAANI_STT_MODEL=$model"
 tmp="$(mktemp)"

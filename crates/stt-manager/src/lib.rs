@@ -79,6 +79,13 @@ pub fn resolve_model() -> Option<String> {
 }
 
 fn backend_path() -> std::path::PathBuf {
+    // Installed trees set VAANI_STT_BACKEND (install.sh ships the script to
+    // share/vaani). The compile-time path is only right for a dev checkout:
+    // a release tarball built on a CI runner would otherwise embed the
+    // runner's directory.
+    if let Ok(p) = std::env::var("VAANI_STT_BACKEND") {
+        return p.into();
+    }
     let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.push("backend/transcribe.py");
     p
