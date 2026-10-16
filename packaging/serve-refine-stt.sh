@@ -30,4 +30,4 @@ ADAPTER="${VAANI_STT_ADAPTER:-$R/out/stt-checkpoints/step-50}"
   exit 1
 }
 
-exec "$PY" "$REPO/packaging/serve-refine-stt.py" --adapter "$ADAPTER" "$@"
+exec "$PY" "$(dirname "$0")/serve-refine-stt.py" --adapter "$ADAPTER" "$@"

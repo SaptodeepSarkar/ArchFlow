@@ -115,6 +115,9 @@ map_row "repository layout documented (folder map)" "DOCS/layout" "-" struct "wo
 map_row "sample vaani.conf parses round-trip" "DOCS/configuration" "02" load "-"
 map_row "unknown keys warn, never crash" "DOCS/configuration" "02" load "-"
 map_row "missing file means defaults" "DOCS/configuration" "02" load "-"
+map_row "daemon owns the model servers it is pointed at" "DOCS/configuration" "21" load "-"
+map_row "launcher env vars decide which servers are owned" "DOCS/configuration" "21" load "-"
+map_row "a server outside the daemon is never killed" "DOCS/configuration" "21" load "-"
 map_row "longest whole-phrase match wins" "DOCS/configuration" "12" load "-"
 # --- DOCS/development.md ---
 map_row "prereq toolchain present" "DOCS/development" "-" struct "env-dependent, not gated"

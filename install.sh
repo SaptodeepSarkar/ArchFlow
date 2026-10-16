@@ -102,6 +102,12 @@ if [ -f "$ROOT/crates/stt-manager/backend/refine_whisper.py" ]; then
   REFINE_BACKEND="$SHAREDIR/refine_whisper.py"
 fi
 
+# 3d. the model-server launchers travel too, so a repo-free install can point
+# VAANI_*_SERVER at them and let the daemon own the lifecycle.
+for f in serve-refine-stt.sh serve-refine-stt.py serve-formatter.sh; do
+  [ -f "$ROOT/packaging/$f" ] && install -m755 "$ROOT/packaging/$f" "$SHAREDIR/$f"
+done
+
 # 4. install binaries (vaani-trigger is a script, not a cargo artifact)
 # + record STT env for shells and the gate.
 mkdir -p "$BINDIR"
@@ -122,6 +128,11 @@ done
     echo "export VAANI_STT_REFINE_BACKEND=\"$REFINE_BACKEND\""
     echo "export VAANI_STT_REFINE_ENDPOINT=\"${VAANI_STT_REFINE_ENDPOINT:-http://127.0.0.1:8083}\""
   fi
+  # Point the daemon at launchers and it owns those servers: spawned when a run
+  # needs one, killed after idle_timeout_s with no run (DOCS/configuration.md).
+  # Unset means not owned -- whatever you start by hand keeps serving.
+  [ -n "${VAANI_STT_REFINE_SERVER:-}" ] && echo "export VAANI_STT_REFINE_SERVER=\"$VAANI_STT_REFINE_SERVER\""
+  [ -n "${VAANI_LLM_SERVER:-}" ] && echo "export VAANI_LLM_SERVER=\"$VAANI_LLM_SERVER\""
   # Pass-through for the trained formatter (packaging/serve-formatter.sh).
   [ -n "${VAANI_LLM_ENDPOINT:-}" ] && echo "export VAANI_LLM_ENDPOINT=\"$VAANI_LLM_ENDPOINT\""
 } >"$ENVFILE"
@@ -181,6 +192,12 @@ Environment=VAANI_STT_REFINE_ENDPOINT=${VAANI_STT_REFINE_ENDPOINT:-http://127.0.
 fi
 [ -n "${VAANI_LLM_ENDPOINT:-}" ] && env_block="$env_block
 Environment=VAANI_LLM_ENDPOINT=$VAANI_LLM_ENDPOINT"
+# Same opt-in as the env file: naming a launcher is what hands the daemon its
+# lifecycle.
+[ -n "${VAANI_STT_REFINE_SERVER:-}" ] && env_block="$env_block
+Environment=VAANI_STT_REFINE_SERVER=$VAANI_STT_REFINE_SERVER"
+[ -n "${VAANI_LLM_SERVER:-}" ] && env_block="$env_block
+Environment=VAANI_LLM_SERVER=$VAANI_LLM_SERVER"
 tmp="$(mktemp)"
 sed "s|@BINDIR@|$BINDIR|g" "$ROOT/packaging/vaani-key.service" \
   | awk -v e="$env_block" '{ if ($0 == "# @STT_ENV@") print e; else print }' >"$tmp"

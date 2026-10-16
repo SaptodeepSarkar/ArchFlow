@@ -322,6 +322,7 @@ mod handoff {
 mod control;
 mod timeouts;
 mod vad;
+mod servers;
 #[allow(dead_code)]
 mod cancel;
 
@@ -336,7 +337,11 @@ const BYTES_PER_MS: usize = 32;
 /// 2nd press / cap / shutdown) -> format with config vocab -> type. Every
 /// path ends back at idle; STT loads per run and unloads after (backend
 /// reaped, zero VRAM ever held); the formatter is a rule call.
-fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
+fn run_pipeline(
+    cfg: &vaani_config::VaaniConfig,
+    servers: &mut [servers::Server],
+    boot: std::time::Instant,
+) {
     let (python, model) = match (stt_manager::resolve_python(), stt_manager::resolve_model()) {
         (Some(p), Some(m)) => (p, m),
         (None, _) => {
@@ -368,6 +373,18 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
             return;
         }
     };
+    // The fine-tuned models are servers this daemon owns, loaded in the PRD's
+    // order: the speech server starts now that the mic is live, so it loads
+    // while the user is still speaking. The formatter starts later, at the
+    // formatting step, once the speech side has had its turn -- two models
+    // loading at once would race for memory on a small card. Spawning never
+    // blocks this run; see servers::wait_ready for the point of use.
+    let now_s = boot.elapsed().as_secs();
+    for s in servers.iter_mut() {
+        if s.name == "stt" {
+            s.start(now_s);
+        }
+    }
     let mut ui = UiGuard::start();
     control::state("RECORDING", "Speak naturally…");
     control::provisional("", false);
@@ -469,6 +486,14 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
     let mut text = committed.join(" ").trim().to_string();
     if let Some(r) = &refine {
         if should_refine(heard, &text) {
+            // A server spawned moments ago may still be loading weights. Both
+            // bind their port only once ready, so wait briefly here rather than
+            // falling back on the first dictation after an idle window.
+            if let Some(s) = servers.iter().find(|s| s.name == "stt") {
+                if !s.wait_ready(servers::READY_TIMEOUT) {
+                    log("refine", "fine-tuned STT server not ready yet");
+                }
+            }
             let mut refined: Vec<String> = Vec::new();
             let pcm = stt_manager::bytes_to_pcm(&captured);
             match stt_manager::refine_pcm(&pcm, &r.python, &r.backend, &r.endpoint, &mut |w| {
@@ -521,7 +546,20 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
     control::state("CLEANING", "Cleaning transcript");
     // The PRD's pipeline: raw STT -> formatter LLM -> typed text. Falls back
     // to the rule engine if no LLM answers (see llm-formatter).
+    // The formatter is started only now: the speech side has finished its work,
+    // so the two models never race for memory at startup.
+    if let Some(s) = servers.iter_mut().find(|s| s.name == "llm") {
+        s.start(boot.elapsed().as_secs());
+        if !s.wait_ready(servers::READY_TIMEOUT) {
+            log("writing", "formatter server not ready, the rule engine answers");
+        }
+    }
     let (out, backend) = llm_formatter::format_pipeline(&text, &pairs);
+    // Both models have done their work for this run: restart their idle windows.
+    let used = boot.elapsed().as_secs();
+    for s in servers.iter_mut() {
+        s.touch(used);
+    }
     control::state("INSERTING", "Typing clean text");
     log("writing", &format!("typing {} chars via {backend}", out.len()));
     // pill_hidden=true: the overlay sets keyboardFocus None, so keystrokes
@@ -694,6 +732,96 @@ fn refine_test(wav: &str) -> i32 {
         stats.infer_secs
     );
     0
+}
+
+/// Gate entry: the owned-server lifecycle without a microphone, a GPU or any
+/// real weights. Two stub launcher scripts stand in for serve-refine-stt.sh and
+/// serve-formatter.sh: the gate checks the order they ran in, this checks what
+/// the daemon did with them -- spawn both, then kill both once the idle window
+/// has passed with no run. A launcher whose port already answers is left alone.
+///
+/// Usage: --servers-test
+///        --servers-test <stt_launcher> <llm_launcher> <stt_port> <llm_port>
+fn servers_test(rest: &[String]) -> i32 {
+    // No arguments: report what the daemon would own with the env as it is.
+    // This is the opt-in gate -- nothing configured must mean nothing owned.
+    if rest.is_empty() {
+        let owned = servers::Server::owned();
+        let names: Vec<&str> = owned.iter().map(|s| s.name).collect();
+        println!(
+            "step=owned count={} names={names:?}",
+            owned.len()
+        );
+        return 0;
+    }
+
+    let (Some(stt), Some(llm), Some(stt_port), Some(llm_port)) = (
+        rest.first(),
+        rest.get(1),
+        rest.get(2).and_then(|p| p.parse::<u16>().ok()),
+        rest.get(3).and_then(|p| p.parse::<u16>().ok()),
+    ) else {
+        println!(
+            "SERVERS-FAIL usage: --servers-test <stt_launcher> <llm_launcher> <stt_port> <llm_port>"
+        );
+        return 2;
+    };
+
+    let mut fleet = vec![
+        servers::Server::new("stt", std::path::PathBuf::from(stt), stt_port),
+        servers::Server::new("llm", std::path::PathBuf::from(llm), llm_port),
+    ];
+
+    let mut ok = true;
+    // Same order as the daemon: speech server, then formatter once the speech
+    // side is done. Each gets a moment before the next is started, so the order
+    // the launchers record is the order they were started in rather than
+    // scheduler jitter -- and so a launcher is not judged before `bash` has
+    // reached its first line.
+    for name in ["stt", "llm"] {
+        if let Some(s) = fleet.iter_mut().find(|s| s.name == name) {
+            s.start(0);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    for s in fleet.iter_mut() {
+        let spawned = s.running();
+        let external = s.externally_served();
+        println!(
+            "step=start name={} spawned={spawned} external={external}",
+            s.name
+        );
+        ok &= spawned || external;
+    }
+
+    // Nothing touches them again, so the sweep must judge both due at t=2 with
+    // a 1s window and they must be gone once it has run.
+    let mut fleet_helpers: Vec<timeouts::Helper> = Vec::new();
+    for s in fleet.iter_mut() {
+        if s.running() {
+            fleet_helpers.push(s.helper());
+        }
+    }
+    let due = timeouts::due_for_offload(1, 2, &fleet_helpers);
+    println!("step=idle idle_timeout_s=1 now_s=2 due={due:?}");
+    ok &= due.len() == fleet_helpers.len();
+    for name in &due {
+        if let Some(s) = fleet.iter_mut().find(|s| s.name == name.as_str()) {
+            s.stop();
+        }
+    }
+    for s in fleet.iter_mut() {
+        let alive = s.running();
+        println!("step=stop name={} running={alive}", s.name);
+        ok &= !alive;
+    }
+
+    println!("servers ok killed_after_idle={ok}");
+    if ok {
+        0
+    } else {
+        1
+    }
 }
 
 /// Gate/test entry: full chain on a wav FILE (no mic): transcribe ->
@@ -880,6 +1008,9 @@ fn main() {
         }
         std::process::exit(refine_test(&wav));
     }
+    if let Some(i) = args.iter().position(|a| a == "--servers-test") {
+        std::process::exit(servers_test(&args[i + 1..]));
+    }
     if let Some(i) = args.iter().position(|a| a == "--pipeline-test") {
         let wav = args.get(i + 1).cloned().unwrap_or_default();
         if wav.is_empty() {
@@ -927,24 +1058,38 @@ fn main() {
         ),
     );
 
-    // Run-phase tracking for the idle sweep (timeouts::due_for_offload over
-    // the helpers vec). The vec stays empty until the daemon spawns helpers;
-    // the sweep is live code either way. Triggers always start a run:
-    // run_pipeline owns the toggle (2nd press stops it) and drains presses
-    // landing mid-run, so two pipelines can never overlap.
+    // The model servers this daemon owns: empty unless VAANI_STT_REFINE_SERVER
+    // and/or VAANI_LLM_SERVER point at launcher scripts. A run spawns them
+    // (speech first, then the formatter); the sweep below kills them once
+    // idle_timeout_s has passed with no run, so no model memory is held
+    // between dictations. Triggers always start a run: run_pipeline owns the
+    // toggle (2nd press stops it) and drains presses landing mid-run, so two
+    // pipelines can never overlap.
     let boot = std::time::Instant::now();
-    let mut helpers: Vec<timeouts::Helper> = Vec::new();
+    let mut model_servers = servers::Server::owned();
 
     loop {
         // Sleep-poll, not pause(): a signal landing between the flag check
         // and a pause() would sleep forever with no further wakeup.
         std::thread::sleep(std::time::Duration::from_millis(50));
-        // Idle sweep: offload helpers past idle_timeout_s. Busy helpers are
-        // never killed (timeouts::decide keeps them alive for re-check).
+        // Idle sweep: kill the model servers this daemon owns once they have
+        // been idle past idle_timeout_s, so the memory goes back. Only servers
+        // we spawned are considered; timeouts::decide owns the decision.
         let now_s = boot.elapsed().as_secs();
-        for name in timeouts::due_for_offload(cfg.idle_timeout_s, now_s, &helpers) {
-            log("offload", &format!("helper {name} idle past timeout"));
-            helpers.retain(|h| h.name != name);
+        let mut fleet: Vec<timeouts::Helper> = Vec::new();
+        for s in model_servers.iter_mut() {
+            if s.running() {
+                fleet.push(s.helper());
+            }
+        }
+        for name in timeouts::due_for_offload(cfg.idle_timeout_s, now_s, &fleet) {
+            if let Some(s) = model_servers.iter_mut().find(|s| s.name == name.as_str()) {
+                s.stop();
+                log(
+                    "offload",
+                    &format!("{name} server idle past {}s, stopped", cfg.idle_timeout_s),
+                );
+            }
         }
         if GOT_TRIGGER.swap(false, Ordering::SeqCst) {
             adopt_live_wayland_env();
@@ -956,13 +1101,18 @@ fn main() {
                     std::env::var("WAYLAND_DISPLAY").unwrap_or_default()
                 ),
             );
-            run_pipeline(&cfg);
+            run_pipeline(&cfg, &mut model_servers, boot);
             // A press landing mid-run must not start a second run.
             GOT_TRIGGER.swap(false, Ordering::SeqCst);
             log("idle", "run finished, listening");
         }
         if GOT_SHUTDOWN.load(Ordering::SeqCst) {
             log("shutting down", &format!("pid={pid}"));
+            // Leave no model server behind: they hold VRAM, and the sweep only
+            // runs while this loop does.
+            for s in model_servers.iter_mut() {
+                s.stop();
+            }
             // Nothing compositor-side to clean up: no bind handle exists.
             control::state("IDLE", "");
             remove_pid_file();

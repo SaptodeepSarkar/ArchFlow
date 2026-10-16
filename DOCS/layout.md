@@ -49,6 +49,7 @@ links logic instead of shelling out to itself.
 | `vaani-trigger` | the tiny script a static Hyprland keybind calls. It signals the daemon; Vaani never touches the compositor at runtime. |
 | `serve-formatter.sh` | serves the formatter model (base GGUF + LoRA) with llama.cpp. Point `VAANI_LLM_ENDPOINT` at it. |
 | `serve-refine-stt.sh` | starts the fine-tuned STT model server (wraps `serve-refine-stt.py` with the venv and adapter paths). Point `VAANI_STT_REFINE_ENDPOINT` at it. |
+| (both `serve-*.sh` above) | the daemon can spawn and kill these itself when `VAANI_LLM_SERVER` / `VAANI_STT_REFINE_SERVER` name them -- see `DOCS/configuration.md`, "Model servers" |
 | `serve-refine-stt.py` | the resident re-decode server: loads the fine-tuned Whisper once and answers `POST /transcribe` with raw PCM. |
 
 ## `TESTS/` — how "done" is proven

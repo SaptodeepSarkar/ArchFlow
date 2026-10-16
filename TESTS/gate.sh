@@ -30,6 +30,7 @@ run_one() {
     18) exec gates/gate-18.sh ;;
     19) exec gates/gate-19.sh ;;
     20) exec gates/gate-20.sh ;;
+    21) exec gates/gate-21.sh ;;
     *) echo "gate $1 not implemented yet"; exit 2 ;;
   esac
 }
@@ -54,7 +55,8 @@ GATES='01|fixtures-contracts|python3 test_fixtures.py
 17|live-pipeline|gates/gate-17.sh
 18|live-ui|gates/gate-18.sh
 19|formatter-pipeline|gates/gate-19.sh
-20|fine-tuned-stt|gates/gate-20.sh'
+20|fine-tuned-stt|gates/gate-20.sh
+21|model-lifecycle|gates/gate-21.sh'
 
 run_gates() { # $1 = specs, one per line as nn|name|command
   local nn name cmd
