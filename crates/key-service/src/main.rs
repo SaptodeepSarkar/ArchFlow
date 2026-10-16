@@ -321,12 +321,16 @@ mod handoff {
 // Phase 13 constructs them.
 mod control;
 mod timeouts;
+mod vad;
 #[allow(dead_code)]
 mod cancel;
 
 // Safety cap: a run never records longer than this, even if the second
 // press never comes.
 const MAX_RECORD_SECS: u64 = 60;
+
+/// s16 mono at 16 kHz is 32 bytes per millisecond of audio.
+const BYTES_PER_MS: usize = 32;
 
 /// One live run: open mic + STT stream (words show while speaking, until
 /// 2nd press / cap / shutdown) -> format with config vocab -> type. Every
@@ -371,13 +375,20 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
 
     let mut committed: Vec<String> = Vec::new();
     let mut partial = String::new();
+    let mut vad = vad::Vad::new();
     let t0 = std::time::Instant::now();
     loop {
         // 50 ms tick: chunk in, words out, then check the stop conditions.
+        let mut got_ms = 0u32;
         if let Some(rx) = rec.chunks() {
             match rx.recv_timeout(std::time::Duration::from_millis(50)) {
                 Ok(chunk) => {
-                    control::amplitude(chunk_rms(&chunk));
+                    // Count real audio time, not loop iterations: pw-record
+                    // hands over small chunks far more often than CHUNK_MS.
+                    got_ms = (chunk.len() / BYTES_PER_MS) as u32;
+                    // Bars are gain-scaled: speech sits well below full scale.
+                    let level = chunk_rms(&chunk);
+                    control::amplitude((level * 4.0).min(1.0));
                     let _ = stt.feed(&chunk);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -412,6 +423,15 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
             log("error", "shutdown during recording, run aborted");
             return;
         }
+        // Auto-stop on end of speech: the user speaks once and never
+        // presses twice. A second press / the Stop button still end the
+        // run early, and the cap covers a stuck detector.
+        if got_ms > 0 {
+            if let vad::Decision::End { heard } = vad.tick(got_ms, changed) {
+                log("idle", &format!("end of speech (heard={heard})"));
+                break;
+            }
+        }
         if GOT_TRIGGER.swap(false, Ordering::SeqCst)
             || control::take_stop()
             || t0.elapsed().as_secs() >= MAX_RECORD_SECS
@@ -422,7 +442,11 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
     rec.stop_stream();
     log("transcribing", &format!("{} words decoded", committed.len()));
     control::state("TRANSCRIBING", "Transcribing");
-    let stats = match stt.finish() {
+    // Words flushed by the backend at end-of-stream land here; losing them
+    // was why short runs typed nothing.
+    let stats = match stt.finish(&mut |w| {
+        committed.push(w.text.clone());
+    }) {
         Ok(s) => s,
         Err(e) => {
             ui.dismiss();
@@ -448,9 +472,11 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
         .chain(cfg.links.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .collect();
     control::state("CLEANING", "Cleaning transcript");
-    let out = llm_formatter::format_with_vocab(&text, &pairs);
+    // The PRD's pipeline: raw STT -> formatter LLM -> typed text. Falls back
+    // to the rule engine if no LLM answers (see llm-formatter).
+    let (out, backend) = llm_formatter::format_pipeline(&text, &pairs);
     control::state("INSERTING", "Typing clean text");
-    log("writing", &format!("typing {} chars", out.len()));
+    log("writing", &format!("typing {} chars via {backend}", out.len()));
     // pill_hidden=true: the overlay sets keyboardFocus None, so keystrokes
     // reach the window focused before the run started.
     let result = typing_helper::type_text(&out, true);
@@ -470,6 +496,77 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
         }
     }
     ui.dismiss();
+}
+
+/// Gate helper for the bug that made short runs type nothing: the streaming
+/// path must deliver the words Vosk flushes at end-of-stream. Feeds a wav's
+/// PCM into a live session, never polls it, and reports what `finish` handed
+/// back.
+fn stream_test(wav: &str) -> i32 {
+    let (python, model) = match (stt_manager::resolve_python(), stt_manager::resolve_model()) {
+        (Some(p), Some(m)) => (p, m),
+        _ => {
+            println!("STREAM-FAIL no STT python/model");
+            return 1;
+        }
+    };
+    let wav_bytes = match std::fs::read(wav) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("STREAM-FAIL read {wav}: {e}");
+            return 1;
+        }
+    };
+    let Some(pcm) = pcm_from_wav(&wav_bytes) else {
+        println!("STREAM-FAIL {wav} is not PCM wav data");
+        return 1;
+    };
+    let mut stt = match stt_manager::LiveSession::start(&python, &model) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("STREAM-FAIL start: {e}");
+            return 1;
+        }
+    };
+    // Feed as the mic would (3200 B ≈ 100 ms), with no poll() at all.
+    for chunk in pcm.chunks(3200) {
+        if stt.feed(chunk).is_err() {
+            break;
+        }
+    }
+    let mut words: Vec<String> = Vec::new();
+    let stats = match stt.finish(&mut |w| words.push(w.text.clone())) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("STREAM-FAIL finish: {e}");
+            return 1;
+        }
+    };
+    println!(
+        "STREAM-TAIL words={} flushed_by_finish={} text={}",
+        stats.words,
+        words.len(),
+        words.join(" ")
+    );
+    0
+}
+
+/// PCM payload of a RIFF/WAVE file (skips the header chunks).
+fn pcm_from_wav(bytes: &[u8]) -> Option<&[u8]> {
+    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+    let mut i = 12;
+    while i + 8 <= bytes.len() {
+        let id = &bytes[i..i + 4];
+        let len = u32::from_le_bytes([bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]]) as usize;
+        let body = i + 8;
+        if id == b"data" {
+            return bytes.get(body..(body + len).min(bytes.len()));
+        }
+        i = body + len + (len & 1);
+    }
+    None
 }
 
 /// Gate/test entry: full chain on a wav FILE (no mic): transcribe ->
@@ -506,6 +603,8 @@ fn pipeline_test(wav: &str, cfg_path: &str) -> i32 {
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .chain(cfg.links.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .collect();
+    // Rule engine on purpose: the gates own a deterministic contract
+    // (20/20 exact); the LLM path is covered by its own gate.
     let out = llm_formatter::format_with_vocab(words.trim(), &pairs);
     match typing_helper::type_text(&out, true) {
         Ok(_) => {
@@ -535,8 +634,7 @@ fn chunk_rms(pcm: &[u8]) -> f64 {
     if count == 0 {
         return 0.0;
     }
-    // Speech sits well below full scale, so scale up for a visible bar.
-    ((sum / count as f64).sqrt() / 32768.0 * 4.0).min(1.0)
+    (sum / count as f64).sqrt() / 32768.0
 }
 
 /// Trailing window of what is being said (finals + current partial): the
@@ -613,6 +711,39 @@ fn main() {
             .cloned()
             .unwrap_or_else(|| "hello world".to_owned());
         std::process::exit(handoff::selftest(&sample));
+    }
+    // Same call the run pipeline makes, so gates can prove which backend the
+    // daemon actually uses (LLM when reachable, rules otherwise).
+    if let Some(i) = args.iter().position(|a| a == "--format-test") {
+        let raw = args.get(i + 1).cloned().unwrap_or_default();
+        if raw.is_empty() {
+            println!("FORMAT-TEST usage: --format-test \"<raw transcript>\"");
+            std::process::exit(2);
+        }
+        let cfg_path = args.get(i + 2).cloned().unwrap_or_else(|| {
+            format!(
+                "{}/.config/vaani/vaani.conf",
+                std::env::var("HOME").unwrap_or_else(|_| ".".into())
+            )
+        });
+        let cfg = vaani_config::load(std::path::Path::new(&cfg_path)).config;
+        let pairs: Vec<(&str, &str)> = cfg
+            .names
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .chain(cfg.links.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+            .collect();
+        let (out, backend) = llm_formatter::format_pipeline(&raw, &pairs);
+        println!("FORMAT-TEST backend={backend} text={out}");
+        std::process::exit(0);
+    }
+    if let Some(i) = args.iter().position(|a| a == "--stream-test") {
+        let wav = args.get(i + 1).cloned().unwrap_or_default();
+        if wav.is_empty() {
+            println!("STREAM-FAIL usage: --stream-test <wav>");
+            std::process::exit(2);
+        }
+        std::process::exit(stream_test(&wav));
     }
     if let Some(i) = args.iter().position(|a| a == "--pipeline-test") {
         let wav = args.get(i + 1).cloned().unwrap_or_default();
@@ -708,7 +839,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{chunk_rms, live_window};
+    use super::{chunk_rms, live_window, pcm_from_wav};
 
     fn w(s: &str) -> Vec<String> {
         s.split_whitespace().map(str::to_string).collect()
@@ -737,4 +868,20 @@ mod tests {
         assert!(chunk_rms(&[1, 2, 3]) >= 0.0);
     }
 
+
+    #[test]
+    fn wav_payload_is_found() {
+        // Minimal canonical 44-byte header + 4 bytes of samples.
+        let mut w = Vec::new();
+        w.extend_from_slice(b"RIFF");
+        w.extend_from_slice(&40u32.to_le_bytes());
+        w.extend_from_slice(b"WAVEfmt ");
+        w.extend_from_slice(&16u32.to_le_bytes());
+        w.extend_from_slice(&[0u8; 16]);
+        w.extend_from_slice(b"data");
+        w.extend_from_slice(&4u32.to_le_bytes());
+        w.extend_from_slice(&[1, 2, 3, 4]);
+        assert_eq!(pcm_from_wav(&w), Some(&[1u8, 2, 3, 4][..]));
+        assert_eq!(pcm_from_wav(b"not a wav"), None);
+    }
 }

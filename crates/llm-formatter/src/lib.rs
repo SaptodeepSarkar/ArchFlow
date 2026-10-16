@@ -21,6 +21,7 @@
 //! 20/20 at p95 ~1 ms: kept (success-with-evidence, revisit only if the
 //! gate is redesigned around a warm server).
 
+pub mod llm;
 pub mod vocab;
 
 /// Spoken filler tokens dropped wherever they appear (whole-word match).
@@ -176,6 +177,22 @@ pub fn format(raw: &str) -> String {
 /// vaani.conf, ordered pairs from vaani-config).
 pub fn format_with_vocab(raw: &str, pairs: &[(&str, &str)]) -> String {
     format_impl(raw, pairs)
+}
+
+/// The PRD's pipeline: raw STT -> formatter LLM -> typed text. Falls back to
+/// the deterministic rule engine whenever the LLM is unavailable or its
+/// answer does not look like formatting, so dictation never types a model's
+/// commentary. `pairs` drives both paths (the LLM gets them in the prompt).
+pub fn format_pipeline(raw: &str, pairs: &[(&str, &str)]) -> (String, &'static str) {
+    let owned: Vec<(String, String)> = pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    let endpoint = llm::default_endpoint();
+    if let Some(out) = llm::format_llm(raw, &endpoint, &owned) {
+        return (out, "llm");
+    }
+    (format_impl(raw, pairs), "rules")
 }
 
 fn format_impl(raw: &str, expansions: &[(&str, &str)]) -> String {

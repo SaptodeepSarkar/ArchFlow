@@ -21,7 +21,16 @@
 
 ## LLM formatter (same process model as STT manager)
 
-1. Default: Qwen2.5-1.5B-Instruct Q4 (proven on this machine class for harder JSON work).
-2. Input: raw STT transcript. Output: formatted plain text only, no commentary.
-3. Rules: strip fillers, drop self-corrected sentences (keep the correction), expand user-defined names/places/links verbatim.
-4. Unloads after timeout like every other helper.
+1. Raw STT transcript in, formatted text out - per the working flow, the text
+   that gets typed is the formatter's, never the raw STT.
+2. Backend: any OpenAI-compatible chat endpoint on this machine
+   (`VAANI_LLM_ENDPOINT`, default `http://127.0.0.1:8081`), e.g.
+   Qwen2.5-1.5B-Instruct Q4 served by llama-server; ~90 ms warm on this box.
+3. Prompt contract: strip fillers, keep the correction, fix capitalization and
+   punctuation, expand the configured `[names]`/`[links]` pairs, and reply
+   with ONLY the formatted text.
+4. Deterministic rule engine answers when no endpoint is reachable, or when the
+   model's reply fails a sanity check (empty, a preamble, or 3x the input):
+   dictation must still work with no LLM around.
+5. No commentary, ever - that sanity check is what keeps a model's musings out
+   of the user's document.

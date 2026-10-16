@@ -335,9 +335,12 @@ impl LiveSession {
         out
     }
 
-    /// Close the stream, wait for the backend's final words, reap the child.
+    /// Close the stream, wait for the backend's finals and reap the child.
+    /// Words flushed after the last [`LiveSession::poll`] (which is where
+    /// Vosk emits the tail of an utterance) are handed to `on_word`, so they
+    /// can never be dropped on the floor.
     /// Safe to call twice; the second call returns empty stats.
-    pub fn finish(&mut self) -> std::io::Result<Stats> {
+    pub fn finish(&mut self, on_word: &mut dyn FnMut(&Word)) -> std::io::Result<Stats> {
         self.stdin = None; // EOF: backend flushes finals and exits
         let mut stats = Stats::default();
         let mut saw_done = false;
@@ -347,6 +350,10 @@ impl LiveSession {
                     stats = s;
                     saw_done = true;
                     break;
+                }
+                Ok(LiveEvent::Word(w)) => {
+                    stats.words += 1;
+                    on_word(&w);
                 }
                 Ok(_) => {}
                 Err(_) => break,

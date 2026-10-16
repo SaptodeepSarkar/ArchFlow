@@ -53,6 +53,17 @@ else
   bad "stream mode finals/DONE"
 fi
 
+# 1b. tail words: the streaming path must hand back the words Vosk flushes at
+# end-of-stream. Losing them is why short runs used to type nothing.
+TAILOUT="$("$ROOT/target/debug/vaani-key-service" --stream-test \
+  "$ROOT/TESTS/fixtures/audio/s1-hello.wav" 2>/dev/null | tail -1)"
+TAILN="$(printf '%s' "$TAILOUT" | grep -o 'flushed_by_finish=[0-9]*' | cut -d= -f2)"
+if [ "${TAILN:-0}" -ge 2 ]; then
+  ok "end-of-stream words are delivered ($TAILOUT)"
+else
+  bad "end-of-stream words are delivered (got: $TAILOUT)"
+fi
+
 # 2. protocol: start the daemon, drive a full run with a socket client.
 printf 'hotkey = SUPER+H\nui_words = 4\nidle_timeout_s = 120\n' >"$TMP/vaani.conf"
 mkdir -p "$TMP/shim"
@@ -72,29 +83,24 @@ for _ in $(seq 1 50); do grep -q 'state=idle' "$TMP/svc.log" 2>/dev/null && brea
 # Client: connect, read the snapshot, press "stop" after a moment, collect
 # every line until the run ends.
 python3 - "$SOCK" "$ROOT/packaging/vaani-trigger" "$TMP/client.out" <<'EOF'
-import json, os, socket, subprocess, sys, time
+import json, socket, subprocess, sys, threading, time
 sock_path, trigger, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(20)
 s.connect(sock_path)
-f = s.makefile("r")
 lines = []
-def pump(seconds):
-    end = time.time() + seconds
-    while time.time() < end:
-        s.settimeout(max(0.1, end - time.time()))
-        try:
-            line = f.readline()
-        except socket.timeout:
-            return
-        if not line:
-            return
-        lines.append(line.strip())
-subprocess.run([trigger], check=False)   # press 1 -> STARTING/RECORDING
-pump(6)
+def reader():
+    f = s.makefile("r")          # blocking reads only: timeouts here break it
+    for line in f:
+        line = line.strip()
+        if line:
+            lines.append(line)
+t = threading.Thread(target=reader, daemon=True)
+t.start()
+subprocess.run([trigger], check=False)   # ONE press: the daemon auto-stops
+time.sleep(6)
 s.sendall((json.dumps({"protocol_version": 1, "request_id": "qml-1",
                        "session_id": None, "kind": {"op": "stop"}}) + "\n").encode())
-pump(8)
+time.sleep(8)
 open(out_path, "w").write("\n".join(lines) + "\n")
 EOF
 if [ -s "$TMP/client.out" ]; then ok "client received daemon lines"; else bad "client received daemon lines"; fi
@@ -167,6 +173,20 @@ for line in open(sys.argv[1]):
 sys.exit(1)
 EOF
 then ok "daemon published a finishing state (READY/ERROR/IDLE)"; else bad "daemon published a finishing state"; fi
+
+# 2b. auto-stop: ONE press must be enough. No second press, no Stop op.
+rm -f /tmp/vaani-ui-cancel
+"$ROOT/packaging/vaani-trigger"        # single press
+AUTO=0
+for _ in $(seq 1 60); do
+  grep -q 'end of speech' "$TMP/svc.log" 2>/dev/null && { AUTO=1; break; }
+  sleep 0.5
+done
+if [ "$AUTO" -eq 1 ] && grep -q 'run finished' "$TMP/svc.log"; then
+  ok "run ended on silence without a second press ($(grep -o 'heard=[a-z]*' "$TMP/svc.log" | tail -1))"
+else
+  bad "run auto-ended on silence (see $TMP/svc.log)"
+fi
 
 # 3. daemon logic tests + the real overlay config loading clean.
 if cargo test -p vaani-key-service >"$TMP/cargo-test.log" 2>&1; then

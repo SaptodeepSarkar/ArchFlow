@@ -92,7 +92,7 @@ map_row "typing: wtype only, no paste path" "PRD/helpers" "08" load "-"
 map_row "typing: clipboard copy every run" "PRD/helpers" "08" load "-"
 map_row "STT: dGPU pick else iGPU fallback tier" "PRD/helpers" "05" load "-"
 map_row "STT: word stream + full unload" "PRD/helpers" "05" load "-"
-map_row "formatter: Qwen2.5-1.5B Q4 default backend" "PRD/helpers" "-" load "formatter-swap: rule engine ships, passes 20/20 contract (see deviations)"
+map_row "formatter LLM backend (typed text is the formatter output)" "PRD/helpers" "19" load "-"
 map_row "formatter rules: fillers/corrections/verbatim" "PRD/helpers" "07 12" load "-"
 map_row "helpers unload after timeout" "PRD/helpers" "10" load "-"
 # --- PRD/pill-ui.md ---
