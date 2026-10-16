@@ -4,6 +4,9 @@ members = [
     "crates/vaani-config",
     "crates/key-service",
     "crates/audio-helper",
+    "crates/llm-formatter",
+    "crates/stt-manager",
+    "crates/typing-helper",
 ]
 
 [workspace.package]

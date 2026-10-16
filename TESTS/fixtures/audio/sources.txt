@@ -1,0 +1,4 @@
+16kHz mono fixture wavs for gate-05. s1/s2 converted (ffmpeg) from Kyuma
+real-mic captures cava_CleanMic_20261016-113719/114249.wav (48kHz stereo);
+s3-s5 are ffmpeg rate/volume/crop transforms of s1/s2 (still word-bearing).
+Reference transcript for all: "hello hello" (vosk small-en-us).

@@ -1,0 +1,13 @@
+[package]
+name = "llm-formatter"
+version = "0.1.0"
+edition = "2021"
+description = "Vaani transcript formatter (Phase 07): filler strip, keep-the-correction, verbatim name/link expansion"
+
+[lib]
+name = "llm_formatter"
+path = "src/lib.rs"
+
+[[bin]]
+name = "llm-format"
+path = "src/bin/llm-format.rs"

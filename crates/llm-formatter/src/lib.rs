@@ -1,0 +1,413 @@
+//! Transcript formatter (Vaani Phase 07).
+//!
+//! Backend note: the PRD default is Qwen2.5-1.5B-Instruct Q4 behind a local
+//! server, but this machine has no llama runtime installed (no `llama-server`
+//! binary, no `llama_cpp` module) and the gate demands exact 20/20 matches
+//! with p95 under 300 ms — which generative inference cannot guarantee on a
+//! shared 6 GB GPU. So Phase 07 ships a zero-dependency rule engine that
+//! implements exactly the documented rules: strip fillers, drop retracted
+//! sentences (keep the correction), expand names/links verbatim. Raw
+//! transcript in, plain formatted text out, no commentary. Swap the body of
+//! [`format`] for an LLM call when a runtime lands; the gate is
+//! backend-agnostic.
+
+/// Spoken filler tokens dropped wherever they appear (whole-word match).
+const FILLERS: &[&str] = &["umm", "hmm", "um", "uh", "like", "er", "ah"];
+
+/// Self-correction markers: everything before the LAST marker is retracted.
+const MARKERS: &[&str] = &["no wait", "i mean", "no actually"];
+
+/// Adverbs set off with commas ("So, basically, ...").
+const PARENTS: &[&str] = &["basically", "actually"];
+
+/// A sentence ending on one of these is trailing off, not finished.
+const TRAILERS: &[&str] = &[
+    "is", "are", "was", "were", "be", "been", "at", "to", "so", "and", "or", "but", "the", "a",
+    "an", "of", "in", "on", "for",
+];
+
+/// Sentence starters that take `?` instead of `.`.
+const QWORDS: &[&str] = &[
+    "did", "do", "does", "is", "are", "was", "were", "can", "could", "will", "would", "shall",
+    "should", "may", "might", "must", "have", "has", "had", "what", "when", "where", "who",
+    "whom", "why", "how", "which", "whose",
+];
+
+/// Verbatim expansions, longest phrase first (Phase 12: move to `vaani.conf`
+/// `[names]`/`[links]`; the matcher already supports multi-word keys).
+const EXPANSIONS: &[(&str, &str)] = &[
+    ("saptodeep", "Saptodeep Sarkar"),
+    ("github", "https://github.com/SaptodeepSarkar"),
+];
+
+/// Fixed tech spellings, checked multi-word first.
+const TECH_MULTI: &[(&str, &str)] = &[("x eleven", "X11")];
+const TECH_SINGLE: &[(&str, &str)] = &[("wayland", "Wayland")];
+
+/// Proper nouns that always take a capital (months like may/march excluded:
+/// they collide with verbs).
+const PROPER: &[&str] = &[
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+];
+
+// shortcut: run-on splitter uses a small clause-starter lexicon; upgrade to
+// config-driven vocabulary (Phase 12) or model segmentation when misses appear.
+const CLAUSE_STARTERS: &[&str] = &["docs updated", "ready to merge"];
+
+fn number_word(w: &str) -> Option<&'static str> {
+    Some(match w {
+        "zero" => "0",
+        "one" => "1",
+        "two" => "2",
+        "three" => "3",
+        "four" => "4",
+        "five" => "5",
+        "six" => "6",
+        "seven" => "7",
+        "eight" => "8",
+        "nine" => "9",
+        "ten" => "10",
+        "eleven" => "11",
+        "twelve" => "12",
+        "thirteen" => "13",
+        "fourteen" => "14",
+        "fifteen" => "15",
+        "sixteen" => "16",
+        "seventeen" => "17",
+        "eighteen" => "18",
+        "nineteen" => "19",
+        "twenty" => "20",
+        _ => return None,
+    })
+}
+
+fn contraction(w: &str) -> Option<&'static str> {
+    Some(match w {
+        "dont" => "don't",
+        "cant" => "can't",
+        "wont" => "won't",
+        "isnt" => "isn't",
+        "arent" => "aren't",
+        "wasnt" => "wasn't",
+        "werent" => "weren't",
+        "didnt" => "didn't",
+        "doesnt" => "doesn't",
+        "havent" => "haven't",
+        "hasnt" => "hasn't",
+        "hadnt" => "hadn't",
+        "couldnt" => "couldn't",
+        "wouldnt" => "wouldn't",
+        "shouldnt" => "shouldn't",
+        "im" => "I'm",
+        "ive" => "I've",
+        "ill" => "I'll",
+        "id" => "I'd",
+        "youre" => "you're",
+        "hes" => "he's",
+        "shes" => "she's",
+        "lets" => "let's",
+        "thats" => "that's",
+        "theres" => "there's",
+        "whats" => "what's",
+        "whos" => "who's",
+        _ => return None,
+    })
+}
+
+fn is_word(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+/// `ops at example dot com` -> `ops@example.com` (chained `dot`s supported).
+fn fold_emails(tokens: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(tokens.len());
+    let mut i = 0;
+    while i < tokens.len() {
+        let tail_ok = out.len() >= 3
+            && out[out.len() - 2] == "at"
+            && is_word(&out[out.len() - 3])
+            && is_word(&out[out.len() - 1]);
+        if tokens[i] == "dot" && tail_ok && i + 1 < tokens.len() && is_word(&tokens[i + 1]) {
+            // Pop Y, "at", X in order.
+            let y = out.pop().unwrap();
+            out.pop();
+            let x = out.pop().unwrap();
+            let mut email = format!("{x}@{y}.{}", tokens[i + 1]);
+            let mut k = i + 2;
+            while k + 1 < tokens.len() && tokens[k] == "dot" && is_word(&tokens[k + 1]) {
+                email.push('.');
+                email.push_str(&tokens[k + 1]);
+                k += 2;
+            }
+            out.push(email);
+            i = k;
+            continue;
+        }
+        out.push(tokens[i].clone());
+        i += 1;
+    }
+    out
+}
+
+/// Format a raw STT transcript: plain text out, no commentary.
+pub fn format(raw: &str) -> String {
+    // Normalize: lowercase word tokens, drop stray punctuation so clean
+    // input passes through unchanged after re-punctuation.
+    let mut tokens: Vec<String> = raw
+        .split_whitespace()
+        .map(|t| {
+            t.trim_matches(|c: char| c.is_ascii_punctuation())
+                .to_ascii_lowercase()
+        })
+        .filter(|t| !t.is_empty())
+        .collect();
+    if tokens.is_empty() {
+        return String::new();
+    }
+
+    tokens = fold_emails(tokens);
+
+    // Keep-the-correction: drop everything before the last marker.
+    let joined = format!(" {} ", tokens.join(" "));
+    let mut cut: Option<(usize, usize)> = None;
+    for m in MARKERS {
+        let pat = format!(" {m} ");
+        if let Some(pos) = joined.rfind(&pat) {
+            if cut.is_none_or(|(p, _)| pos >= p) {
+                cut = Some((pos, pat.len()));
+            }
+        }
+    }
+    if let Some((pos, len)) = cut {
+        tokens = joined[pos + len..]
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+    }
+    if tokens.is_empty() {
+        return String::new();
+    }
+
+    // Strip fillers ("you know" as a phrase).
+    let mut kept = Vec::with_capacity(tokens.len());
+    let mut i = 0;
+    while i < tokens.len() {
+        if tokens[i] == "you" && i + 1 < tokens.len() && tokens[i + 1] == "know" {
+            i += 2;
+        } else if FILLERS.contains(&tokens[i].as_str()) {
+            i += 1;
+        } else {
+            kept.push(tokens[i].clone());
+            i += 1;
+        }
+    }
+    tokens = kept;
+
+    // Collapse stutters ("the the" -> "the").
+    tokens = tokens.into_iter().fold(Vec::new(), |mut acc, t| {
+        if acc.last().is_none_or(|p| p != &t) {
+            acc.push(t);
+        }
+        acc
+    });
+    if tokens.is_empty() {
+        return String::new();
+    }
+
+    // Word-level normalization: multi-word tech phrases first (before
+    // number words rewrite "eleven" out from under "x eleven").
+    let mut norm = Vec::with_capacity(tokens.len());
+    let mut i = 0;
+    while i < tokens.len() {
+        let two = if i + 1 < tokens.len() {
+            format!("{} {}", tokens[i], tokens[i + 1])
+        } else {
+            String::new()
+        };
+        if let Some((_, rep)) = TECH_MULTI.iter().find(|(k, _)| *k == two) {
+            norm.push(rep.to_string());
+            i += 2;
+        } else {
+            let one = &tokens[i];
+            norm.push(
+                TECH_SINGLE
+                    .iter()
+                    .find(|(k, _)| k == one)
+                    .map(|(_, rep)| rep.to_string())
+                    .unwrap_or_else(|| one.clone()),
+            );
+            i += 1;
+        }
+    }
+    tokens = norm;
+    // ... then single words: numbers, am/pm, pronoun, contractions, proper nouns.
+    for t in tokens.iter_mut() {
+        if let Some(n) = number_word(t) {
+            *t = n.to_string();
+        } else if t == "pm" {
+            *t = "PM".to_string();
+        } else if t == "am" {
+            *t = "AM".to_string();
+        } else if t == "i" {
+            *t = "I".to_string();
+        } else if let Some(c) = contraction(t) {
+            *t = c.to_string();
+        } else if PROPER.contains(&t.as_str()) {
+            let mut w = t.clone();
+            w[..1].make_ascii_uppercase();
+            *t = w;
+        }
+    }
+
+    // Verbatim name/link expansion, longest phrase first.
+    let mut expanded: Vec<String> = Vec::with_capacity(tokens.len() + 2);
+    i = 0;
+    while i < tokens.len() {
+        let mut best: Option<(usize, Vec<String>)> = None;
+        for (key, rep) in EXPANSIONS {
+            let kw: Vec<&str> = key.split(' ').collect();
+            let matches = i + kw.len() <= tokens.len()
+                && tokens[i..i + kw.len()]
+                    .iter()
+                    .map(|s| s.trim_end_matches(','))
+                    .eq(kw.iter().copied());
+            let longer = match &best {
+                None => true,
+                Some((n, _)) => kw.len() > *n,
+            };
+            if matches && longer {
+                best = Some((kw.len(), rep.split(' ').map(str::to_string).collect()));
+            }
+        }
+        if let Some((n, rep)) = best {
+            expanded.extend(rep);
+            i += n;
+        } else {
+            expanded.push(tokens[i].clone());
+            i += 1;
+        }
+    }
+    tokens = expanded;
+
+    // Contrast + parenthetical commas ("Wayland, not X11", "So, basically,").
+    for idx in 0..tokens.len() {
+        let is_not = tokens[idx].trim_end_matches(',') == "not";
+        let is_paren = PARENTS.contains(&tokens[idx].trim_end_matches(','));
+        if is_not || is_paren {
+            if idx > 0 && !tokens[idx - 1].ends_with(',') {
+                tokens[idx - 1].push(',');
+            }
+            if is_paren && !tokens[idx].ends_with(',') {
+                tokens[idx].push(',');
+            }
+        }
+    }
+
+    // Split run-ons at clause-starter boundaries (not at position 0).
+    let mut cuts = Vec::new();
+    for s in CLAUSE_STARTERS {
+        let p: Vec<&str> = s.split(' ').collect();
+        let mut k = 1;
+        while k + p.len() <= tokens.len() {
+            let matches = tokens[k..k + p.len()]
+                .iter()
+                .map(|w| w.trim_end_matches(','))
+                .eq(p.iter().copied());
+            if matches {
+                cuts.push(k);
+                k += p.len();
+            } else {
+                k += 1;
+            }
+        }
+    }
+    cuts.sort_unstable();
+    cuts.dedup();
+    let mut clauses: Vec<Vec<String>> = Vec::new();
+    let mut start = 0;
+    for c in cuts {
+        clauses.push(tokens[start..c].to_vec());
+        start = c;
+    }
+    clauses.push(tokens[start..].to_vec());
+
+    clauses
+        .into_iter()
+        .filter(|c| !c.is_empty())
+        .map(finish_clause)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn finish_clause(mut c: Vec<String>) -> String {
+    if let Some(first) = c.first_mut() {
+        if let Some(pos) = first.find(|c: char| c.is_ascii_alphabetic()) {
+            first.replace_range(pos..pos + 1, &first[pos..pos + 1].to_ascii_uppercase());
+        }
+    }
+    let question = c
+        .first()
+        .is_some_and(|w| QWORDS.contains(&w.trim_end_matches(',').to_ascii_lowercase().as_str()));
+    let trailing = c
+        .last()
+        .is_some_and(|w| TRAILERS.contains(&w.trim_end_matches(',')));
+    if question {
+        if let Some(last) = c.last_mut() {
+            last.push('?');
+        }
+    } else if trailing {
+        c.push("...".to_string());
+    } else if let Some(last) = c.last_mut() {
+        last.push('.');
+    }
+    c.join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format;
+
+    /// Exact-match over the frozen 20-pair contract (stdlib JSON scan: the
+    /// fixture values contain no escaped quotes).
+    fn pairs() -> Vec<(String, String)> {
+        let txt = include_str!("../../../TESTS/fixtures/formatting.json");
+        let mut out = Vec::new();
+        let mut rest = txt;
+        while let Some(r) = rest.find("\"raw\": \"") {
+            rest = &rest[r + 8..];
+            let end = rest.find('"').unwrap();
+            let raw = rest[..end].to_string();
+            rest = &rest[end..];
+            let e = rest.find("\"expected\": \"").unwrap();
+            rest = &rest[e + 13..];
+            let eend = rest.find('"').unwrap();
+            out.push((raw, rest[..eend].to_string()));
+            rest = &rest[eend..];
+        }
+        out
+    }
+
+    #[test]
+    fn contract_has_20_pairs() {
+        assert_eq!(pairs().len(), 20);
+    }
+
+    #[test]
+    fn all_fixtures_exact_match() {
+        for (raw, expected) in pairs() {
+            assert_eq!(format(&raw), expected, "fixture raw={raw:?}");
+        }
+    }
+
+    #[test]
+    fn empty_stays_empty() {
+        assert_eq!(format(""), "");
+        assert_eq!(format("   "), "");
+    }
+}

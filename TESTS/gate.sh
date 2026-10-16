@@ -14,7 +14,11 @@ run_one() {
     02) exec gates/gate-02.sh ;;
     03) exec gates/gate-03.sh ;;
     04) exec gates/gate-04.sh ;;
+    05) exec gates/gate-05.sh ;;
     06) exec gates/gate-06.sh ;;
+    07) exec gates/gate-07.sh ;;
+    08) exec gates/gate-08.sh ;;
+    09) exec gates/gate-09.sh ;;
     *) echo "gate $1 not implemented yet"; exit 2 ;;
   esac
 }
@@ -26,11 +30,11 @@ gate 01 fixtures-contracts "python3 test_fixtures.py"
 gate 02 config-parse "gates/gate-02.sh"
 gate 03 hotkey-idle "gates/gate-03.sh"
 gate 04 audio-helper "gates/gate-04.sh"
-gate 05 stt-stream ""
+gate 05 stt-stream "gates/gate-05.sh"
 gate 06 pill-ui "gates/gate-06.sh"
-gate 07 llm-format ""
-gate 08 typing ""
-gate 09 key-lifecycle ""
+gate 07 llm-format "gates/gate-07.sh"
+gate 08 typing "gates/gate-08.sh"
+gate 09 key-lifecycle "gates/gate-09.sh"
 gate 10 timeouts-offload ""
 gate 11 cancel-error ""
 gate 12 names-links ""

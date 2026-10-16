@@ -7,12 +7,24 @@ name = "audio-helper"
 version = "0.1.0"
 
 [[package]]
+name = "llm-formatter"
+version = "0.1.0"
+
+[[package]]
+name = "stt-manager"
+version = "0.1.0"
+
+[[package]]
+name = "typing-helper"
+version = "0.1.0"
+
+[[package]]
 name = "vaani-config"
 version = "0.1.0"
 
 [[package]]
 name = "vaani-key-service"
-version = "0.3.0"
+version = "0.9.0"
 dependencies = [
  "vaani-config",
 ]

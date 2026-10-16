@@ -1,8 +1,10 @@
 [package]
 name = "vaani-key-service"
-version = "0.3.0"
+version = "0.9.0"
 edition = "2021"
 
-# Phase 03: std + vaani-config path-dep only. No other dependencies.
+# Phase 09: std + vaani-config path-dep only. Sibling helpers are absent
+# so the handoff uses minimal local traits (see `shortcut:` in main.rs);
+# no path-deps added until those crates exist.
 [dependencies]
 vaani-config = { path = "../vaani-config" }

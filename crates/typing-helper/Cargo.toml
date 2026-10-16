@@ -1,0 +1,13 @@
+[package]
+name = "typing-helper"
+version = "0.1.0"
+edition = "2021"
+description = "Vaani keystroke output via wtype only, plus wl-copy clipboard copy (Phase 08)"
+
+[lib]
+name = "typing_helper"
+path = "src/lib.rs"
+
+[[bin]]
+name = "type-text"
+path = "src/bin/type-text.rs"

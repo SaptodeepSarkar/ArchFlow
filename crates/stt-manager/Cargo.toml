@@ -1,0 +1,9 @@
+[package]
+name = "stt-manager"
+version = "0.1.0"
+edition = "2021"
+description = "Vaani on-demand STT; streams words from 16kHz mono audio, unloads fully"
+
+[[bin]]
+name = "transcribe"
+path = "src/bin/transcribe.rs"
