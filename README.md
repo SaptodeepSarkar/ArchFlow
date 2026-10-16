@@ -11,4 +11,4 @@ Local-first voice typer for Linux. Press SUPER+H, speak, get cleaned text typed 
 
 ## Status
 
-Scaffold + Phase 0 spike pending. Full hypothesis and model picks live in the vault: AgentsMemory `Projects/Vaani/Hypothesis.md`.
+Scaffold + 16-phase plan (`DOCS/phases.md`). Gate 01 green, 02–16 pending. Full hypothesis and model picks live in the vault: AgentsMemory `Projects/Vaani/Hypothesis.md`.
