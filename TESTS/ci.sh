@@ -7,7 +7,7 @@
 # local formatter LLM (19's live half). Those stay local/on-box gates.
 #
 # This script is the honest subset for CI: pure logic, fixtures and contracts.
-set -u
+set -u -o pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -23,7 +23,16 @@ done
 
 step "rust: build + tests (whole workspace)"
 if cargo build --workspace --quiet; then note "workspace builds"; else bad "workspace build"; fi
-if cargo test --workspace --quiet 2>&1 | tail -25; then note "workspace tests"; else bad "workspace tests"; fi
+# Capture to a file, not a pipe: `cargo test | tail` reports tail's status,
+# so a failing test would sail through CI.
+TEST_LOG="/tmp/ci-cargo-test.log"
+if cargo test --workspace >"$TEST_LOG" 2>&1; then
+  note "workspace tests: $(grep -c '^test result: ok' "$TEST_LOG") targets, \
+$(grep -oE '^test result: ok. [0-9]+ passed' "$TEST_LOG" | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}') tests passed"
+else
+  bad "workspace tests"
+  grep -E '^test .* FAILED|panicked|^error' "$TEST_LOG" | head -15
+fi
 
 step "hermetic gates"
 for g in 01 02 07 10 11 12 19; do
