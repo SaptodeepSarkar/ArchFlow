@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vaani-config",
+    "crates/key-service",
+    "crates/audio-helper",
+]
+
+[workspace.package]
+edition = "2021"

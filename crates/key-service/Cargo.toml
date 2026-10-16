@@ -1,0 +1,8 @@
+[package]
+name = "vaani-key-service"
+version = "0.3.0"
+edition = "2021"
+
+# Phase 03: std + vaani-config path-dep only. No other dependencies.
+[dependencies]
+vaani-config = { path = "../vaani-config" }

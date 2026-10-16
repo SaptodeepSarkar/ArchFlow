@@ -1,0 +1,9 @@
+[package]
+name = "audio-helper"
+version = "0.1.0"
+edition = "2021"
+description = "Vaani on-demand PipeWire mic capture; RAM buffers only, never disk"
+
+[[bin]]
+name = "capture"
+path = "src/bin/capture.rs"

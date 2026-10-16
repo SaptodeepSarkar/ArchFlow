@@ -12,7 +12,18 @@ Rectangle {
 
     property string state: "listening" // listening | transcribing | writing | error
     property string words: "speak now ..."
+    property int trailingWindow: 4 // PRD default; key service may override from .conf
     signal cancelRequested()
+
+    // Never take keyboard focus: keystrokes must reach the previously focused window.
+    focus: false
+    activeFocusOnTab: false
+
+    // Last `trailingWindow` words of a full transcript (blank-safe).
+    function trail(text) {
+        var ws = String(text).split(/\s+/).filter(function (w) { return w.length > 0; });
+        return ws.slice(-pill.trailingWindow).join(" ");
+    }
 
     anchors {
         bottom: parent.bottom
@@ -30,6 +41,7 @@ Rectangle {
                 if (pill.state === "listening") return "● Listening";
                 if (pill.state === "transcribing") return "… Transcribing";
                 if (pill.state === "writing") return "✎ Writing";
+                if (pill.state === "error") return "✕ Error";
                 return "✕ Error";
             }
             color: "#cdd6f4"
@@ -37,7 +49,7 @@ Rectangle {
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: pill.words
+            text: pill.trail(pill.words)
             color: "#ffffff"
             font.pixelSize: 16
             elide: Text.ElideRight
@@ -53,6 +65,8 @@ Rectangle {
         }
         text: "✕"
         flat: true
+        focusPolicy: Qt.NoFocus
+        activeFocusOnTab: false
         onClicked: pill.cancelRequested()
     }
 }
