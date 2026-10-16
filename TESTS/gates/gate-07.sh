@@ -12,6 +12,9 @@ bad() { printf '  [RED] %s\n' "$1"; fail=$((fail + 1)); }
 
 TMP="$(mktemp -d /tmp/vaani-gate07.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
+# Baseline llama pids BEFORE the run (foreign servers, e.g. Kyuma's, are
+# expected here and must not fail check 5).
+LLAMA_BEFORE="$(pgrep -f '[l]lama-server|[l]lama_cpp|[l]lama-cpp' 2>/dev/null | tr '\n' ' ')"
 
 # 1. crate builds
 if cargo build -p llm-formatter >"$TMP/build.log" 2>&1; then
@@ -64,12 +67,21 @@ EOF
   cat "$TMP/score.log"
 fi
 
-# 5. model unloaded after: no llama runtime of OURS resident (bracket
-# trick so this check can never match its own shell), ...
-if pgrep -f '[l]lama-server|[l]lama_cpp|[l]lama-cpp' >/dev/null 2>&1; then
-  bad "llama runtime still resident after run"
+# 5. model unloaded after: no llama runtime STARTED BY THIS RUN lingers.
+# (Kyuma's own llama-server on :8081 is a foreign process and must not
+# fail this gate — compare pid sets, fail only on newcomers.)
+AFTER_LLAMA="$(pgrep -f '[l]lama-server|[l]lama_cpp|[l]lama-cpp' 2>/dev/null | tr '\n' ' ')"
+NEW_LLAMA=""
+for p in $AFTER_LLAMA; do
+  case " $LLAMA_BEFORE " in
+    *" $p "*) ;;
+    *) NEW_LLAMA="$NEW_LLAMA $p" ;;
+  esac
+done
+if [ -z "$NEW_LLAMA" ]; then
+  ok "no new llama runtime started by this run"
 else
-  ok "no llama runtime resident after run"
+  bad "llama runtime started and left resident:$NEW_LLAMA"
 fi
 # ...and no Vaani process holding VRAM (machine-wide GPU is shared with
 # the desktop; a foreign occupant must not fail this gate).

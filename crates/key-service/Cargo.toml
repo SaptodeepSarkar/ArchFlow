@@ -3,9 +3,12 @@ name = "vaani-key-service"
 version = "0.9.0"
 edition = "2021"
 
-# Phase 09: std + vaani-config + llm-formatter path-deps. The handoff's
-# LLM side delegates to the real llm-formatter crate; stt-manager stays
-# stubbed (API mismatch documented in the main.rs shortcut: comment).
+# Live pipeline: real audio/STT/format/type crates behind toggle triggers.
+# STT engines stay CPU (Vosk) so loads serialize trivially; the handoff
+# stub remains only for --handoff-test.
 [dependencies]
 vaani-config = { path = "../vaani-config" }
 llm-formatter = { path = "../llm-formatter" }
+audio-helper = { path = "../audio-helper" }
+stt-manager = { path = "../stt-manager" }
+typing-helper = { path = "../typing-helper" }

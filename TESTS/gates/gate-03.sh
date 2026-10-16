@@ -46,11 +46,11 @@ if ! hyprctl binds >/dev/null 2>&1; then
 fi
 ok "hyprctl reachable (instance $HYPRLAND_INSTANCE_SIGNATURE)"
 
-hbinds() { # count of SUPER+H binds currently registered
-  hyprctl binds -j 2>/dev/null | python3 -c \
-    "import json,sys; bs=json.load(sys.stdin); print(sum(1 for b in bs if b['key']=='H' and b['modmask']==64))"
+hhandle() { # 1 if OUR Lua bind handle exists, else 0 (hyprctl binds -j
+  # cannot see Lua-registered binds, so classic-bind counting is vacuous;
+  # assert against the handle global instead).
+  if hyprctl eval "assert(vaani_hotkey_${SRV} ~= nil)" >/dev/null 2>&1; then echo 1; else echo 0; fi
 }
-BASELINE_H="$(hbinds)"
 
 # 1. binary builds
 if cargo build --release -p vaani-key-service >"$TMP/build.log" 2>&1; then
@@ -77,12 +77,11 @@ else
   bad "service reaches idle (see $TMP/svc.log)"
 fi
 
-# 3. hotkey binding registers via the compositor (baseline + 1 SUPER+H bind)
-NOW_H="$(hbinds)"
-if [ "$NOW_H" -eq "$((BASELINE_H + 1))" ]; then
-  ok "SUPER+H bind registered via hyprctl ($BASELINE_H -> $NOW_H)"
+# 3. hotkey binding registered via the compositor (own Lua handle present)
+if [ "$(hhandle)" -eq 1 ]; then
+  ok "SUPER+H Lua handle vaani_hotkey_${SRV} registered via hyprctl"
 else
-  bad "SUPER+H bind registered (H binds: $BASELINE_H -> $NOW_H)"
+  bad "SUPER+H Lua handle registered (vaani_hotkey_${SRV} missing)"
 fi
 
 # 4. idle RSS under 20MB
@@ -93,17 +92,30 @@ else
   bad "idle RSS under 20MB (got '${RSS}' kB)"
 fi
 
-# 5. hotkey dispatcher fires the service, which stays resident
+# 5. hotkey dispatcher fires the service, which stays resident.
+# The trigger now starts a live run (toggle): send a 2nd press to stop it.
+# Stub wtype first on PATH so a non-silent mic can never type for real here.
+mkdir -p "$TMP/shim"
+printf '#!/usr/bin/env bash\necho "stub-fired $1" >>"$VAANI_WTYPE_LOG"\n' >"$TMP/shim/wtype"
+chmod +x "$TMP/shim/wtype"
+export PATH="$TMP/shim:$PATH" VAANI_WTYPE_LOG="$TMP/wtype.log"
+: >"$VAANI_WTYPE_LOG"
 kill -USR1 "$SRV" 2>/dev/null # exact command the bind's dispatcher runs
 TRIG=0
 for _ in $(seq 1 30); do
   grep -q 'state=triggered' "$TMP/svc.log" 2>/dev/null && { TRIG=1; break; }
   sleep 0.1
 done
-if [ "$TRIG" -eq 1 ] && kill -0 "$SRV" 2>/dev/null; then
-  ok "hotkey trigger logged, service still resident"
+kill -USR1 "$SRV" 2>/dev/null # 2nd press: stop recording, run the pipeline
+FIN=0
+for _ in $(seq 1 120); do
+  grep -q 'run finished' "$TMP/svc.log" 2>/dev/null && { FIN=1; break; }
+  sleep 0.5
+done
+if [ "$TRIG" -eq 1 ] && [ "$FIN" -eq 1 ] && kill -0 "$SRV" 2>/dev/null; then
+  ok "hotkey trigger logged, toggle run finished, service still resident"
 else
-  bad "hotkey trigger logged and resident (see $TMP/svc.log)"
+  bad "hotkey trigger logged and resident (trig=$TRIG fin=$FIN; see $TMP/svc.log)"
 fi
 
 # 6. no helpers spawned (no children, no helper processes anywhere)
@@ -121,16 +133,16 @@ wait "$SRV" 2>/dev/null
 CODE=$?
 SHUT=0
 grep -q 'state=shutting down' "$TMP/svc.log" 2>/dev/null && SHUT=1
-END_H="$BASELINE_H"
+END_H=1
 for _ in $(seq 1 50); do
-  END_H="$(hbinds)"
-  [ "$END_H" -eq "$BASELINE_H" ] && break
+  END_H="$(hhandle)"
+  [ "$END_H" -eq 0 ] && break
   sleep 0.1
 done
-if [ "$CODE" -eq 0 ] && [ "$SHUT" -eq 1 ] && [ "$END_H" -eq "$BASELINE_H" ]; then
-  ok "SIGTERM: exit 0, shutdown logged, bind removed ($NOW_H -> $END_H)"
+if [ "$CODE" -eq 0 ] && [ "$SHUT" -eq 1 ] && [ "$END_H" -eq 0 ]; then
+  ok "SIGTERM: exit 0, shutdown logged, Lua handle removed"
 else
-  bad "SIGTERM shutdown (exit=$CODE logged=$SHUT Hbinds=$NOW_H->$END_H)"
+  bad "SIGTERM shutdown (exit=$CODE logged=$SHUT handle-still-present=$END_H)"
 fi
 SRV=0 # already reaped; trap becomes a no-op for the kill
 

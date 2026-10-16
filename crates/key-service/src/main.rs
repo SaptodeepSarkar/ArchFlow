@@ -83,11 +83,16 @@ fn register_hotkey(hotkey: &str, pid: u32) -> Result<String, String> {
     let handle = format!("vaani_hotkey_{pid}");
     let code = format!("{handle} = hl.bind(\"{key}\", hl.dsp.exec_cmd(\"kill -USR1 {pid}\"))");
     hyprctl(&["eval", &code])?;
+    // Self-verify: the handle must exist or the bind silently did nothing
+    // (hyprctl eval exits 0 even when nothing registers).
+    hyprctl(&["eval", &format!("assert({handle} ~= nil, \"bind missing\")")]).map_err(|e| {
+        format!("hotkey bind verification failed: {e}")
+    })?;
     Ok(handle)
 }
 
 fn unregister_hotkey(handle: &str) -> Result<(), String> {
-    hyprctl(&["eval", &format!("{handle}:remove()")]).map(|_| ())
+    hyprctl(&["eval", &format!("{handle}:remove(); {handle} = nil")]).map(|_| ())
 }
 
 // ---- Phase 09: STT -> LLM handoff (VRAM-serialized) ----
@@ -311,6 +316,144 @@ mod timeouts;
 #[allow(dead_code)]
 mod cancel;
 
+// Safety cap: a run never records longer than this, even if the second
+// press never comes.
+const MAX_RECORD_SECS: u64 = 60;
+
+/// One live run: record (until 2nd press / timeout / shutdown) ->
+/// transcribe RAM -> format with config vocab -> type. Every path ends
+/// back at idle; STT loads per run and unloads after (backend reaped,
+// zero VRAM ever held); the formatter is a rule call, nothing to load.
+fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
+    log("listening", "mic open, press hotkey again to finish");
+    let mut rec = audio_helper::Recorder::new();
+    if let Err(e) = rec.start() {
+        log("error", &format!("mic failed: {e}"));
+        return;
+    }
+    let t0 = std::time::Instant::now();
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if GOT_SHUTDOWN.load(Ordering::SeqCst) {
+            let _ = rec.stop();
+            log("error", "shutdown during recording, run aborted");
+            return;
+        }
+        if GOT_TRIGGER.swap(false, Ordering::SeqCst)
+            || t0.elapsed().as_secs() >= MAX_RECORD_SECS
+        {
+            break;
+        }
+    }
+    let cap = match rec.stop() {
+        Ok(c) => c,
+        Err(e) => {
+            log("error", &format!("mic stop failed: {e}"));
+            return;
+        }
+    };
+    log(
+        "transcribing",
+        &format!("{} samples, loading STT", cap.samples.len()),
+    );
+    let python = match stt_manager::resolve_python() {
+        Some(p) => p,
+        None => {
+            log("error", "no STT python found");
+            return;
+        }
+    };
+    let model = match stt_manager::resolve_model() {
+        Some(m) => m,
+        None => {
+            log("error", "no STT model found");
+            return;
+        }
+    };
+    let mut words = String::new();
+    let stats = match stt_manager::transcribe_pcm(&cap.samples, &python, &model, &mut |w| {
+        if !words.is_empty() {
+            words.push(' ');
+        }
+        words.push_str(&w.text);
+    }) {
+        Ok(s) => s,
+        Err(e) => {
+            log("error", &format!("stt failed: {e}"));
+            return;
+        }
+    };
+    let text = words.trim().to_string();
+    if text.is_empty() {
+        log(
+            "idle",
+            &format!("empty transcript ({:.1}s audio), nothing typed", stats.audio_secs),
+        );
+        return;
+    }
+    let pairs: Vec<(&str, &str)> = cfg
+        .names
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .chain(cfg.links.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .collect();
+    let out = llm_formatter::format_with_vocab(&text, &pairs);
+    log("writing", &format!("typing {} chars", out.len()));
+    // pill_hidden=true: no pill is hosted yet (owed), so there is nothing
+    // to hide and no focus to steal; states are logged instead.
+    match typing_helper::type_text(&out, true) {
+        Ok(r) => log("idle", &format!("typed, clipboard={}", r.clipboard_copied)),
+        Err(e) => log("error", &format!("typing failed: {e}")),
+    }
+}
+
+/// Gate/test entry: full chain on a wav FILE (no mic): transcribe ->
+/// format with the given config vocab -> type. Gate 17 runs this with
+/// a stub wtype first on PATH.
+fn pipeline_test(wav: &str, cfg_path: &str) -> i32 {
+    let cfg = vaani_config::load(std::path::Path::new(cfg_path)).config;
+    let (python, model) = match (stt_manager::resolve_python(), stt_manager::resolve_model()) {
+        (Some(p), Some(m)) => (p, m),
+        _ => {
+            println!("PIPELINE-FAIL no STT python/model");
+            return 1;
+        }
+    };
+    let mut words = String::new();
+    if stt_manager::transcribe_wav(wav, &python, &model, &mut |w| {
+        if !words.is_empty() {
+            words.push(' ');
+        }
+        words.push_str(&w.text);
+    })
+    .is_err()
+    {
+        println!("PIPELINE-FAIL stt failed");
+        return 1;
+    }
+    if words.trim().is_empty() {
+        println!("PIPELINE-OK empty transcript, nothing typed");
+        return 0;
+    }
+    let pairs: Vec<(&str, &str)> = cfg
+        .names
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .chain(cfg.links.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .collect();
+    let out = llm_formatter::format_with_vocab(words.trim(), &pairs);
+    match typing_helper::type_text(&out, true) {
+        Ok(_) => {
+            println!("PIPELINE-OK typed={out}");
+            0
+        }
+        Err(e) => {
+            println!("PIPELINE-FAIL typing failed: {e}");
+            1
+        }
+    }
+}
+
 fn main() {
     // Phase 09 selftest bypasses the hotkey loop (gate harness); the idle
     // path below is untouched so gate 03 behavior is identical.
@@ -323,6 +466,20 @@ fn main() {
             .cloned()
             .unwrap_or_else(|| "hello world".to_owned());
         std::process::exit(handoff::selftest(&sample));
+    }
+    if let Some(i) = args.iter().position(|a| a == "--pipeline-test") {
+        let wav = args.get(i + 1).cloned().unwrap_or_default();
+        if wav.is_empty() {
+            println!("PIPELINE-FAIL usage: --pipeline-test <wav> [config]");
+            std::process::exit(2);
+        }
+        let cfg_path = args.get(i + 2).cloned().unwrap_or_else(|| {
+            format!(
+                "{}/.config/vaani/vaani.conf",
+                std::env::var("HOME").unwrap_or_else(|_| ".".into())
+            )
+        });
+        std::process::exit(pipeline_test(&wav, &cfg_path));
     }
     let cfg_path = std::env::args().nth(1).unwrap_or_else(|| {
         format!(
@@ -343,21 +500,33 @@ fn main() {
         signal(SIGINT, on_shutdown);
     }
 
-    let handle = match register_hotkey(&cfg.hotkey, pid) {
-        Ok(h) => h,
-        Err(e) => {
-            log("error", &format!("hotkey bind failed: {e}"));
-            std::process::exit(1);
+    // The Lua bind API throws transiently on this Hyprland build, so
+    // registration retries before giving up (systemd would restart us
+    // into the same race anyway).
+    let handle = {
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match register_hotkey(&cfg.hotkey, pid) {
+                Ok(h) => break h,
+                Err(e) => {
+                    log("error", &format!("hotkey bind failed (try {attempt}): {e}"));
+                    if attempt >= 3 {
+                        std::process::exit(1);
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            }
         }
     };
     log("idle", &format!("listening pid={pid} hotkey={}", cfg.hotkey));
 
-    // Run-phase tracking for the cancel hook (cancel::Phase) + idle sweep
-    // (timeouts::due_for_offload over the helpers vec). The vec stays empty
-    // until the daemon spawns helpers in Phase 13; the sweep is live code
-    // either way, and gate 03's zero-helpers check pins the empty case.
+    // Run-phase tracking for the idle sweep (timeouts::due_for_offload over
+    // the helpers vec). The vec stays empty until the daemon spawns helpers;
+    // the sweep is live code either way. Triggers always start a run:
+    // run_pipeline owns the toggle (2nd press stops it) and drains presses
+    // landing mid-run, so two pipelines can never overlap.
     let boot = std::time::Instant::now();
-    let mut phase = cancel::Phase::Idle;
     let mut helpers: Vec<timeouts::Helper> = Vec::new();
 
     loop {
@@ -372,20 +541,21 @@ fn main() {
             helpers.retain(|h| h.name != name);
         }
         if GOT_TRIGGER.swap(false, Ordering::SeqCst) {
-            if phase == cancel::Phase::Idle {
-                // Phase 03: no pipeline yet — record the transition, stay resident.
-                phase = cancel::Phase::Listening;
-                log("triggered", &format!("hotkey {} fired", cfg.hotkey));
-            } else {
-                // Double-trigger mid-run: never two pipelines (cancel::decide).
-                let plan = cancel::decide(phase, cancel::Signal::Trigger);
-                log("triggered", &format!("double-trigger ignored actions={:?}", plan.actions));
-            }
+            log("triggered", &format!("hotkey {} fired", cfg.hotkey));
+            run_pipeline(&cfg);
+            // A press landing mid-run must not start a second run.
+            GOT_TRIGGER.swap(false, Ordering::SeqCst);
+            log("idle", "run finished, listening");
         }
         if GOT_SHUTDOWN.load(Ordering::SeqCst) {
             log("shutting down", &format!("pid={pid}"));
-            if let Err(e) = unregister_hotkey(&handle) {
-                log("error", &format!("hotkey unbind failed: {e}"));
+            // Unbind retries once: the same transient Lua failures that hit
+            // registration can hit removal; a leftover handle dies with the
+            // compositor anyway, so this stays best-effort.
+            if unregister_hotkey(&handle).is_err()
+                && unregister_hotkey(&handle).is_err()
+            {
+                log("error", "hotkey unbind failed after retry");
             }
             break;
         }

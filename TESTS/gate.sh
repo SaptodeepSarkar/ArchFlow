@@ -26,6 +26,7 @@ run_one() {
     14) exec gates/gate-14.sh ;;
     15) exec gates/gate-15.sh ;;
     16) exec gates/gate-16.sh ;;
+    17) exec gates/gate-17.sh ;;
     *) echo "gate $1 not implemented yet"; exit 2 ;;
   esac
 }
@@ -49,3 +50,4 @@ gate 13 integration "gates/gate-13.sh"
 gate 14 soak "gates/gate-14.sh"
 gate 15 packaging "gates/gate-15.sh"
 gate 16 harden-release "gates/gate-16.sh"
+gate 17 live-pipeline "gates/gate-17.sh"

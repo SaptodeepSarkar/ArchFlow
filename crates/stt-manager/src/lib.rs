@@ -236,3 +236,73 @@ pub fn transcribe_wav(
     }
     s.finish()
 }
+
+/// One-shot helper: transcribe RAM-held PCM (16kHz mono s16le) via the
+/// backend's `--stdin` mode. Nothing touches disk: bytes go through the
+/// child pipe. This is the live-daemon path (audio-helper hands RAM here).
+pub fn transcribe_pcm(
+    pcm: &[i16],
+    python: &str,
+    model: &str,
+    on_word: &mut dyn FnMut(&Word),
+) -> std::io::Result<Stats> {
+    use std::io::Write;
+    let mut child = Command::new(python)
+        .arg(backend_path())
+        .arg("--stdin")
+        .env("VAANI_STT_MODEL", model)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::piped())
+        .spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let mut bytes = Vec::with_capacity(pcm.len() * 2);
+        for s in pcm {
+            bytes.extend_from_slice(&s.to_le_bytes());
+        }
+        let _ = stdin.write_all(&bytes);
+    }
+    let out = child.stdout.take();
+    let mut lines = out.map(|o| BufReader::new(o).lines());
+    let mut stats = Stats::default();
+    let mut done = false;
+    let mut stderr_tail = String::new();
+    while let Some(line) = lines.as_mut().and_then(|l| l.next()) {
+        let line = line.unwrap_or_default();
+        let line = line.trim().to_string();
+        if let Some(rest) = line.strip_prefix("W ") {
+            let mut it = rest.splitn(2, ' ');
+            if let (Some(t), Some(text)) = (it.next(), it.next()) {
+                if let Ok(t) = t.parse::<f64>() {
+                    if !text.is_empty() {
+                        stats.words += 1;
+                        on_word(&Word { text: text.to_string(), t });
+                    }
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("DONE ") {
+            for kv in rest.split_whitespace() {
+                let mut kv = kv.splitn(2, '=');
+                match (kv.next(), kv.next()) {
+                    (Some("audio"), Some(v)) => stats.audio_secs = v.parse().unwrap_or(0.0),
+                    (Some("infer"), Some(v)) => stats.infer_secs = v.parse().unwrap_or(0.0),
+                    _ => {}
+                }
+            }
+            done = true;
+        }
+    }
+    if let Ok(out) = child.wait_with_output() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let tail: Vec<&str> = err.lines().collect();
+        let n = tail.len();
+        stderr_tail = tail[n.saturating_sub(3)..].join(" | ");
+    }
+    if !done && !stderr_tail.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("backend failed: {stderr_tail}"),
+        ));
+    }
+    Ok(stats)
+}
