@@ -3,9 +3,12 @@
 
 Protocol on stdout (vosk LOG lines stay on stderr):
   W <t_sec> <word>          one final word, streamed as decoded
+  P <t_sec> <phrase>        current partial phrase (live UI), empty = cleared
   DONE audio=<s> infer=<s> words=<n> model=<dir>
 
-Input: --wav PATH (16kHz mono wav) or --stdin (raw s16le 16k mono on stdin).
+Input: --wav PATH (16kHz mono wav), --stdin (whole raw s16le 16k mono), or
+--stream (raw s16le 16k mono fed incrementally; emits P partials while the
+caller is still recording, so the UI can show words live).
 Exit nonzero on any failure; details go to stderr.
 """
 
@@ -38,16 +41,60 @@ def feed(rec, frames, out):
     return words, infer
 
 
+def stream(rec, out):
+    """Incremental stdin feed: P partials while audio arrives, W for finals.
+
+    Reads with read1 so a partial is emitted as soon as bytes are available
+    (the caller is still recording); read() would block for a full chunk.
+    Returns (words, infer_secs, audio_secs).
+    """
+    stdin = sys.stdin.buffer
+    audio_secs = 0.0
+    infer = 0.0
+    words = 0
+    while True:
+        data = stdin.read1(3200)
+        if not data:
+            break
+        n = len(data) & ~1
+        if n == 0:
+            continue
+        audio_secs += n / (2 * SAMPLE_RATE)
+        s = time.time()
+        final = rec.AcceptWaveform(data[:n])
+        infer += time.time() - s
+        if final:
+            for w in json.loads(rec.Result()).get("result", []):
+                out.write(f"W {float(w.get('start', audio_secs)):.2f} {w['word']}\n")
+                words += 1
+            out.write("P 0 \n")
+        else:
+            out.write(
+                f"P {audio_secs:.2f} "
+                f"{json.loads(rec.PartialResult()).get('partial', '')}\n"
+            )
+        out.flush()
+    for w in json.loads(rec.FinalResult()).get("result", []):
+        out.write(f"W {float(w.get('start', audio_secs)):.2f} {w['word']}\n")
+        words += 1
+    out.write("P 0 \n")
+    out.flush()
+    return words, infer, audio_secs
+
+
 def main():
     args = sys.argv[1:]
+    mode = "wav"
     if "--wav" in args:
         wav_path = args[args.index("--wav") + 1]
-        use_stdin = False
+    elif "--stream" in args:
+        wav_path, mode = None, "stream"
     elif "--stdin" in args:
-        wav_path, use_stdin = None, True
+        wav_path, mode = None, "stdin"
     else:
-        print("usage: transcribe.py --wav PATH | --stdin", file=sys.stderr)
+        print("usage: transcribe.py --wav PATH | --stdin | --stream", file=sys.stderr)
         return 2
+    use_stdin = mode == "stdin"
 
     model_dir = os.environ.get(
         "VAANI_STT_MODEL",
@@ -62,6 +109,14 @@ def main():
     model = Model(model_dir)
     rec = KaldiRecognizer(model, SAMPLE_RATE)
     rec.SetWords(True)
+
+    if mode == "stream":
+        words, infer, audio_secs = stream(rec, sys.stdout)
+        sys.stdout.write(
+            f"DONE audio={audio_secs:.2f} infer={infer:.2f} words={words} model={model_dir}\n"
+        )
+        sys.stdout.flush()
+        return 0
 
     if use_stdin:
         data = sys.stdin.buffer.read()

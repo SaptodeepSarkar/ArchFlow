@@ -319,6 +319,7 @@ mod handoff {
 // the pipeline in Phase 13). cancel keeps allow(dead_code): only Phase +
 // decide are referenced so far; its remaining variants would warn until
 // Phase 13 constructs them.
+mod control;
 mod timeouts;
 #[allow(dead_code)]
 mod cancel;
@@ -327,71 +328,113 @@ mod cancel;
 // press never comes.
 const MAX_RECORD_SECS: u64 = 60;
 
-/// One live run: record (until 2nd press / timeout / shutdown) ->
-/// transcribe RAM -> format with config vocab -> type. Every path ends
-/// back at idle; STT loads per run and unloads after (backend reaped,
-// zero VRAM ever held); the formatter is a rule call, nothing to load.
+/// One live run: open mic + STT stream (words show while speaking, until
+/// 2nd press / cap / shutdown) -> format with config vocab -> type. Every
+/// path ends back at idle; STT loads per run and unloads after (backend
+/// reaped, zero VRAM ever held); the formatter is a rule call.
 fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
-    log("listening", "mic open, press hotkey again to finish");
+    let (python, model) = match (stt_manager::resolve_python(), stt_manager::resolve_model()) {
+        (Some(p), Some(m)) => (p, m),
+        (None, _) => {
+            control::state("ERROR", "No STT python found");
+            log("error", "no STT python found");
+            return;
+        }
+        (_, None) => {
+            control::state("ERROR", "No STT model found");
+            log("error", "no STT model found");
+            return;
+        }
+    };
+    // STARTING is published before the overlay starts: a fresh connection
+    // gets it as the snapshot, and an IDLE snapshot would make it quit.
+    control::state("STARTING", "Starting microphone");
     let mut rec = audio_helper::Recorder::new();
-    if let Err(e) = rec.start() {
+    if let Err(e) = rec.start_stream() {
+        control::state("ERROR", &format!("Mic failed: {e}"));
         log("error", &format!("mic failed: {e}"));
         return;
     }
+    let mut stt = match stt_manager::LiveSession::start(&python, &model) {
+        Ok(s) => s,
+        Err(e) => {
+            rec.stop_stream();
+            control::state("ERROR", &format!("STT failed: {e}"));
+            log("error", &format!("stt failed: {e}"));
+            return;
+        }
+    };
+    let mut ui = UiGuard::start();
+    control::state("RECORDING", "Speak naturally…");
+    control::provisional("", false);
+    log("listening", "mic open, press hotkey again to finish");
+
+    let mut committed: Vec<String> = Vec::new();
+    let mut partial = String::new();
     let t0 = std::time::Instant::now();
     loop {
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // 50 ms tick: chunk in, words out, then check the stop conditions.
+        if let Some(rx) = rec.chunks() {
+            match rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                Ok(chunk) => {
+                    control::amplitude(chunk_rms(&chunk));
+                    let _ = stt.feed(&chunk);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        let mut changed = false;
+        for ev in stt.poll() {
+            match ev {
+                stt_manager::LiveEvent::Word(w) => {
+                    committed.push(w.text);
+                    partial.clear();
+                    changed = true;
+                }
+                stt_manager::LiveEvent::Partial(p) => {
+                    if p != partial {
+                        partial = p;
+                        changed = true;
+                    }
+                }
+                stt_manager::LiveEvent::Done(_) => {}
+            }
+        }
+        if changed {
+            control::provisional(&live_window(&committed, &partial, 12), false);
+        }
         if GOT_SHUTDOWN.load(Ordering::SeqCst) {
-            let _ = rec.stop();
+            rec.stop_stream();
+            stt.unload();
+            ui.dismiss();
+            control::state("IDLE", "");
             log("error", "shutdown during recording, run aborted");
             return;
         }
         if GOT_TRIGGER.swap(false, Ordering::SeqCst)
+            || control::take_stop()
             || t0.elapsed().as_secs() >= MAX_RECORD_SECS
         {
             break;
         }
     }
-    let cap = match rec.stop() {
-        Ok(c) => c,
-        Err(e) => {
-            log("error", &format!("mic stop failed: {e}"));
-            return;
-        }
-    };
-    log(
-        "transcribing",
-        &format!("{} samples, loading STT", cap.samples.len()),
-    );
-    let python = match stt_manager::resolve_python() {
-        Some(p) => p,
-        None => {
-            log("error", "no STT python found");
-            return;
-        }
-    };
-    let model = match stt_manager::resolve_model() {
-        Some(m) => m,
-        None => {
-            log("error", "no STT model found");
-            return;
-        }
-    };
-    let mut words = String::new();
-    let stats = match stt_manager::transcribe_pcm(&cap.samples, &python, &model, &mut |w| {
-        if !words.is_empty() {
-            words.push(' ');
-        }
-        words.push_str(&w.text);
-    }) {
+    rec.stop_stream();
+    log("transcribing", &format!("{} words decoded", committed.len()));
+    control::state("TRANSCRIBING", "Transcribing");
+    let stats = match stt.finish() {
         Ok(s) => s,
         Err(e) => {
+            ui.dismiss();
+            control::state("ERROR", &format!("STT failed: {e}"));
             log("error", &format!("stt failed: {e}"));
             return;
         }
     };
-    let text = words.trim().to_string();
+    let text = committed.join(" ").trim().to_string();
     if text.is_empty() {
+        ui.dismiss();
+        control::state("IDLE", "Nothing heard");
         log(
             "idle",
             &format!("empty transcript ({:.1}s audio), nothing typed", stats.audio_secs),
@@ -404,14 +447,29 @@ fn run_pipeline(cfg: &vaani_config::VaaniConfig) {
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .chain(cfg.links.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .collect();
+    control::state("CLEANING", "Cleaning transcript");
     let out = llm_formatter::format_with_vocab(&text, &pairs);
+    control::state("INSERTING", "Typing clean text");
     log("writing", &format!("typing {} chars", out.len()));
-    // pill_hidden=true: no pill is hosted yet (owed), so there is nothing
-    // to hide and no focus to steal; states are logged instead.
-    match typing_helper::type_text(&out, true) {
-        Ok(r) => log("idle", &format!("typed, clipboard={}", r.clipboard_copied)),
-        Err(e) => log("error", &format!("typing failed: {e}")),
+    // pill_hidden=true: the overlay sets keyboardFocus None, so keystrokes
+    // reach the window focused before the run started.
+    let result = typing_helper::type_text(&out, true);
+    match result {
+        Ok(r) => {
+            log("idle", &format!("typed, clipboard={}", r.clipboard_copied));
+            control::state_with_text(
+                "READY",
+                if r.clipboard_copied { "Typed and copied to clipboard" } else { "Typed" },
+                &out,
+                r.clipboard_copied,
+            );
+        }
+        Err(e) => {
+            control::state("ERROR", &format!("Typing failed: {e}"));
+            log("error", &format!("typing failed: {e}"));
+        }
     }
+    ui.dismiss();
 }
 
 /// Gate/test entry: full chain on a wav FILE (no mic): transcribe ->
@@ -457,6 +515,88 @@ fn pipeline_test(wav: &str, cfg_path: &str) -> i32 {
         Err(e) => {
             println!("PIPELINE-FAIL typing failed: {e}");
             1
+        }
+    }
+}
+
+/// Mic level 0..1 for the overlay's activity bars, from a raw s16le chunk.
+fn chunk_rms(pcm: &[u8]) -> f64 {
+    let n = pcm.len() & !1;
+    if n == 0 {
+        return 0.0;
+    }
+    let mut sum = 0.0f64;
+    let mut count = 0u32;
+    for b in pcm[..n].chunks_exact(2) {
+        let s = i16::from_le_bytes([b[0], b[1]]) as f64;
+        sum += s * s;
+        count += 1;
+    }
+    if count == 0 {
+        return 0.0;
+    }
+    // Speech sits well below full scale, so scale up for a visible bar.
+    ((sum / count as f64).sqrt() / 32768.0 * 4.0).min(1.0)
+}
+
+/// Trailing window of what is being said (finals + current partial): the
+/// overlay highlights the last word, and the daemon never invents text.
+fn live_window(committed: &[String], partial: &str, n: usize) -> String {
+    let mut words: Vec<&str> = committed.iter().map(String::as_str).collect();
+    words.extend(partial.split_whitespace());
+    let start = words.len().saturating_sub(n);
+    words[start..].join(" ")
+}
+
+/// Spawns the QuickShell overlay for one run; [`UiGuard::dismiss`] lets it
+/// exit on its own after the final state (it lingers briefly by design) and
+/// only kills it if it is still around. The child inherits the env the
+/// service adopted from the trigger, which is the live Wayland socket, not
+/// systemd's possibly-stale one.
+///
+/// `-n` (no-duplicate): if the user already runs `qs -c vaani`, this exits
+/// at once and their instance serves the connection instead.
+struct UiGuard(Option<std::process::Child>);
+
+impl UiGuard {
+    fn dismiss(&mut self) {
+        let Some(child) = self.0.as_mut() else { return };
+        // The overlay quits itself on IDLE/READY/ERROR after its linger
+        // animation; give it that moment, then make sure it is gone.
+        for _ in 0..30 {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                self.0 = None;
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        self.0 = None;
+    }
+}
+
+impl UiGuard {
+    fn start() -> Self {
+        let child = std::process::Command::new("quickshell")
+            .args(["-n", "-c", "vaani"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok();
+        if child.is_none() {
+            log("error", "pill: quickshell not runnable (states still logged)");
+        }
+        Self(child)
+    }
+}
+
+impl Drop for UiGuard {
+    fn drop(&mut self) {
+        if let Some(mut c) = self.0.take() {
+            let _ = c.kill();
+            let _ = c.wait();
         }
     }
 }
@@ -509,6 +649,9 @@ fn main() {
 
     // No compositor calls: the bind is static in hyprland.lua and the
     // trigger script signals us. All we publish is our pid.
+    if let Err(e) = control::start() {
+        log("error", &format!("control socket unavailable: {e}"));
+    }
     write_pid_file(pid);
     log(
         "idle",
@@ -555,8 +698,43 @@ fn main() {
         if GOT_SHUTDOWN.load(Ordering::SeqCst) {
             log("shutting down", &format!("pid={pid}"));
             // Nothing compositor-side to clean up: no bind handle exists.
+            control::state("IDLE", "");
             remove_pid_file();
+            control::cleanup();
             break;
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{chunk_rms, live_window};
+
+    fn w(s: &str) -> Vec<String> {
+        s.split_whitespace().map(str::to_string).collect()
+    }
+
+    #[test]
+    fn trailing_window_shows_newest_words() {
+        assert_eq!(live_window(&[], "", 4), "");
+        assert_eq!(live_window(&w("one two"), "", 4), "one two");
+        assert_eq!(live_window(&w("one two three four five"), "", 4), "two three four five");
+        // The partial appends after the finals, so the window always ends
+        // on what is being said right now.
+        assert_eq!(live_window(&w("one two three"), "four five", 4), "two three four five");
+        assert_eq!(live_window(&w("one two three four five"), "six", 4), "three four five six");
+    }
+
+    #[test]
+    fn mic_level_tracks_signal() {
+        assert_eq!(chunk_rms(&[]), 0.0);
+        assert_eq!(chunk_rms(&[0, 0, 0, 0]), 0.0);
+        let loud: Vec<u8> = [i16::MAX; 64].iter().flat_map(|s| s.to_le_bytes()).collect();
+        assert!(chunk_rms(&loud) > 0.5, "full-scale input must read high");
+        let quiet: Vec<u8> = [300i16; 64].iter().flat_map(|s| s.to_le_bytes()).collect();
+        assert!(chunk_rms(&quiet) < 0.1, "near-silence must read low");
+        // Odd byte counts must not panic or read past the end.
+        assert!(chunk_rms(&[1, 2, 3]) >= 0.0);
+    }
+
 }

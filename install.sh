@@ -118,6 +118,19 @@ EOF
   note "default config -> $CONF"
 fi
 
+# 5b. pill UI: the key service spawns `quickshell -c vaani` per run, so the
+# config must exist. Never overwrite an existing one (user may have edited).
+QS_DIR="$HOME/.config/quickshell/vaani"
+mkdir -p "$QS_DIR"
+if [ -e "$QS_DIR/shell.qml" ] && ! cmp -s "$ROOT/UI/quickshell/shell.qml" "$QS_DIR/shell.qml"; then
+  cp "$QS_DIR/shell.qml" "$QS_DIR/shell.qml.bak-$(date +%Y%m%d%H%M)"
+  note "backed up your modified shell.qml before installing the shipped one"
+fi
+for f in "$ROOT"/UI/quickshell/*.qml; do
+  install -m644 "$f" "$QS_DIR/$(basename "$f")"
+done
+note "overlay config -> $QS_DIR ($(ls "$ROOT"/UI/quickshell/*.qml | wc -l) QML files)"
+
 # 6. user unit: template ExecStart gets the real bindir, STT env spliced
 # into [Service] (appending at EOF would land under [Install], where
 # systemd silently ignores Environment=).
@@ -157,4 +170,5 @@ Next (one-time): add the SUPER+H bind to your hyprland.lua.
     hl.bind("SUPER + H", hl.dsp.exec_cmd("$BINDIR/vaani-trigger"))
 
   Then: systemctl --user enable --now vaani-key.service
+  The pill needs the UI config at $QS_DIR/shell.qml (installed above).
 EOF

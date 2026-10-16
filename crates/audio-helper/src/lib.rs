@@ -37,6 +37,7 @@ pub struct Recorder {
     // stalls pw-record, so the stream is drained continuously into RAM.
     drain: Option<Receiver<Vec<u8>>>,
     stopped_once: bool,
+    streaming: bool,
 }
 
 impl Recorder {
@@ -45,11 +46,28 @@ impl Recorder {
             child: None,
             drain: None,
             stopped_once: false,
+            streaming: false,
         }
     }
 
     /// Open the default-mic stream. Errors if already recording.
     pub fn start(&mut self) -> std::io::Result<()> {
+        self.start_with(false)
+    }
+
+    /// Open the mic as a chunk stream for live transcription: PCM arrives as
+    /// it is captured instead of one buffer at the end. Read it with
+    /// [`Recorder::chunks`]; close with [`Recorder::stop_stream`].
+    pub fn start_stream(&mut self) -> std::io::Result<()> {
+        self.start_with(true)
+    }
+
+    /// Chunk receiver for a stream opened with [`Recorder::start_stream`].
+    pub fn chunks(&self) -> Option<&Receiver<Vec<u8>>> {
+        self.drain.as_ref()
+    }
+
+    fn start_with(&mut self, streaming: bool) -> std::io::Result<()> {
         if self.is_busy() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
@@ -65,15 +83,50 @@ impl Recorder {
         let mut out = child.stdout.take();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let mut raw = Vec::new();
-            if let Some(ref mut o) = out {
+            let Some(o) = out.as_mut() else {
+                eprintln!("audio-helper: pw-record gave no stdout pipe");
+                return;
+            };
+            if streaming {
+                // ~100ms of 16kHz mono s16 arrives per read: small enough
+                // for a live word stream, large enough not to spin.
+                let mut buf = [0u8; 3200];
+                let mut total = 0usize;
+                loop {
+                    match o.read(&mut buf) {
+                        Ok(0) => break, // normal end: stop_stream killed pw-record
+                        Err(e) => {
+                            eprintln!("audio-helper: mic stream error after {total} bytes: {e}");
+                            break;
+                        }
+                        Ok(n) => {
+                            total += n;
+                            if tx.send(buf[..n].to_vec()).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                let mut raw = Vec::new();
                 let _ = o.read_to_end(&mut raw);
+                let _ = tx.send(raw);
             }
-            let _ = tx.send(raw);
         });
         self.child = Some(child);
         self.drain = Some(rx);
+        self.streaming = streaming;
         Ok(())
+    }
+
+    /// Close a stream opened with [`Recorder::start_stream`]. Discards the
+    /// chunk receiver; callers keep the words they already received.
+    pub fn stop_stream(&mut self) {
+        self.drain = None;
+        if let Some(mut c) = self.child.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
     }
 
     /// True while the mic stream is open. Helpers reporting busy must not be killed.

@@ -12,9 +12,9 @@
 ## Lifecycle (SUPER+H to typed text)
 
 1. Idle: key service listens. Nothing else loaded.
-2. Hotkey: pill shows (Listening), audio streams, STT loads and streams words.
+2. Hotkey: overlay shows (STARTING then RECORDING), audio streams, STT loads and streams live words over the control socket.
 3. User finishes: audio stops, STT unloads, formatter loads, raw transcript in.
-4. Formatted text out: pill hides, typing helper types + clipboard copy.
+4. Formatted text out (CLEANING then INSERTING): typing helper types + clipboard copy, overlay reports READY.
 5. Timeouts: each helper offloads when killable; key service returns to idle.
 
 STT and formatter are never in VRAM together. Helpers reporting busy are never killed.

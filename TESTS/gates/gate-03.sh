@@ -17,14 +17,16 @@ ok()  { printf '  [GREEN] %s\n' "$1"; pass=$((pass + 1)); }
 bad() { printf '  [RED] %s\n' "$1"; fail=$((fail + 1)); }
 
 TMP="$(mktemp -d /tmp/vaani-gate03.XXXXXX)"
-export XDG_RUNTIME_DIR="$TMP/run"
-mkdir -p "$XDG_RUNTIME_DIR"
-PIDFILE="$XDG_RUNTIME_DIR/vaani-key.pid"
+# NOTE: XDG_RUNTIME_DIR is left as-is on purpose: overriding it breaks
+# PipeWire's socket lookup and the mic would deliver zero bytes.
+PIDFILE="${XDG_RUNTIME_DIR:-$HOME/.cache}/vaani-key.pid"
+ENVFILE="${PIDFILE%.pid}.env"
 SRV=0
 cleanup() {
   if [ "$SRV" -ne 0 ] && kill -0 "$SRV" 2>/dev/null; then
     kill -KILL "$SRV" 2>/dev/null
   fi
+  rm -f "$PIDFILE" "$ENVFILE"
   rm -rf "$TMP"
 }
 trap cleanup EXIT

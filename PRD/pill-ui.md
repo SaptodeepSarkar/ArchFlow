@@ -17,4 +17,20 @@ Bottom-center pill that slides in on SUPER+H. Look reference: `ui/` folder at ht
 
 ## Focus rule (load-bearing)
 
-The pill must hide before typing starts so keystrokes reach the previously focused window. Clipboard copy covers the case where focus still lands wrong.
+The pill never takes keyboard focus (`Qt.WindowDoesNotAcceptFocus`) so both
+wtype keystrokes and the clipboard target the window the user was in. The
+service also kills the pill when the run ends.
+
+## Hosting + state protocol
+
+Overlay: the Quickshell config `vaani` from ArchFlow `ui/` (charcoal card,
+lilac activity mark, uppercase state label, live words, Stop button).
+The key service spawns `quickshell -n -c vaani` per run (~230 ms cold start,
+so idle cost is zero); the overlay exits itself after the final state.
+
+States are pushed over `$XDG_RUNTIME_DIR/vaani/control.sock` as
+newline-delimited JSON: STARTING, RECORDING, TRANSCRIBING, CLEANING,
+INSERTING, READY, IDLE, ERROR, plus `provisional` events carrying the live
+words and `amplitude` events carrying the mic level for the bars. The
+overlay's only op is `stop` (finish this recording, then clean and type).
+Details in `UI/README.md`.

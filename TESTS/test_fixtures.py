@@ -25,7 +25,7 @@ def main():
         check(exp[:1].isupper(), f"{p.get('id')}: expected must start capitalized")
         check(exp[-1] in ".?!…", f"{p.get('id')}: expected must end with punctuation")
     # repo contracts every phase relies on
-    for f in ["PRD/overview.md", "DOCS/architecture.md", "UI/pill.qml"]:
+    for f in ["PRD/overview.md", "DOCS/architecture.md", "UI/quickshell/shell.qml"]:
         check((ROOT.parent / f).exists(), f"missing {f}")
 
     if FAIL:

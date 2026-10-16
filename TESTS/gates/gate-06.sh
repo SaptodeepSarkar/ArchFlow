@@ -3,7 +3,7 @@
 # are present and wired, and the stub event driver passes.
 set -u
 cd "$(dirname "$0")"/../..
-QML=UI/pill.qml
+QML=UI/quickshell/shell.qml
 FAIL=0
 
 say() { printf '%s\n' "$1"; }
@@ -14,16 +14,15 @@ else
   say "gate-06: qmllint FAILED (see /tmp/vaani-gate-06-qmllint.log)"; FAIL=1
 fi
 
-for s in listening transcribing writing error; do
+for s in STARTING RECORDING TRANSCRIBING CLEANING INSERTING READY CANCELLED IDLE ERROR; do
   if grep -q "\"$s\"" "$QML"; then say "gate-06: state $s present";
   else say "gate-06: state $s MISSING"; FAIL=1; fi
 done
 
-if grep -q "signal cancelRequested" "$QML" \
-   && grep -q "onClicked: pill.cancelRequested()" "$QML"; then
-  say "gate-06: cancel present and wired"
+if grep -q 'sendOp("stop")' "$QML" && grep -q "/vaani/control.sock" "$QML"; then
+  say "gate-06: stop op wired over the control socket"
 else
-  say "gate-06: cancel signal/wiring MISSING"; FAIL=1
+  say "gate-06: stop/socket wiring MISSING"; FAIL=1
 fi
 
 if python3 TESTS/drivers/pill_events.py; then

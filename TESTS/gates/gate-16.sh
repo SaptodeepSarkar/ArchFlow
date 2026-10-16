@@ -96,11 +96,13 @@ map_row "formatter: Qwen2.5-1.5B Q4 default backend" "PRD/helpers" "-" load "for
 map_row "formatter rules: fillers/corrections/verbatim" "PRD/helpers" "07 12" load "-"
 map_row "helpers unload after timeout" "PRD/helpers" "10" load "-"
 # --- PRD/pill-ui.md ---
-map_row "Listening/Transcribing/Writing/Error states" "PRD/pill-ui" "06" load "-"
-map_row "4-word trailing window (configurable)" "PRD/pill-ui" "06" load "-"
-map_row "cancel: immediate, no formatting pass" "PRD/pill-ui" "06 11" load "-"
+map_row "Listening/Transcribing/Formatting/Typing/Error states" "PRD/pill-ui" "06 18" load "-"
+map_row "live words + amplitude for the overlay bars" "PRD/pill-ui" "18" load "-"
+map_row "stop op ends recording and runs clean+type" "PRD/pill-ui" "11 18" load "-"
 map_row "no inputs/settings in pill" "PRD/pill-ui" "-" struct "static QML property"
-map_row "pill never takes keyboard focus" "PRD/pill-ui" "-" struct "QML declares focus:false/NoFocus; gate-06 does not assert it"
+map_row "overlay never takes keyboard focus (keyboardFocus None)" "PRD/pill-ui" "06" load "-"
+map_row "service spawns the pill per run, kills it after" "PRD/pill-ui" "18" load "-"
+map_row "states pushed over the control socket (snapshot + events)" "PRD/pill-ui" "18" load "-"
 # --- DOCS/architecture.md ---
 map_row "all components build (key/audio/stt/llm/type/pill)" "DOCS/architecture" "03 04 05 07 08" load "-"
 map_row "lifecycle SUPER+H to typed text" "DOCS/architecture" "13" load "-"

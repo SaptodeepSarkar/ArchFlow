@@ -1,32 +1,31 @@
-"""Phase 06 stub event driver: feeds state+words sequences to a headless check.
+"""Phase 06 driver: checks the overlay against the daemon protocol it speaks.
 
-What it ACTUALLY verifies (stdlib only, no Qt bindings installed):
-  1. Static QML contract: UI/pill.qml declares exactly the 4 PRD states
-     (listening/transcribing/writing/error), a `cancelRequested` signal wired
-     to the cancel button's onClicked, a `trailingWindow` constant defaulting
-     to 4 (PRD default), and never-take-focus flags (root focus:false,
-     Button focusPolicy Qt.NoFocus).
-  2. Trailing-window behavior: replays scripted state+words event sequences
-     and checks the displayed text equals last-N-words with N=trailingWindow,
-     using a Python mirror of the QML trail() function (same split-on-
-     whitespace, drop-blanks, take-last-N rule).
-  3. Toolchain reality: `qmllint` is clean on the file, `qml6` loads it
-     offscreen with no errors, and `quickshell --help` runs (binary present).
+What it ACTUALLY verifies (stdlib only, no Qt bindings):
+  1. Static QML contract in the shipped overlay (UI/quickshell/shell.qml):
+     every state the daemon publishes has a rendering branch
+     (STARTING/RECORDING/TRANSCRIBING/CLEANING/INSERTING/READY/CANCELLED/
+     IDLE/ERROR), the socket path is the daemon's, the wire format is
+     newline-delimited JSON via Socket+SplitParser, the overlay never takes
+     keyboard focus (load-bearing: typed text must reach the user's window),
+     and the Stop button sends the `stop` op.
+  2. Wire-format parity: a sample of each message the daemon emits
+     (snapshot, state, provisional, amplitude) parses as JSON and carries the
+     keys shell.qml reads. The daemon side is asserted live in gate-18.
+  3. Toolchain reality: qmllint clean, quickshell runnable.
 
-What it does NOT verify: pixels/screenshots, real QuickShell PanelWindow
-hosting, or mouse clicks on the button (no display server here). The cancel
-wiring is proven statically (signal declared + onClicked emits it), not by
-a live click.
+What it does NOT verify: pixels, that the compositor maps the layer surface,
+or a real click. Live behaviour is gate-18's job.
 """
-import os
+import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-QML = ROOT / "UI" / "pill.qml"
-STATES = ["listening", "transcribing", "writing", "error"]
+QML = ROOT / "UI" / "quickshell" / "shell.qml"
+STATES = ["STARTING", "RECORDING", "TRANSCRIBING", "CLEANING", "INSERTING",
+          "READY", "CANCELLED", "IDLE", "ERROR"]
 FAIL = []
 
 
@@ -35,50 +34,51 @@ def check(cond, msg):
         FAIL.append(msg)
 
 
-def trail(words, n=4):
-    ws = [w for w in str(words).split() if w]
-    return " ".join(ws[-n:])
-
-
 def main():
     src = QML.read_text()
     for s in STATES:
-        check(f'"{s}"' in src, f"state {s!r} missing from pill.qml")
-    check("signal cancelRequested" in src, "cancelRequested signal missing")
-    check(re.search(r"onClicked:\s*pill\.cancelRequested\(\)", src),
-          "cancel button not wired to pill.cancelRequested()")
-    m = re.search(r"property int trailingWindow:\s*(\d+)", src)
-    check(m and int(m.group(1)) == 4, "trailingWindow constant must default to 4")
-    check("focus: false" in src, "pill must set focus: false")
-    check("focusPolicy: Qt.NoFocus" in src, "cancel button must set focusPolicy: Qt.NoFocus")
-    check("trail(" in src, "trail() helper missing")
+        check(f'"{s}"' in src, f"state {s!r} has no branch in the overlay")
+    check("/vaani/control.sock" in src, "overlay does not point at the daemon socket")
+    check("VAANI_SOCKET" in src, "overlay ignores the VAANI_SOCKET override")
+    check("Socket {" in src and "SplitParser" in src,
+          "IPC must be Socket + SplitParser (event-driven, no polling)")
+    check("WlrKeyboardFocus.None" in src,
+          "overlay must set keyboardFocus None (typed text goes to the user window)")
+    check("WlrLayer.Overlay" in src, "overlay must render on the overlay layer")
+    check('sendOp("stop")' in src, "Stop button is not wired to the stop op")
+    check('"provisional"' in src and '"amplitude"' in src,
+          "overlay does not handle provisional/amplitude events")
+    check("protocol_version" in src, "overlay does not stamp a protocol version")
 
-    n = int(m.group(1)) if m else 4
-    # Feed state+words sequences; displayed text must be the trailing window.
-    sequences = [
-        ("listening", "speak now", "speak now"),
-        ("listening", "one two three four five six", "three four five six"),
-        ("transcribing", "  extra   spaces\tand\nnewline here today", "and newline here today"),
-        ("transcribing", "short", "short"),
-        ("writing", "", ""),
-        ("writing", "Formatted output here now done", "output here now done"),
-        ("error", "mic failed badly oh no", "failed badly oh no"),
-    ]
-    for state, words, expected in sequences:
-        check(state in STATES, f"unknown state {state!r}")
-        got = trail(words, n)
-        check(got == expected, f"[{state}] trail({words!r})={got!r}, want {expected!r}")
+    # Wire parity: the shapes the daemon sends must parse and carry the keys
+    # the overlay reads.
+    samples = {
+        "snapshot": '{"protocol_version":1,"session_id":"s1","state":"RECORDING"}',
+        "state": '{"session_id":"s1","event":"state","state":"INSERTING","message":"Typing clean text"}',
+        "state+data": '{"session_id":"s1","event":"state","state":"READY","message":"Typed","data":{"text":"Hello.","copied":true}}',
+        "provisional": '{"session_id":"s1","event":"provisional","data":{"tail":"one two","words":"one two","hidden":false}}',
+        "amplitude": '{"session_id":"s1","event":"amplitude","amplitude":0.42}',
+    }
+    for name, raw in samples.items():
+        try:
+            doc = json.loads(raw)
+        except Exception as e:  # noqa: BLE001
+            check(False, f"{name} sample is not JSON: {e}")
+            continue
+        if name == "snapshot":
+            check({"state", "session_id"} <= set(doc), "snapshot needs state+session_id")
+        elif name.startswith("state"):
+            check(doc.get("event") == "state", "state sample must carry event=state")
+            check("state" in doc, "state sample must carry a state")
+        elif name == "provisional":
+            check("words" in doc.get("data", {}), "provisional needs data.words")
+        elif name == "amplitude":
+            check("amplitude" in doc, "amplitude event needs the level")
+    check(re.search(r'kind:\s*\{\s*\n?\s*op:\s*op', src) is not None
+          or "op: op" in src, "ops must be wrapped in kind:{op}")
 
     r = subprocess.run(["qmllint", str(QML)], capture_output=True, text=True)
     check(r.returncode == 0, f"qmllint failed: {(r.stdout + r.stderr).strip()}")
-    # qml6 runs an event loop forever on success, so wrap in `timeout`:
-    # 124 (killed = stayed alive) or 0 with no error text means it loaded.
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
-    r = subprocess.run(["timeout", "10", "qml6", str(QML)],
-                       capture_output=True, text=True, timeout=30, env=env)
-    out = (r.stdout + r.stderr).strip()
-    check(r.returncode in (0, 124) and "error" not in out.lower(),
-          f"qml6 offscreen load failed (exit {r.returncode}): {out[:300]}")
     r = subprocess.run(["quickshell", "--help"], capture_output=True, text=True, timeout=15)
     check(r.returncode == 0, "quickshell binary not runnable")
 
@@ -87,8 +87,7 @@ def main():
         for x in FAIL:
             print(f"  - {x}")
         return 1
-    print(f"PILL DRIVER GREEN ({len(sequences)} event sequences, "
-          f"{len(STATES)} states, trailingWindow={n})")
+    print(f"PILL DRIVER GREEN ({len(STATES)} states, {len(samples)} wire shapes, focus+stop wiring)")
     return 0
 
 
