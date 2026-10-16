@@ -294,6 +294,14 @@ mod handoff {
     }
 }
 
+// Phase 10/11 decision modules. The run-phase daemon loop that feeds them
+// lands in Phase 13; until then they compile in (bitrot-proof) and are
+// covered by their own gates, not yet called.
+#[allow(dead_code)]
+mod timeouts;
+#[allow(dead_code)]
+mod cancel;
+
 fn main() {
     // Phase 09 selftest bypasses the hotkey loop (gate harness); the idle
     // path below is untouched so gate 03 behavior is identical.

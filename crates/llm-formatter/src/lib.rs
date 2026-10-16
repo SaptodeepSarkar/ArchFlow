@@ -11,6 +11,8 @@
 //! [`format`] for an LLM call when a runtime lands; the gate is
 //! backend-agnostic.
 
+pub mod vocab;
+
 /// Spoken filler tokens dropped wherever they appear (whole-word match).
 const FILLERS: &[&str] = &["umm", "hmm", "um", "uh", "like", "er", "ah"];
 
@@ -157,6 +159,16 @@ fn fold_emails(tokens: Vec<String>) -> Vec<String> {
 
 /// Format a raw STT transcript: plain text out, no commentary.
 pub fn format(raw: &str) -> String {
+    format_impl(raw, EXPANSIONS)
+}
+
+/// Format with caller-supplied vocab (`[names]` then `[links]` from
+/// vaani.conf, ordered pairs from vaani-config).
+pub fn format_with_vocab(raw: &str, pairs: &[(&str, &str)]) -> String {
+    format_impl(raw, pairs)
+}
+
+fn format_impl(raw: &str, expansions: &[(&str, &str)]) -> String {
     // Normalize: lowercase word tokens, drop stray punctuation so clean
     // input passes through unchanged after re-punctuation.
     let mut tokens: Vec<String> = raw
@@ -265,35 +277,8 @@ pub fn format(raw: &str) -> String {
         }
     }
 
-    // Verbatim name/link expansion, longest phrase first.
-    let mut expanded: Vec<String> = Vec::with_capacity(tokens.len() + 2);
-    i = 0;
-    while i < tokens.len() {
-        let mut best: Option<(usize, Vec<String>)> = None;
-        for (key, rep) in EXPANSIONS {
-            let kw: Vec<&str> = key.split(' ').collect();
-            let matches = i + kw.len() <= tokens.len()
-                && tokens[i..i + kw.len()]
-                    .iter()
-                    .map(|s| s.trim_end_matches(','))
-                    .eq(kw.iter().copied());
-            let longer = match &best {
-                None => true,
-                Some((n, _)) => kw.len() > *n,
-            };
-            if matches && longer {
-                best = Some((kw.len(), rep.split(' ').map(str::to_string).collect()));
-            }
-        }
-        if let Some((n, rep)) = best {
-            expanded.extend(rep);
-            i += n;
-        } else {
-            expanded.push(tokens[i].clone());
-            i += 1;
-        }
-    }
-    tokens = expanded;
+    // Verbatim name/link expansion, longest phrase first (Phase 12: config-driven).
+    tokens = vocab::expand_tokens(tokens, expansions);
 
     // Contrast + parenthetical commas ("Wayland, not X11", "So, basically,").
     for idx in 0..tokens.len() {

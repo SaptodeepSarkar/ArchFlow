@@ -19,6 +19,10 @@ run_one() {
     07) exec gates/gate-07.sh ;;
     08) exec gates/gate-08.sh ;;
     09) exec gates/gate-09.sh ;;
+    10) exec gates/gate-10.sh ;;
+    11) exec gates/gate-11.sh ;;
+    12) exec gates/gate-12.sh ;;
+    13) exec gates/gate-13.sh ;;
     *) echo "gate $1 not implemented yet"; exit 2 ;;
   esac
 }
@@ -35,10 +39,10 @@ gate 06 pill-ui "gates/gate-06.sh"
 gate 07 llm-format "gates/gate-07.sh"
 gate 08 typing "gates/gate-08.sh"
 gate 09 key-lifecycle "gates/gate-09.sh"
-gate 10 timeouts-offload ""
-gate 11 cancel-error ""
-gate 12 names-links ""
-gate 13 integration ""
+gate 10 timeouts-offload "gates/gate-10.sh"
+gate 11 cancel-error "gates/gate-11.sh"
+gate 12 names-links "gates/gate-12.sh"
+gate 13 integration "gates/gate-13.sh"
 gate 14 soak ""
 gate 15 packaging ""
 gate 16 harden-release ""
