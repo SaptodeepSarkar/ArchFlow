@@ -55,7 +55,7 @@ jobs:
               *)  f="TESTS/gates/gate-$n.sh" ;;
             esac
             if [ ! -f "$f" ]; then echo "missing: $f"; missing=1; fi
-            grep -q "^$n|" TESTS/gate.sh || { echo "gate $n not wired into TESTS/gate.sh"; missing=1; }
+            grep -qE "(^|['\"])$n\|" TESTS/gate.sh || { echo "gate $n not wired into TESTS/gate.sh"; missing=1; }
           done
           grep -q '19|formatter-pipeline' TESTS/gate.sh || { echo "gate 19 not wired"; missing=1; }
           grep -q '22|e2e-stubs' TESTS/gate.sh || { echo "gate 22 not wired"; missing=1; }
