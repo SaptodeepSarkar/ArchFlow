@@ -4,7 +4,8 @@
 //! fine-tuned models are HTTP servers rather than in-process code, so owning
 //! them means spawning their launcher when a run starts and killing it once
 //! `idle_timeout_s` has passed with no runs. Order is the PRD's: the re-decode
-//! speech server starts first, the formatter second.
+//! speech server starts first, the formatter second, and each start unloads the
+//! other side first -- the two models are never in VRAM at once.
 //!
 //! Opt-in per server. `VAANI_STT_REFINE_SERVER` and `VAANI_LLM_SERVER` point at
 //! the launcher scripts; with either unset the daemon owns nothing for it and
@@ -29,6 +30,15 @@ use crate::timeouts;
 /// shortcut: one fixed budget rather than a setting, revisit if a bigger model
 /// is served.
 pub const READY_TIMEOUT: Duration = Duration::from_secs(25);
+
+/// How long a stopped server gets to exit on SIGTERM before SIGKILL.
+/// shortcut: one fixed grace, revisit if a server needs longer to release VRAM.
+const STOP_GRACE: Duration = Duration::from_millis(500);
+const SIGTERM: i32 = 15;
+
+extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
 
 /// One server the daemon owns. `name` matches the PRD's helper names, so the
 /// offload log lines read like the rest of the lifecycle.
@@ -192,12 +202,63 @@ impl Server {
         self.child.is_none() && port_open(self.port)
     }
 
-    /// Kill and reap. Called by the idle sweep and on shutdown.
+    /// Stop and reap, waiting for the exit: that wait is what lets a caller
+    /// start the other model knowing this one's VRAM is gone. SIGTERM first so
+    /// the server can shut down cleanly; SIGKILL if it outlasts the grace.
     pub fn stop(&mut self) {
-        if let Some(mut c) = self.child.take() {
-            let _ = c.kill();
-            let _ = c.wait();
+        let Some(mut c) = self.child.take() else { return };
+        // SAFETY: libc kill on the pid of a child this process owns; no memory
+        // is involved.
+        unsafe {
+            kill(c.id() as i32, SIGTERM);
         }
+        let deadline = Instant::now() + STOP_GRACE;
+        while Instant::now() < deadline {
+            if matches!(c.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let _ = c.kill();
+        let _ = c.wait();
+    }
+}
+
+/// Stop one owned server before the other model loads. `stop` waits, so when
+/// this returns the VRAM is back. A server this daemon did not spawn is left
+/// alone (that is the external-server rule).
+fn unload(fleet: &mut [Server], name: &str) {
+    if let Some(s) = fleet.iter_mut().find(|s| s.name == name) {
+        if s.running() {
+            s.stop();
+            crate::log(
+                "offload",
+                &format!("{name} server stopped: one model in VRAM at a time"),
+            );
+        }
+    }
+}
+
+/// A run begins with the speech server. A formatter still warm from the last
+/// run is unloaded first: the two models are never resident together.
+pub fn start_stt(fleet: &mut [Server], now_s: u64) {
+    unload(fleet, "llm");
+    if let Some(s) = fleet.iter_mut().find(|s| s.name == "stt") {
+        s.start(now_s);
+    }
+}
+
+/// The PRD handoff: the speech server is stopped (and confirmed gone) before
+/// the formatter is spawned. Returns true when the formatter is usable: not
+/// owned, or answering on its port.
+pub fn handoff_to_llm(fleet: &mut [Server], now_s: u64, ready: Duration) -> bool {
+    unload(fleet, "stt");
+    match fleet.iter_mut().find(|s| s.name == "llm") {
+        Some(s) => {
+            s.start(now_s);
+            s.wait_ready(ready)
+        }
+        None => true,
     }
 }
 
@@ -283,5 +344,22 @@ mod tests {
         assert_eq!(s.helper().name, "stt");
         assert!(!s.helper().busy);
         assert!(s.helper().killable);
+    }
+
+    /// Stopping waits for the process: the caller starts the other model right
+    /// after this returns, so the VRAM must already be released.
+    #[test]
+    fn stop_waits_for_the_server_to_exit() {
+        let mut s = Server::new("llm", PathBuf::from("/nonexistent"), 65003);
+        s.child = Some(Command::new("sleep").arg("300").spawn().expect("spawn sleep"));
+        assert!(s.running());
+        let t0 = Instant::now();
+        s.stop();
+        assert!(!s.running());
+        assert!(s.child.is_none());
+        assert!(
+            t0.elapsed() < Duration::from_secs(2),
+            "a server that honours SIGTERM is reaped at once, not after the grace"
+        );
     }
 }

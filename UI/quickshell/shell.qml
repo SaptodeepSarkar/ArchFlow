@@ -1,10 +1,9 @@
-// Vaani overlay + settings shell (Quickshell config "vaani").
+// Vaani overlay (Quickshell config "vaani").
 // Verified against Quickshell 0.3.1 (installed): PanelWindow via default
 // Quickshell import, WlrLayershell attached props, Quickshell.Io Socket +
 // SplitParser for event-driven IPC. No status polling loops anywhere.
 //
-// The daemon owns all state; this process exits when neither overlay nor
-// settings is needed (see DaemonBridge.shouldStayAlive).
+// The daemon owns all state; this process exits when the overlay is done.
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -20,22 +19,16 @@ Scope {
     property string statusText: ""
     property real amplitude: 0
     property var ampHistory: []
-    property bool showSettings: (Quickshell.env("VAANI_OPEN_SETTINGS") || "") === "1"
-    property bool showOnboarding: (Quickshell.env("VAANI_ONBOARDING") || "") === "1"
-    property string pendingText: ""
-    property var settingsApi: null
     property string provisional: ""
     property string liveWords: ""
     property string ctxWords: ""
     property string curWord: ""
     property bool firstLine: true
     property string sessionId: ""
-    property var responseHandlers: ({})
     property bool dismissing: false
     // Set when the finished session copied its transcript to the clipboard:
     // the "Copied to clipboard" popup lingers long enough to be read.
     property bool copiedNotice: false
-    Theme { id: theme }
 
     // Split the running preview into trailing context (dim) and the
     // current newest word (highlighted), so the speaker sees their place.
@@ -51,9 +44,9 @@ Scope {
     }
 
     // Daemon wire format: {protocol_version, request_id, session_id, kind}
-    // where kind = {op, args?}. Anything else is rejected as malformed.
-    function sendOp(op, args, onResponse) {
-        if (!sock.connected) { root.statusText = "Daemon unavailable — start vaanid.service"; return false; }
+    // where kind = {op}. The only op is `stop` (cancel this run).
+    function sendOp(op) {
+        if (!sock.connected) { root.statusText = "Daemon unavailable — start vaani-key.service"; return false; }
         var requestId = "qml-" + Math.floor(Math.random() * 1e9);
         var msg = {
             protocol_version: 1,
@@ -63,18 +56,9 @@ Scope {
                 op: op
             }
         };
-        if (args !== undefined)
-            msg.kind.args = args;
-        if (onResponse !== undefined)
-            root.responseHandlers[requestId] = onResponse;
         sock.write(JSON.stringify(msg) + "\n");
         sock.flush();
         return true;
-    }
-
-    function reconnectNow() {
-        if (!sock.connected)
-            sock.connected = true;
     }
 
     function handleLine(line) {
@@ -86,18 +70,18 @@ Scope {
         } catch (e) {
             return;
         }
-        // Snapshot (first line per connection) has state but no event/op.
+        // Snapshot (first line per connection) has state but no event.
         // A stale overlay that connects to an already-idle daemon exits now.
         if (root.firstLine) {
             root.firstLine = false;
-            if ((msg.state === "IDLE" || msg.state === "CANCELLED" || !msg.state) && !root.showSettings && !msg.event) {
+            if ((msg.state === "IDLE" || msg.state === "CANCELLED" || !msg.state) && !msg.event) {
                 Qt.quit();
                 return;
             }
         }
         if (msg.event && msg.session_id && root.sessionId && msg.session_id !== root.sessionId && msg.event !== "state")
             return;
-        if (msg.event === "state" || (msg.state && !msg.event && msg.ok === undefined)) {
+        if (msg.event === "state" || (msg.state && !msg.event)) {
             applyState(msg);
             return;
         }
@@ -118,39 +102,6 @@ Scope {
             root.ampHistory = h;
             return;
         }
-        if (msg.event === "pending_expired") {
-            root.pendingText = "";
-            return;
-        }
-        // Responses carry ok/state/message/data. Finished states linger
-        // briefly so the outcome is visible, then the overlay exits.
-        // A clipboard confirmation lingers longer so it can be read.
-        if (msg.ok !== undefined) {
-            var handler = root.responseHandlers[msg.request_id];
-            if (handler !== undefined) {
-                delete root.responseHandlers[msg.request_id];
-                handler(msg);
-            }
-            if (msg.state)
-                root.state = msg.state;
-            if (msg.message)
-                root.statusText = msg.message;
-            if (msg.data) {
-                if (msg.data.text !== undefined)
-                    root.pendingText = msg.data.text;
-                else if (root.settingsApi)
-                    root.settingsApi.routeData(msg.data);
-                if (msg.data.copied === true)
-                    root.copiedNotice = true;
-            }
-            root.checkFinished();
-            return;
-        }
-        if (msg.state) {
-            root.state = msg.state;
-            if (msg.message)
-                root.statusText = msg.message;
-        }
     }
 
     function applyState(msg) {
@@ -160,8 +111,6 @@ Scope {
             root.state = msg.state;
         if (msg.message)
             root.statusText = msg.message;
-        if (msg.data && msg.data.text !== undefined)
-            root.pendingText = msg.data.text;
         if (msg.data && msg.data.copied === true)
             root.copiedNotice = true;
         if (root.state === "RECORDING") {
@@ -189,8 +138,6 @@ Scope {
     // READY is finished too: the daemon never parks there, but an old or
     // racing event must not stick the overlay on "Text ready" forever.
     function checkFinished() {
-        if (root.showSettings)
-            return;
         if (root.state === "IDLE" || root.state === "CANCELLED" || root.state === "READY") {
             root.dismissing = true;
             closeTimer.restart();
@@ -208,8 +155,7 @@ Scope {
         interval: root.state === "ERROR" ? 1600 : root.copiedNotice ? 2200 : 360
         repeat: false
         onTriggered: {
-            if (!root.showSettings)
-                Qt.quit();
+            Qt.quit();
         }
     }
 
@@ -224,10 +170,8 @@ Scope {
         onConnectionStateChanged: {
             if (sock.connected) {
                 root.firstLine = true;
-                if (root.settingsApi) root.settingsApi.requestConfig();
             } else {
-                if (!root.showSettings)
-                    Qt.quit();
+                Qt.quit();
             }
         }
     }
@@ -242,7 +186,7 @@ Scope {
 
     // ---- Recording overlay: bottom-center, no keyboard focus ----
     LazyLoader {
-        active: (root.state !== "IDLE" || closeTimer.running) && !root.showSettings
+        active: root.state !== "IDLE" || closeTimer.running
         PanelWindow {
             id: overlay
             implicitWidth: 440
@@ -372,7 +316,7 @@ Scope {
     // focused application. Hyprland has no supported user-level global
     // physical-keyboard freeze that can coexist with virtual-keyboard output.
     PanelWindow {
-        visible: root.state === "INSERTING" && !root.showSettings
+        visible: root.state === "INSERTING"
         implicitWidth: screen ? screen.width : 1
         implicitHeight: screen ? screen.height : 1
         color: "transparent"
@@ -385,46 +329,6 @@ Scope {
             acceptedButtons: Qt.AllButtons
             preventStealing: true
             hoverEnabled: true
-        }
-    }
-
-    // ---- Settings window (normal focusable window, insertion disabled) ----
-    LazyLoader {
-        active: root.showSettings
-        FloatingWindow {
-            id: settingsWin
-            implicitWidth: 760
-            implicitHeight: 560
-            title: "Vaani Settings"
-            visible: true
-            color: theme.background
-            onVisibleChanged: {
-                if (!visible)
-                    { root.showSettings = false; root.checkFinished(); }
-            }
-            Loader {
-                anchors.fill: parent
-                sourceComponent: root.showOnboarding ? onboardingComponent : settingsComponent
-            }
-        }
-    }
-
-    Component {
-        id: onboardingComponent
-        OnboardingView {
-            bridge: root
-            colors: theme
-            onFinished: {
-                root.showOnboarding = false;
-            }
-        }
-    }
-    Component {
-        id: settingsComponent
-        SettingsView {
-            bridge: root
-            colors: theme
-            onReplayWelcome: root.showOnboarding = true
         }
     }
 }

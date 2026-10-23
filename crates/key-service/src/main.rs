@@ -359,6 +359,12 @@ fn run_pipeline(
     boot: std::time::Instant,
 ) {
     control::reset_stop();
+    // STARTING is published before the overlay starts: a fresh connection
+    // gets it as the snapshot, and an IDLE snapshot would make it quit.
+    control::state("STARTING", "Starting microphone");
+    // The guard exists before anything can fail: the overlay is the only way
+    // the user sees why the mic or STT failed to start.
+    let mut ui = UiGuard::start();
     let (python, model) = match (
         stt_manager::resolve_python(),
         stt_manager::resolve_model_with(&cfg.stt_model, &cfg.stt_fallback_model),
@@ -367,21 +373,21 @@ fn run_pipeline(
         (None, _) => {
             control::state("ERROR", "No STT python found");
             log("error", "no STT python found");
+            ui.dismiss();
             return;
         }
         (_, None) => {
             control::state("ERROR", "No STT model found");
             log("error", "no STT model found");
+            ui.dismiss();
             return;
         }
     };
-    // STARTING is published before the overlay starts: a fresh connection
-    // gets it as the snapshot, and an IDLE snapshot would make it quit.
-    control::state("STARTING", "Starting microphone");
     let mut rec = audio_helper::Recorder::new();
     if let Err(e) = rec.start_stream() {
         control::state("ERROR", &format!("Mic failed: {e}"));
         log("error", &format!("mic failed: {e}"));
+        ui.dismiss();
         return;
     }
     let mut stt = match stt_manager::LiveSession::start(&python, &model) {
@@ -390,22 +396,18 @@ fn run_pipeline(
             rec.stop_stream();
             control::state("ERROR", &format!("STT failed: {e}"));
             log("error", &format!("stt failed: {e}"));
+            ui.dismiss();
             return;
         }
     };
     // The fine-tuned models are servers this daemon owns, loaded in the PRD's
     // order: the speech server starts now that the mic is live, so it loads
-    // while the user is still speaking. The formatter starts later, at the
-    // formatting step, once the speech side has had its turn -- two models
-    // loading at once would race for memory on a small card. Spawning never
-    // blocks this run; see servers::wait_ready for the point of use.
-    let now_s = boot.elapsed().as_secs();
-    for s in servers.iter_mut() {
-        if s.name == "stt" {
-            s.start(now_s);
-        }
-    }
-    let mut ui = UiGuard::start();
+    // while the user is still speaking. A formatter still warm from the last
+    // run is unloaded first: the two models never share VRAM. The formatter
+    // starts later, at the formatting step, once the speech side is gone.
+    // Spawning never blocks this run; see servers::wait_ready at the point of
+    // use.
+    servers::start_stt(servers, boot.elapsed().as_secs());
     control::state("RECORDING", "Speak naturally…");
     control::provisional("", false);
     log("listening", "mic open, press hotkey again to finish");
@@ -576,13 +578,10 @@ fn run_pipeline(
     control::state("CLEANING", "Cleaning transcript");
     // The PRD's pipeline: raw STT -> formatter LLM -> typed text. Falls back
     // to the rule engine if no LLM answers (see llm-formatter).
-    // The formatter is started only now: the speech side has finished its work,
-    // so the two models never race for memory at startup.
-    if let Some(s) = servers.iter_mut().find(|s| s.name == "llm") {
-        s.start(boot.elapsed().as_secs());
-        if !s.wait_ready(servers::READY_TIMEOUT) {
-            log("writing", "formatter server not ready, the rule engine answers");
-        }
+    // The handoff unloads the speech server (and waits for it) before the
+    // formatter is spawned: the two models are never in VRAM at once.
+    if !servers::handoff_to_llm(servers, boot.elapsed().as_secs(), servers::READY_TIMEOUT) {
+        log("writing", "formatter server not ready, the rule engine answers");
     }
     let (out, backend) = llm_formatter::format_pipeline(&text, &pairs);
     // Both models have done their work for this run: restart their idle windows.
@@ -766,9 +765,11 @@ fn refine_test(wav: &str) -> i32 {
 
 /// Gate entry: the owned-server lifecycle without a microphone, a GPU or any
 /// real weights. Two stub launcher scripts stand in for serve-refine-stt.sh and
-/// serve-formatter.sh: the gate checks the order they ran in, this checks what
-/// the daemon did with them -- spawn both, then kill both once the idle window
-/// has passed with no run. A launcher whose port already answers is left alone.
+/// serve-formatter.sh and record what happened; this drives the same
+/// `servers::start_stt` / `servers::handoff_to_llm` calls `run_pipeline` makes:
+/// speech starts, the handoff unloads it before the formatter spawns, the next
+/// run unloads the formatter before speech starts again, and the idle sweep
+/// kills whatever is left. A launcher whose port already answers is left alone.
 ///
 /// Usage: --servers-test
 ///        --servers-test <stt_launcher> <llm_launcher> <stt_port> <llm_port>
@@ -803,29 +804,48 @@ fn servers_test(rest: &[String]) -> i32 {
     ];
 
     let mut ok = true;
-    // Same order as the daemon: speech server, then formatter once the speech
-    // side is done. Each gets a moment before the next is started, so the order
-    // the launchers record is the order they were started in rather than
-    // scheduler jitter -- and so a launcher is not judged before `bash` has
+    // The run cycle `run_pipeline` walks, on the same shared functions. Each
+    // start gets a moment so the launchers record their own order rather than
+    // scheduler jitter, and so a launcher is not judged before `bash` has
     // reached its first line.
-    for name in ["stt", "llm"] {
-        if let Some(s) = fleet.iter_mut().find(|s| s.name == name) {
-            s.start(0);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(300));
-    }
-    for s in fleet.iter_mut() {
-        let spawned = s.running();
-        let external = s.externally_served();
-        println!(
-            "step=start name={} spawned={spawned} external={external}",
-            s.name
-        );
-        ok &= spawned || external;
-    }
+    let state = |fleet: &mut [servers::Server], name: &str| match fleet
+        .iter_mut()
+        .find(|s| s.name == name)
+    {
+        Some(s) => (s.running(), s.externally_served()),
+        None => (false, false),
+    };
 
-    // Nothing touches them again, so the sweep must judge both due at t=2 with
-    // a 1s window and they must be gone once it has run.
+    // 1. A run begins: the speech server starts (nothing warm to unload yet).
+    servers::start_stt(&mut fleet, 0);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let (spawned, external) = state(&mut fleet, "stt");
+    println!("step=start name=stt spawned={spawned} external={external}");
+    ok &= spawned || external;
+
+    // 2. The handoff: speech is stopped and reaped before the formatter spawns.
+    servers::handoff_to_llm(&mut fleet, 0, std::time::Duration::ZERO);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let (running, external) = state(&mut fleet, "stt");
+    println!("step=handoff name=stt running={running} external={external}");
+    ok &= !running || external; // a server outside the daemon is not ours to kill
+    let (spawned, external) = state(&mut fleet, "llm");
+    println!("step=start name=llm spawned={spawned} external={external}");
+    ok &= spawned || external;
+
+    // 3. The next run begins: the formatter warm from this one is unloaded
+    //    before the speech model loads, so the two never share VRAM.
+    servers::start_stt(&mut fleet, 0);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let (spawned, external) = state(&mut fleet, "stt");
+    println!("step=start name=stt spawned={spawned} external={external}");
+    ok &= spawned || external;
+    let (running, external) = state(&mut fleet, "llm");
+    println!("step=handoff name=llm running={running} external={external}");
+    ok &= !running || external;
+
+    // Nothing touches them again, so the sweep must judge what is left due at
+    // t=2 with a 1s window and it must be gone once it has run.
     let mut fleet_helpers: Vec<timeouts::Helper> = Vec::new();
     for s in fleet.iter_mut() {
         if s.running() {
