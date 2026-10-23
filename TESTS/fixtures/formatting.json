@@ -21,5 +21,8 @@
   {"id": "multi-rule", "raw": "umm tell saptodeep uh the build passed on github", "expected": "Tell Saptodeep Sarkar the build passed on https://github.com/SaptodeepSarkar."},
   {"id": "negation-copula", "raw": "this is not ready", "expected": "This is not ready."},
   {"id": "negation-aux", "raw": "i do not know", "expected": "I do not know."},
-  {"id": "contrast-keeps-comma", "raw": "i want the red one not the blue one", "expected": "I want the red one, not the blue one."}
+  {"id": "contrast-keeps-comma", "raw": "i want the red one not the blue one", "expected": "I want the red one, not the blue one."},
+  {"id": "am-is-a-verb", "raw": "i am going home", "expected": "I am going home."},
+  {"id": "apostrophe-i-m", "raw": "i'm trying to take a bit about", "expected": "I'm trying to take a bit about."},
+  {"id": "apostrophe-i-d", "raw": "i'd like to see it", "expected": "I'd like to see it."}
 ]

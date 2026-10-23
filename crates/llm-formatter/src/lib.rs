@@ -18,7 +18,7 @@
 //! fixture while gate 07 spawns a fresh `llm-format` per fixture with p95
 //! under 300 ms end to end (the 1.1 GB model load alone blows that ~10x),
 //! and generative output cannot guarantee exact matches. Rule engine holds
-//! 23/23 at p95 ~1 ms: kept (success-with-evidence, revisit only if the
+//! 26/26 at p95 ~1 ms: kept (success-with-evidence, revisit only if the
 //! gate is redesigned around a warm server).
 
 pub mod llm;
@@ -126,6 +126,11 @@ fn contraction(w: &str) -> Option<&'static str> {
         "ive" => "I've",
         "ill" => "I'll",
         "id" => "I'd",
+        // STT emits the apostrophe, so the bare forms above are not enough.
+        "i'm" => "I'm",
+        "i've" => "I've",
+        "i'll" => "I'll",
+        "i'd" => "I'd",
         "youre" => "you're",
         "hes" => "he's",
         "shes" => "she's",
@@ -323,10 +328,11 @@ fn format_impl(raw: &str, expansions: &[(&str, &str)]) -> String {
                 continue;
             }
         }
-        if t == "pm" {
-            tokens[idx] = "PM".to_string();
-        } else if t == "am" {
-            tokens[idx] = "AM".to_string();
+        // A time suffix only after a number: "5 PM" is a time, "I am going" is
+        // the verb. Uppercasing every "am" turned dictation into "I AM going".
+        let after_number = prev.is_some_and(|p| p.chars().last().is_some_and(|c| c.is_ascii_digit()));
+        if (t == "am" || t == "pm") && after_number {
+            tokens[idx] = t.to_ascii_uppercase();
         } else if t == "i" {
             tokens[idx] = "I".to_string();
         } else if let Some(c) = contraction(&t) {
@@ -451,7 +457,7 @@ fn finish_clause(mut c: Vec<String>) -> String {
 mod tests {
     use super::format;
 
-    /// Exact-match over the frozen 23-pair contract (stdlib JSON scan: the
+    /// Exact-match over the frozen 26-pair contract (stdlib JSON scan: the
     /// fixture values contain no escaped quotes).
     fn pairs() -> Vec<(String, String)> {
         let txt = include_str!("../../../TESTS/fixtures/formatting.json");
@@ -472,8 +478,8 @@ mod tests {
     }
 
     #[test]
-    fn contract_has_23_pairs() {
-        assert_eq!(pairs().len(), 23);
+    fn contract_has_26_pairs() {
+        assert_eq!(pairs().len(), 26);
     }
 
     #[test]

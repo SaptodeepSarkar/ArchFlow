@@ -58,8 +58,11 @@ done
 # backend/transcribe.py:54); these exports paper over it until that crate
 # drops the hardcode. Owed fix, not fixed here (crates are out of scope).
 KYPY="/home/saptodeep/Projects/Kyuma/.venv/bin/python"
-KYMO="/home/saptodeep/Projects/Kyuma/models/vosk-model-small-en-us-0.15"
+# Indian English first: the users dictate en-in, and the US small model turns
+# accented speech into plausible nonsense. The 0.5 model is the accurate one.
+KYMB="$HOME/.config/vaani/models/vosk-model-en-in-0.5"
 KYMF="/home/saptodeep/Projects/Kyuma/models/vosk-model-small-en-in-0.4"
+KYMO="/home/saptodeep/Projects/Kyuma/models/vosk-model-small-en-us-0.15"
 py=""
 if [ -n "${VAANI_STT_PYTHON:-}" ] && "$VAANI_STT_PYTHON" -c "import vosk" >/dev/null 2>&1; then
   py="$VAANI_STT_PYTHON"
@@ -74,10 +77,12 @@ fi
 model=""
 if [ -n "${VAANI_STT_MODEL:-}" ] && [ -d "$VAANI_STT_MODEL" ]; then
   model="$VAANI_STT_MODEL"
-elif [ -d "$KYMO" ]; then
-  model="$KYMO"
+elif [ -d "$KYMB" ]; then
+  model="$KYMB"
 elif [ -d "$KYMF" ]; then
   model="$KYMF"
+elif [ -d "$KYMO" ]; then
+  model="$KYMO"
 else
   note "warning: no STT model dir found (tried VAANI_STT_MODEL, Kyuma models); STT will fail at runtime"
 fi
@@ -120,7 +125,8 @@ for b in $BINS; do
 done
 {
   echo "export VAANI_STT_PYTHON=\"$py\""
-  [ -n "$model" ] && echo "export VAANI_STT_MODEL=\"$model\""
+  # The model is not exported: `stt_model` in vaani.conf picks it, so editing
+  # the config actually changes the model (AGENTS.md: env selects backends).
   echo "export VAANI_STT_BACKEND=\"$BACKEND\""
   # Opt-in: VAANI_STT_REFINE=1 turns on the fine-tuned second pass. The endpoint
   # must be a running `packaging/serve-refine-stt.sh`.
@@ -143,11 +149,14 @@ if [ -e "$CONF" ]; then
   note "keeping existing $CONF (not overwritten)"
 else
   mkdir -p "$CONF_DIR"
-  cat >"$CONF" <<'EOF'
-# Vaani default config (see DOCS/configuration.md). Safe to edit.
+  cat >"$CONF" <<EOF
+# Vaani default config (see DOCS/configuration.md). Safe to edit; the daemon
+# reads it once at boot, so restart vaani-key.service after a change.
+# Keys must sit above the first [section] — anything inside an unknown
+# section is ignored (the daemon warns in the journal).
 ui_words = 4
-stt_model = small.en
-stt_fallback_model = base.en
+stt_model = ${model:-small.en}
+stt_fallback_model = small.en
 idle_timeout_s = 120
 end_of_speech_ms = 2000
 
@@ -179,8 +188,7 @@ note "overlay config -> $QS_DIR ($(ls "$ROOT"/UI/quickshell/*.qml | wc -l) QML f
 # systemd silently ignores Environment=).
 env_block="Environment=VAANI_STT_PYTHON=$py
 Environment=VAANI_STT_BACKEND=$BACKEND"
-[ -n "$model" ] && env_block="$env_block
-Environment=VAANI_STT_MODEL=$model"
+# VAANI_STT_MODEL is deliberately absent: the model comes from vaani.conf.
 # The same two opt-ins as the env file above, so the unit and a login shell
 # agree. Absent them the daemon runs the single-pass pipeline exactly as before.
 if [ -n "${VAANI_STT_REFINE:-}" ] && [ -n "$REFINE_BACKEND" ]; then
