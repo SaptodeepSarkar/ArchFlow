@@ -19,7 +19,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -27,6 +27,9 @@ static CLIENT: Mutex<Option<UnixStream>> = Mutex::new(None);
 /// Last published state: replayed as the snapshot for a fresh connection.
 static STATE: Mutex<Option<String>> = Mutex::new(None);
 static STOP: AtomicBool = AtomicBool::new(false);
+/// Connection order, so a slow first overlay can never take the socket back
+/// from a newer one that adopted while its snapshot was being written.
+static NEWEST: AtomicU64 = AtomicU64::new(0);
 
 /// `$XDG_RUNTIME_DIR/vaani/control.sock`, matching the overlay's default.
 pub fn sock_path() -> PathBuf {
@@ -94,7 +97,10 @@ pub fn start() -> std::io::Result<PathBuf> {
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
-            adopt(stream);
+            let id = NEWEST.fetch_add(1, Ordering::SeqCst) + 1;
+            // One reader thread per connection: a connected overlay must never
+            // block a newly connected one from taking over.
+            std::thread::spawn(move || adopt(stream, id));
         }
     });
     Ok(path)
@@ -116,7 +122,7 @@ fn is_stop(line: &str) -> bool {
 
 /// Take over as the live client: send the snapshot, then read ops until the
 /// peer goes away.
-fn adopt(stream: UnixStream) {
+fn adopt(stream: UnixStream, id: u64) {
     let snapshot_state = STATE
         .lock()
         .ok()
@@ -140,6 +146,10 @@ fn adopt(stream: UnixStream) {
     {
         return;
     }
+    // A newer connection may have adopted while this snapshot was written.
+    if NEWEST.load(Ordering::SeqCst) != id {
+        return;
+    }
     if let Ok(mut guard) = CLIENT.lock() {
         *guard = Some(writer);
     }
@@ -152,9 +162,8 @@ fn adopt(stream: UnixStream) {
             STOP.store(true, Ordering::SeqCst);
         }
     }
-    if let Ok(mut guard) = CLIENT.lock() {
-        *guard = None;
-    }
+    // No `CLIENT = None` here: a newer client may already own the socket, and
+    // a dead writer is dropped by `send` on its next failed write.
 }
 
 /// Current session id: the overlay ignores events from other sessions.
@@ -225,7 +234,28 @@ pub fn cleanup() {
 
 #[cfg(test)]
 mod tests {
-    use super::is_stop;
+    use super::{cleanup, is_stop, start, state};
+    use std::io::Read;
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
+
+    /// One newline-terminated line from the daemon, empty on timeout/EOF.
+    fn read_line(stream: &mut UnixStream) -> String {
+        let mut line = Vec::new();
+        let mut byte = [0u8; 1];
+        loop {
+            match stream.read(&mut byte) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    if byte[0] == b'\n' {
+                        break;
+                    }
+                    line.push(byte[0]);
+                }
+            }
+        }
+        String::from_utf8_lossy(&line).into_owned()
+    }
 
     #[test]
     fn stop_op_is_recognised() {
@@ -252,5 +282,38 @@ mod tests {
         assert!(!is_stop("not json"));
         assert!(!is_stop(r#"{"kind":{"op":}}"#));
         assert!(!is_stop(r#"{"kind":{"op"}}"#));
+    }
+
+    #[test]
+    fn a_second_overlay_takes_over_while_the_first_is_connected() {
+        let dir = std::env::temp_dir().join(format!("vaani-control-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let old = std::env::var("XDG_RUNTIME_DIR").ok();
+        std::env::set_var("XDG_RUNTIME_DIR", &dir);
+
+        let path = start().expect("the control socket binds");
+        let mut first = UnixStream::connect(&path).unwrap();
+        first.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        assert!(read_line(&mut first).contains("\"state\""), "first client gets a snapshot");
+        // The first client owns the socket...
+        state("RECORDING", "listening");
+        assert!(read_line(&mut first).contains("RECORDING"), "first client is live");
+
+        // ...but a new overlay must take over without waiting for it to close.
+        let mut second = UnixStream::connect(&path).unwrap();
+        second.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        assert!(read_line(&mut second).contains("\"state\""), "second client gets a snapshot");
+        state("IDLE", "");
+        assert!(
+            read_line(&mut second).contains("IDLE"),
+            "second client did not take over from the connected first"
+        );
+
+        cleanup();
+        match old {
+            Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
+            None => std::env::remove_var("XDG_RUNTIME_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
