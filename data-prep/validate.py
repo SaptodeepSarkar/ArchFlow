@@ -46,8 +46,9 @@ def check_stt(root: Path) -> dict:
         speakers[name] = spk
         missing = 0
         for r in rows:
-            if set(r) < STT_KEYS:
-                fail(f"stt/{name}: missing keys in {r.get('id')}")
+            miss = STT_KEYS - set(r)
+            if miss:
+                fail(f"stt/{name}: missing keys {sorted(miss)} in {r.get('id')}")
                 continue
             if not (1 <= len(r["text"]) <= 200):
                 fail(f"stt/{name}: bad text length {r['id']}")
@@ -111,8 +112,9 @@ def check_formatter(root: Path) -> dict:
             fail(f"formatter/{name}: split fraction {frac:.3f}")
     for r in rows:
         rid = r.get("id")
-        if set(r) < FMT_KEYS:
-            fail(f"formatter: missing keys in {rid}")
+        miss = FMT_KEYS - set(r)
+        if miss:
+            fail(f"formatter: missing keys {sorted(miss)} in {rid}")
             continue
         if not r["input"] or not r["output"]:
             fail(f"formatter: empty text {rid}")

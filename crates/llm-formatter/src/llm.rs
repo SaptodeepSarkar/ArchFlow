@@ -7,13 +7,19 @@
 //! that fails [`looks_like_formatting`], the caller keeps the deterministic
 //! output rather than typing a model's musings.
 
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Transcript longer than this times the input is treated as rambling, not
 /// formatting (a dictation never triples in length).
 const MAX_GROWTH: usize = 3;
+
+/// Silence longer than this means the server is wedged, not thinking.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Total budget for a reply: a cold model on a long dictation can take a
+/// while, but the utterance still never waits forever.
+const REPLY_DEADLINE: Duration = Duration::from_secs(60);
 
 /// Default endpoint: a llama-server on this machine (any OpenAI-compatible
 /// chat endpoint works via `VAANI_LLM_ENDPOINT`).
@@ -59,12 +65,47 @@ pub fn format_llm(raw: &str, endpoint: &str, vocab: &[(String, String)]) -> Opti
         eprintln!("llm-formatter: no message content in the response; using rule engine");
         return None;
     };
-    let text = content.trim().trim_matches('"').trim().to_string();
-    if !looks_like_formatting(raw, &text) {
+    let text = strip_ack(content.trim().trim_matches('"').trim())
+        .trim_matches('"')
+        .trim();
+    if !looks_like_formatting(raw, text) {
         eprintln!("llm-formatter: response rejected as unformatted; using rule engine");
         return None;
     }
-    Some(text)
+    Some(text.to_string())
+}
+
+/// Acknowledgment openers the prompt forbids but models still emit.
+const ACKS: &[&str] = &[
+    "sure",
+    "certainly",
+    "of course",
+    "okay",
+    "here is",
+    "here's",
+    "the formatted text",
+];
+
+/// Drop the model's acknowledgment opener ("Sure, here is the formatted
+/// text:") so the formatting underneath is typed instead of the whole reply
+/// being rejected. Only a leading line, or the text before a colon, that opens
+/// with a known ack is removed; anything else is returned untouched.
+fn strip_ack(out: &str) -> &str {
+    let mut text = out.trim();
+    while ACKS.iter().any(|a| text.to_ascii_lowercase().starts_with(a)) {
+        let rest = match text.split_once('\n') {
+            Some((_, tail)) => tail,
+            None => match text.split_once(':') {
+                Some((_, tail)) => tail,
+                None => break,
+            },
+        };
+        if rest.trim().is_empty() {
+            break;
+        }
+        text = rest.trim();
+    }
+    text
 }
 
 /// Sanity gate on a model response: non-empty, not a preamble, not wildly
@@ -124,7 +165,7 @@ fn post(endpoint: &str, body: &str) -> Result<String, String> {
     let addr = if host == "localhost" { "127.0.0.1" } else { &host };
     let mut stream = TcpStream::connect((addr, port)).map_err(|e| e.to_string())?;
     stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
+        .set_read_timeout(Some(IDLE_TIMEOUT))
         .map_err(|e| e.to_string())?;
     let request = format!(
         "POST /v1/chat/completions HTTP/1.1\r\nHost: {host}:{port}\r\n\
@@ -134,11 +175,22 @@ fn post(endpoint: &str, body: &str) -> Result<String, String> {
     stream
         .write_all(request.as_bytes())
         .map_err(|e| e.to_string())?;
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|e| e.to_string())?;
-    Ok(response)
+    // Idle timeout catches a wedged server; the deadline gives a cold or slow
+    // model room to answer a long dictation.
+    let deadline = Instant::now() + REPLY_DEADLINE;
+    let mut response = Vec::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => response.extend_from_slice(&buf[..n]),
+            Err(e)
+                if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)
+                    && Instant::now() < deadline => {}
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    String::from_utf8(response).map_err(|e| e.to_string())
 }
 
 /// Pull the assistant text out of an OpenAI-shaped response. Returns the
@@ -214,6 +266,24 @@ mod tests {
         assert!(!looks_like_formatting("hello", ""));
         assert!(!looks_like_formatting("hello", "Sure, here is the formatted text: Hello."));
         assert!(!looks_like_formatting("hi", &"word ".repeat(50)));
+    }
+
+    #[test]
+    fn acknowledgement_openers_are_stripped_not_rejected() {
+        let raw = "umm so i think we should ship it";
+        assert_eq!(
+            strip_ack("Sure, here is the formatted text:\nSo I think we should ship it."),
+            "So I think we should ship it."
+        );
+        assert_eq!(strip_ack("Sure: So I think we should ship it."), "So I think we should ship it.");
+        assert!(looks_like_formatting(
+            raw,
+            strip_ack("Sure, here is the formatted text: \"So I think we should ship it.\"")
+                .trim_matches('"')
+        ));
+        // Text that merely starts with an ack and has no preamble is untouched.
+        assert_eq!(strip_ack("Sure."), "Sure.");
+        assert_eq!(strip_ack("So I think we should ship it."), "So I think we should ship it.");
     }
 
     #[test]
