@@ -44,7 +44,8 @@ move focus mid-delivery.
 
 ## Settings
 
-There is no settings UI. The overlay reads `~/.config/vaani/vaani.conf` once at
-startup and the control socket implements exactly one op, `stop`; the old
+There is no settings UI. The daemon reads `~/.config/vaani/vaani.conf` once at
+startup; the overlay only renders control-socket events (including the
+`ui_words` window) and the socket implements exactly one op, `stop`; the old
 Settings/Onboarding views drove a config IPC that never existed, so they were
 deleted rather than left as dead toggles.
