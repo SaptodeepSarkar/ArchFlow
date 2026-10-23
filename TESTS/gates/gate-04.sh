@@ -5,7 +5,9 @@ set -u
 cd "$(dirname "$0")/../.."
 
 CRATE="crates/audio-helper"
-BIN="$CRATE/target/debug/capture"
+# Workspace member: cargo puts the binary in the shared target dir, not the
+# crate's own (there is no per-crate target/ in a workspace checkout).
+BIN="target/debug/capture"
 SECS=5
 
 fail() { echo "FAIL: $1"; exit 1; }

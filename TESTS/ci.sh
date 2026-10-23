@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # CI gate set: everything that runs on a plain Linux box with Rust + python3.
 #
-# The full board (`./TESTS/gate.sh`) is 21/21 on the real machine, but most of
+# The full board (`./TESTS/gate.sh`) is 22/22 on the real machine, but most of
 # it needs hardware: a microphone and PipeWire (04/05/13/14), a compositor with
 # wtype and quickshell (06/08/17/18), NVIDIA VRAM (05/09), systemd (15), and a
 # local formatter LLM (19's live half). Those stay local/on-box gates.
 #
-# This script is the honest subset for CI: pure logic, fixtures and contracts.
+# This script is the honest subset for CI: pure logic, fixtures and contracts,
+# plus gate 22, which runs the real daemon end-to-end against stub mic/STT/typing
+# backends (no mic, no compositor, no GPU, no model server).
 set -u -o pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -48,9 +50,10 @@ else
 fi
 
 step "hermetic gates"
-for g in 01 02 07 10 11 12 19; do
+for g in 01 02 07 10 11 12 19 22; do
   case "$g" in
     01) cmd="python3 TESTS/test_fixtures.py" ;;
+    22) cmd="./TESTS/gates/gate-22-e2e.sh" ;;
     *)  cmd="./TESTS/gates/gate-$g.sh" ;;
   esac
   if $cmd >"/tmp/ci-gate-$g.log" 2>&1; then
