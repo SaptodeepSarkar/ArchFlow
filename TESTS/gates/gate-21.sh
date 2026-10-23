@@ -2,8 +2,9 @@
 # Gate 21 — the daemon owns the model servers' lifecycle. GREEN only if:
 #   1. with no launcher configured the daemon owns nothing (opt-in unchanged,
 #      so a machine that hand-starts its servers behaves exactly as before),
-#   2. a run spawns the speech server first and the formatter second, the next
-#      run unloads the formatter before speech starts again, and the launcher
+#   2. a run spawns the speech server first and the formatter second, parks the
+#      formatter when the run ends (nothing holds VRAM between runs), and the
+#      next run starts speech with the formatter already gone; the launcher
 #      scripts themselves record that order,
 #   3. whatever is left is killed once idle_timeout_s has passed with no run,
 #      with no process left behind,
@@ -64,6 +65,16 @@ grep -q "step=start name=stt spawned=true" <<<"$out" \
   && ok "speech server spawned" || bad "speech server not spawned: $out"
 grep -q "step=start name=llm spawned=true" <<<"$out" \
   && ok "formatter spawned" || bad "formatter not spawned: $out"
+grep -q "step=park name=llm running=false" <<<"$out" \
+  && ok "formatter parked at the end of the run (no VRAM held between runs)" \
+  || bad "formatter not parked at the end of the run: $out"
+park_at="$(grep -n '^step=park name=llm running=false' <<<"$out" | head -1 | cut -d: -f1)"
+next_stt_at="$(grep -n '^step=start name=stt spawned=true' <<<"$out" | tail -1 | cut -d: -f1)"
+if [ -n "$park_at" ] && [ -n "$next_stt_at" ] && [ "$park_at" -lt "$next_stt_at" ]; then
+  ok "park happens before the next speech start, not on its path"
+else
+  bad "park order: park='${park_at:-none}' next stt start='${next_stt_at:-none}'"
+fi
 grep -q "servers ok killed_after_idle=true" <<<"$out" \
   && ok "leftover server judged due and killed after the idle window" \
   || bad "not killed after the idle window: $out"
