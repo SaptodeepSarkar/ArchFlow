@@ -23,7 +23,6 @@ BIN="$ROOT/target/debug/vaani-key-service"
 TMP="$(mktemp -d /tmp/vaani-gate19.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 cat >"$TMP/vaani.conf" <<'EOF'
-hotkey = SUPER+H
 ui_words = 4
 idle_timeout_s = 120
 

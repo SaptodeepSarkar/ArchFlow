@@ -333,6 +333,22 @@ const MAX_RECORD_SECS: u64 = 60;
 /// s16 mono at 16 kHz is 32 bytes per millisecond of audio.
 const BYTES_PER_MS: usize = 32;
 
+/// Execute the cancel decision table: stop audio/STT, skip formatting, hide
+/// the pill. The table is the single place that names what cancel means.
+fn cancel_run(rec: &mut audio_helper::Recorder, stt: &mut stt_manager::LiveSession, ui: &mut UiGuard) {
+    for action in cancel::decide(cancel::Phase::Listening, cancel::Signal::Cancel).actions {
+        match action {
+            "kill_audio" => rec.stop_stream(),
+            "kill_stt" => stt.unload(),
+            "pill_hide" => ui.dismiss(),
+            "skip_formatting" => {} // this function returns before formatting
+            "offload_all" => {}
+            "idle" => control::state("CANCELLED", "Cancelled"),
+            _ => {}
+        }
+    }
+}
+
 /// One live run: open mic + STT stream (words show while speaking, until
 /// 2nd press / cap / shutdown) -> format with config vocab -> type. Every
 /// path ends back at idle; STT loads per run and unloads after (backend
@@ -342,7 +358,11 @@ fn run_pipeline(
     servers: &mut [servers::Server],
     boot: std::time::Instant,
 ) {
-    let (python, model) = match (stt_manager::resolve_python(), stt_manager::resolve_model()) {
+    control::reset_stop();
+    let (python, model) = match (
+        stt_manager::resolve_python(),
+        stt_manager::resolve_model_with(&cfg.stt_model, &cfg.stt_fallback_model),
+    ) {
         (Some(p), Some(m)) => (p, m),
         (None, _) => {
             control::state("ERROR", "No STT python found");
@@ -399,6 +419,7 @@ fn run_pipeline(
     let mut captured: Vec<u8> = Vec::new();
     let refine = stt_manager::resolve_refine(&python);
     let mut heard = false;
+    let mut cancelled = false;
     loop {
         // 50 ms tick: chunk in, words out, then check the stop conditions.
         let mut got_ms = 0u32;
@@ -433,10 +454,11 @@ fn run_pipeline(
                     }
                 }
                 stt_manager::LiveEvent::Done(_) => {}
+                stt_manager::LiveEvent::Failed(_) => {}
             }
         }
         if changed {
-            control::provisional(&live_window(&committed, &partial, 12), false);
+            control::provisional(&live_window(&committed, &partial, cfg.ui_words.max(1) as usize), false);
         }
         if GOT_SHUTDOWN.load(Ordering::SeqCst) {
             rec.stop_stream();
@@ -457,13 +479,21 @@ fn run_pipeline(
             }
         }
         if GOT_TRIGGER.swap(false, Ordering::SeqCst)
-            || control::take_stop()
             || t0.elapsed().as_secs() >= MAX_RECORD_SECS
         {
             break;
         }
+        if control::take_stop() {
+            cancelled = true;
+            break;
+        }
     }
     rec.stop_stream();
+    if cancelled || control::take_stop() {
+        cancel_run(&mut rec, &mut stt, &mut ui);
+        log("idle", "cancelled by the user");
+        return;
+    }
     log("transcribing", &format!("{} words decoded", committed.len()));
     control::state("TRANSCRIBING", "Transcribing");
     // Words flushed by the backend at end-of-stream land here; losing them
@@ -489,7 +519,7 @@ fn run_pipeline(
             // A server spawned moments ago may still be loading weights. Both
             // bind their port only once ready, so wait briefly here rather than
             // falling back on the first dictation after an idle window.
-            if let Some(s) = servers.iter().find(|s| s.name == "stt") {
+            if let Some(s) = servers.iter_mut().find(|s| s.name == "stt") {
                 if !s.wait_ready(servers::READY_TIMEOUT) {
                     log("refine", "fine-tuned STT server not ready yet");
                 }
@@ -829,7 +859,10 @@ fn servers_test(rest: &[String]) -> i32 {
 /// a stub wtype first on PATH.
 fn pipeline_test(wav: &str, cfg_path: &str) -> i32 {
     let cfg = vaani_config::load(std::path::Path::new(cfg_path)).config;
-    let (python, model) = match (stt_manager::resolve_python(), stt_manager::resolve_model()) {
+    let (python, model) = match (
+        stt_manager::resolve_python(),
+        stt_manager::resolve_model_with(&cfg.stt_model, &cfg.stt_fallback_model),
+    ) {
         (Some(p), Some(m)) => (p, m),
         _ => {
             println!("PIPELINE-FAIL no STT python/model");
@@ -1048,14 +1081,12 @@ fn main() {
     // trigger script signals us. All we publish is our pid.
     if let Err(e) = control::start() {
         log("error", &format!("control socket unavailable: {e}"));
+        std::process::exit(1);
     }
     write_pid_file(pid);
     log(
         "idle",
-        &format!(
-            "listening pid={pid} hotkey={} trigger=vaani-trigger bind=hyprland.lua",
-            cfg.hotkey
-        ),
+        &format!("listening pid={pid} trigger=vaani-trigger bind=hyprland.lua"),
     );
 
     // The model servers this daemon owns: empty unless VAANI_STT_REFINE_SERVER
@@ -1096,8 +1127,7 @@ fn main() {
             log(
                 "triggered",
                 &format!(
-                    "hotkey {} fired display={}",
-                    cfg.hotkey,
+                    "static bind fired display={}",
                     std::env::var("WAYLAND_DISPLAY").unwrap_or_default()
                 ),
             );

@@ -7,19 +7,21 @@
 //!     message is not an event); after that `state` / `provisional` /
 //!     `amplitude` events, and `{ok, request_id}` responses to ops.
 //!   UI -> daemon: `{protocol_version, request_id, session_id, kind:{op}}`;
-//!     the only op implemented is `stop` (= finish recording now).
+//!     the only op implemented is `stop` (= cancel this run; nothing is typed).
 //!
 //! States are the overlay's vocabulary: STARTING, RECORDING, TRANSCRIBING,
-//! CLEANING, INSERTING, IDLE, ERROR.
+//! CLEANING, INSERTING, READY, IDLE, CANCELLED, ERROR.
 //!
 //! One client at a time: a newly connected overlay replaces the old one, so
 //! a stale window can never hold the socket.
 
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 static CLIENT: Mutex<Option<UnixStream>> = Mutex::new(None);
 /// Last published state: replayed as the snapshot for a fresh connection.
@@ -72,9 +74,23 @@ pub fn start() -> std::io::Result<PathBuf> {
     let path = sock_path();
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
+        // The fallback is /tmp, so the directory must be private.
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
     }
-    let _ = std::fs::remove_file(&path); // stale socket from a dead daemon
-    let listener = UnixListener::bind(&path)?;
+    // Do not unlink a live daemon's socket. A stale file (connect refused) is
+    // removed and rebound; a live one is an error that stops the second daemon.
+    let listener = match UnixListener::bind(&path) {
+        Ok(l) => l,
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            if UnixStream::connect(&path).is_ok() {
+                return Err(e);
+            }
+            std::fs::remove_file(&path)?;
+            UnixListener::bind(&path)?
+        }
+        Err(e) => return Err(e),
+    };
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
@@ -96,6 +112,8 @@ fn adopt(stream: UnixStream) {
         Ok(w) => w,
         Err(_) => return,
     };
+    // A frozen overlay must not block the dictation thread on a full socket.
+    let _ = writer.set_write_timeout(Some(Duration::from_millis(50)));
     let snap = format!(
         "{{\"protocol_version\":1,\"session_id\":\"{}\",\"state\":\"{}\"}}",
         esc(&session()),
@@ -173,6 +191,11 @@ pub fn amplitude(a: f64) {
 /// True once the UI asked to stop the current run.
 pub fn take_stop() -> bool {
     STOP.swap(false, Ordering::SeqCst)
+}
+
+/// Drop a stop left over from a previous run or an idle client.
+pub fn reset_stop() {
+    STOP.store(false, Ordering::SeqCst);
 }
 
 /// Remove the socket file (shutdown).

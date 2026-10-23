@@ -43,12 +43,9 @@ grep -q "stub-fired" "$VAANI_WTYPE_LOG" 2>/dev/null \
 
 # 2. vocab path: config names/links expand through the daemon's pipeline.
 cat >"$TMP/vaani.conf" <<'EOF'
-hotkey = SUPER+H
 ui_words = 4
 stt_model = small.en
 stt_fallback_model = base.en
-llm_model = qwen2.5-1.5B-q4
-prefer_device = auto
 idle_timeout_s = 120
 
 [names]

@@ -30,7 +30,7 @@ so idle cost is zero); the overlay exits itself after the final state.
 
 States are pushed over `$XDG_RUNTIME_DIR/vaani/control.sock` as
 newline-delimited JSON: STARTING, RECORDING, TRANSCRIBING, CLEANING,
-INSERTING, READY, IDLE, ERROR, plus `provisional` events carrying the live
-words and `amplitude` events carrying the mic level for the bars. The
-overlay's only op is `stop` (finish this recording, then clean and type).
+INSERTING, READY, IDLE, CANCELLED, ERROR, plus `provisional` events
+carrying the live words and `amplitude` events carrying the mic level for the
+bars. The overlay's only op is `stop` (cancel this run; nothing is typed).
 Details in `UI/README.md`.

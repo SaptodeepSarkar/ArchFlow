@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CI gate set: everything that runs on a plain Linux box with Rust + python3.
 #
-# The full board (`./TESTS/gate.sh`) is 19/19 on the real machine, but most of
+# The full board (`./TESTS/gate.sh`) is 21/21 on the real machine, but most of
 # it needs hardware: a microphone and PipeWire (04/05/13/14), a compositor with
 # wtype and quickshell (06/08/17/18), NVIDIA VRAM (05/09), systemd (15), and a
 # local formatter LLM (19's live half). Those stay local/on-box gates.

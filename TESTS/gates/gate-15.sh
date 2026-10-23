@@ -109,7 +109,7 @@ fi
 
 # 6. existing config never overwritten.
 CONF="$T/home/.config/vaani/vaani.conf"
-if [ -f "$CONF" ] && grep -q "^hotkey = " "$CONF"; then
+if [ -f "$CONF" ] && grep -q "^ui_words = " "$CONF"; then
   ok "default vaani.conf created"
 else
   bad "default vaani.conf created"

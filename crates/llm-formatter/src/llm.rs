@@ -124,7 +124,7 @@ fn post(endpoint: &str, body: &str) -> Result<String, String> {
     let addr = if host == "localhost" { "127.0.0.1" } else { &host };
     let mut stream = TcpStream::connect((addr, port)).map_err(|e| e.to_string())?;
     stream
-        .set_read_timeout(Some(Duration::from_secs(20)))
+        .set_read_timeout(Some(Duration::from_secs(2)))
         .map_err(|e| e.to_string())?;
     let request = format!(
         "POST /v1/chat/completions HTTP/1.1\r\nHost: {host}:{port}\r\n\

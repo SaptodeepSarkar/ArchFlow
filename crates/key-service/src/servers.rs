@@ -147,7 +147,7 @@ impl Server {
 
     /// Bounded wait for the port to answer. Only the server we own is waited
     /// for: one we do not own either answers already or never will.
-    pub fn wait_ready(&self, timeout: Duration) -> bool {
+    pub fn wait_ready(&mut self, timeout: Duration) -> bool {
         if self.child.is_none() {
             return port_open(self.port);
         }
@@ -156,21 +156,15 @@ impl Server {
             if port_open(self.port) {
                 return true;
             }
-            if !self.running_ro() {
+            // `running` reaps an exited launcher; a zombie in /proc must not
+            // make this wait the full timeout.
+            if !self.running() {
                 return false; // launcher died: missing weights, OOM, port clash
             }
             if Instant::now() >= deadline {
                 return false;
             }
             std::thread::sleep(Duration::from_millis(250));
-        }
-    }
-
-    /// `running` without `&mut` (try_wait borrows).
-    fn running_ro(&self) -> bool {
-        match self.child.as_ref() {
-            Some(c) => std::path::Path::new(&format!("/proc/{}", c.id())).exists(),
-            None => false,
         }
     }
 
@@ -267,6 +261,16 @@ mod tests {
             t0.elapsed() < Duration::from_secs(2),
             "a dead launcher must not burn the whole readiness budget"
         );
+    }
+
+    #[test]
+    fn wait_ready_does_not_burn_the_budget_on_a_zombie() {
+        let mut s = Server::new("llm", PathBuf::from("/nonexistent"), 65002);
+        s.child = Some(Command::new("true").spawn().expect("spawn true"));
+        std::thread::sleep(Duration::from_millis(200));
+        let t0 = Instant::now();
+        assert!(!s.wait_ready(Duration::from_secs(5)));
+        assert!(t0.elapsed() < Duration::from_secs(2));
     }
 
     /// The idle window itself is `timeouts::decide`'s; what this module owns is

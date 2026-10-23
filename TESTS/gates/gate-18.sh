@@ -65,7 +65,7 @@ else
 fi
 
 # 2. protocol: start the daemon, drive a full run with a socket client.
-printf 'hotkey = SUPER+H\nui_words = 4\nidle_timeout_s = 120\n' >"$TMP/vaani.conf"
+printf 'ui_words = 4\nidle_timeout_s = 120\n' >"$TMP/vaani.conf"
 mkdir -p "$TMP/shim"
 printf '#!/usr/bin/env bash\nprintf "typed %%s\\n" "$1" >>"$VAANI_WTYPE_LOG"\n' >"$TMP/shim/wtype"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$TMP/shim/quickshell"
@@ -168,7 +168,7 @@ for line in open(sys.argv[1]):
     if not line.strip():
         continue
     st = json.loads(line).get("state")
-    if st in ("READY", "ERROR", "IDLE"):
+    if st in ("READY", "ERROR", "IDLE", "CANCELLED"):
         sys.exit(0)
 sys.exit(1)
 EOF

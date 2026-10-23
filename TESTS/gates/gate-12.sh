@@ -116,7 +116,7 @@ fn main() {
     let got = expand("open githubs now", &vocab);
     check(!got.contains("github.com"), format!("no substring expansion: {got:?}"), &mut pass, &mut fail);
     // Missing/empty sections behave as empty, no crash.
-    let bare = vaani_config::parse_str("hotkey = SUPER+H\n");
+    let bare = vaani_config::parse_str("");
     check(bare.config.names.is_empty() && bare.config.links.is_empty(), "missing sections parse as empty".into(), &mut pass, &mut fail);
     let toks = tokenize("met saptodeep yesterday");
     check(vocab::expand_tokens(toks.clone(), &[]) == toks, "empty vocab passes tokens through".into(), &mut pass, &mut fail);

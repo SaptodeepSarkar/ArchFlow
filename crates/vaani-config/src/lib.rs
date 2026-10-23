@@ -6,46 +6,13 @@
 
 use std::path::Path;
 
-/// Device preference for model loading (`prefer_device`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum PreferDevice {
-    Dgpu,
-    Igpu,
-    #[default]
-    Auto,
-}
-
-impl PreferDevice {
-    fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "dgpu" => Some(Self::Dgpu),
-            "igpu" => Some(Self::Igpu),
-            "auto" => Some(Self::Auto),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for PreferDevice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Dgpu => write!(f, "dgpu"),
-            Self::Igpu => write!(f, "igpu"),
-            Self::Auto => write!(f, "auto"),
-        }
-    }
-}
-
 /// All settings from `vaani.conf`. `Default` holds the documented fallback
 /// values used when the file is missing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VaaniConfig {
-    pub hotkey: String,
     pub ui_words: u32,
     pub stt_model: String,
     pub stt_fallback_model: String,
-    pub llm_model: String,
-    pub prefer_device: PreferDevice,
     pub idle_timeout_s: u64,
     /// Quiet time after speech that ends a dictation run, in ms. The same
     /// number as `key_service::vad::DEFAULT_SILENCE_MS`.
@@ -59,12 +26,9 @@ pub struct VaaniConfig {
 impl Default for VaaniConfig {
     fn default() -> Self {
         Self {
-            hotkey: "SUPER+H".to_owned(),
             ui_words: 4,
             stt_model: "small.en".to_owned(),
             stt_fallback_model: "base.en".to_owned(),
-            llm_model: "qwen2.5-1.5B-q4".to_owned(),
-            prefer_device: PreferDevice::Auto,
             idle_timeout_s: 120,
             end_of_speech_ms: 2000,
             names: Vec::new(),
@@ -77,15 +41,12 @@ impl VaaniConfig {
     /// Canonical form: parses back to an equal config with zero warnings.
     pub fn to_canonical(&self) -> String {
         let mut s = String::new();
-        s.push_str(&format!("hotkey = {}\n", self.hotkey));
         s.push_str(&format!("ui_words = {}\n", self.ui_words));
         s.push_str(&format!("stt_model = {}\n", self.stt_model));
         s.push_str(&format!(
             "stt_fallback_model = {}\n",
             self.stt_fallback_model
         ));
-        s.push_str(&format!("llm_model = {}\n", self.llm_model));
-        s.push_str(&format!("prefer_device = {}\n", self.prefer_device));
         s.push_str(&format!("idle_timeout_s = {}\n", self.idle_timeout_s));
         s.push_str(&format!(
             "end_of_speech_ms = {}\n",
@@ -172,22 +133,14 @@ pub fn parse_str(text: &str) -> ParseOutcome {
 fn set_top(out: &mut ParseOutcome, lineno: usize, key: &str, value: &str) {
     let cfg = &mut out.config;
     match key {
-        "hotkey" => cfg.hotkey = value.to_owned(),
         "ui_words" => match value.parse::<u32>() {
-            Ok(n) => cfg.ui_words = n,
-            Err(_) => out.warnings.push(format!(
+            Ok(n) if n > 0 => cfg.ui_words = n,
+            _ => out.warnings.push(format!(
                 "line {lineno}: bad ui_words '{value}' (want a positive integer), using default"
             )),
         },
         "stt_model" => cfg.stt_model = value.to_owned(),
         "stt_fallback_model" => cfg.stt_fallback_model = value.to_owned(),
-        "llm_model" => cfg.llm_model = value.to_owned(),
-        "prefer_device" => match PreferDevice::parse(value) {
-            Some(d) => cfg.prefer_device = d,
-            None => out.warnings.push(format!(
-                "line {lineno}: unknown prefer_device '{value}' (want dgpu|igpu|auto), using default"
-            )),
-        },
         "idle_timeout_s" => match value.parse::<u64>() {
             Ok(n) => cfg.idle_timeout_s = n,
             Err(_) => out.warnings.push(format!(
@@ -227,12 +180,9 @@ pub fn load(path: &Path) -> ParseOutcome {
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = "hotkey = SUPER+H\n\
-        ui_words = 4\n\
+    const SAMPLE: &str = "ui_words = 4\n\
         stt_model = small.en\n\
         stt_fallback_model = base.en\n\
-        llm_model = qwen2.5-1.5B-q4\n\
-        prefer_device = auto\n\
         idle_timeout_s = 120\n\
         end_of_speech_ms = 2000\n\
         \n\
@@ -247,12 +197,9 @@ mod tests {
         let o = parse_str(SAMPLE);
         assert!(o.warnings.is_empty(), "warnings: {:?}", o.warnings);
         let c = o.config;
-        assert_eq!(c.hotkey, "SUPER+H");
         assert_eq!(c.ui_words, 4);
         assert_eq!(c.stt_model, "small.en");
         assert_eq!(c.stt_fallback_model, "base.en");
-        assert_eq!(c.llm_model, "qwen2.5-1.5B-q4");
-        assert_eq!(c.prefer_device, PreferDevice::Auto);
         assert_eq!(c.idle_timeout_s, 120);
         assert_eq!(c.end_of_speech_ms, 2000);
         assert_eq!(
@@ -279,8 +226,7 @@ mod tests {
 
     #[test]
     fn unknown_keys_warn_never_crash() {
-        let o = parse_str("hotkey = SUPER+J\nnope = 1\n[names]\nfoo = Foo\n[zzz]\na = b\n");
-        assert_eq!(o.config.hotkey, "SUPER+J");
+        let o = parse_str("nope = 1\n[names]\nfoo = Foo\n[zzz]\na = b\n");
         assert_eq!(
             o.config.names,
             vec![("foo".to_owned(), "Foo".to_owned())]
@@ -291,13 +237,12 @@ mod tests {
     #[test]
     fn broken_values_keep_defaults() {
         let o = parse_str(
-            "ui_words = lots\nidle_timeout_s = -3\nend_of_speech_ms = soon\nprefer_device = hyper\n=\ngarbage line\n",
+            "ui_words = lots\nidle_timeout_s = -3\nend_of_speech_ms = soon\n=\ngarbage line\n",
         );
         assert_eq!(o.config.ui_words, 4);
         assert_eq!(o.config.idle_timeout_s, 120);
         assert_eq!(o.config.end_of_speech_ms, 2000);
-        assert_eq!(o.config.prefer_device, PreferDevice::Auto);
-        assert_eq!(o.warnings.len(), 6, "warnings: {:?}", o.warnings);
+        assert_eq!(o.warnings.len(), 5, "warnings: {:?}", o.warnings);
     }
 
     #[test]

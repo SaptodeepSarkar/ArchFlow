@@ -3,12 +3,9 @@
 Lives at `~/.config/vaani/vaani.conf`. Parsed once at boot. Sample:
 
 ```conf
-hotkey = SUPER+H
 ui_words = 4
 stt_model = small.en
 stt_fallback_model = base.en
-llm_model = qwen2.5-1.5B-q4
-prefer_device = auto
 idle_timeout_s = 120
 end_of_speech_ms = 2000
 

@@ -62,20 +62,33 @@ pub fn resolve_python() -> Option<String> {
     })
 }
 
-/// Model dir: env override, else default; falls back to the second
-/// Kyuma model when the default is missing (weak-machine tier drop).
-pub fn resolve_model() -> Option<String> {
+/// Model dir: env override, else the configured model, else the fallback.
+/// The Vosk model names are mapped to the two installed Kyuma dirs; an
+/// unknown name keeps the default.
+pub fn resolve_model_with(preferred: &str, fallback: &str) -> Option<String> {
     if let Ok(m) = std::env::var("VAANI_STT_MODEL") {
         if std::path::Path::new(&m).is_dir() {
             return Some(m);
         }
     }
-    for m in [DEFAULT_MODEL, FALLBACK_MODEL] {
+    let pick = |name: &str| {
+        if name.to_ascii_lowercase().contains("base") {
+            FALLBACK_MODEL
+        } else {
+            DEFAULT_MODEL
+        }
+    };
+    for m in [pick(preferred), pick(fallback), DEFAULT_MODEL, FALLBACK_MODEL] {
         if std::path::Path::new(m).is_dir() {
             return Some(m.to_string());
         }
     }
     None
+}
+
+/// Default lookup for the standalone test binaries.
+pub fn resolve_model() -> Option<String> {
+    resolve_model_with("small.en", "base.en")
 }
 
 fn backend_path() -> std::path::PathBuf {
@@ -239,6 +252,8 @@ pub enum LiveEvent {
     Partial(String),
     /// Stream ended; final stats.
     Done(Stats),
+    /// The backend exited without its DONE line (missing model, import error).
+    Failed(String),
 }
 
 fn parse_word(rest: &str) -> Option<Word> {
@@ -314,7 +329,7 @@ impl LiveSession {
                     }
                 }
             }
-            let _ = tx.send(LiveEvent::Done(stats));
+            let _ = tx.send(LiveEvent::Failed("backend exited without DONE".to_string()));
         });
         Ok(Self {
             child: Some(child),
@@ -362,15 +377,24 @@ impl LiveSession {
                     stats.words += 1;
                     on_word(&w);
                 }
+                Ok(LiveEvent::Failed(e)) => {
+                    self.stderr_tail = e;
+                    break;
+                }
                 Ok(_) => {}
                 Err(_) => break,
             }
         }
         self.unload();
-        if !saw_done && !self.stderr_tail.is_empty() {
+        if !saw_done {
+            let detail = if self.stderr_tail.is_empty() {
+                "backend exited without DONE".to_string()
+            } else {
+                self.stderr_tail.clone()
+            };
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("backend failed: {}", self.stderr_tail),
+                format!("backend failed: {detail}"),
             ));
         }
         Ok(stats)
@@ -411,27 +435,9 @@ pub fn transcribe_wav(
     s.finish()
 }
 
-/// One-shot helper: transcribe RAM-held PCM (16kHz mono s16le) via the
-/// backend's `--stdin` mode. Nothing touches disk: bytes go through the
-/// child pipe. This is the live-daemon path (audio-helper hands RAM here).
-pub fn transcribe_pcm(
-    pcm: &[i16],
-    python: &str,
-    model: &str,
-    on_word: &mut dyn FnMut(&Word),
-) -> std::io::Result<Stats> {
-    run_stdin(
-        pcm,
-        python,
-        &backend_path(),
-        &[("VAANI_STT_MODEL", model.to_string())],
-        on_word,
-    )
-}
-
 /// End-of-utterance re-decode with the fine-tuned model.
 ///
-/// Separate from `transcribe_pcm` because it runs a *different* backend (the
+/// Separate from `transcribe_wav` because it runs a *different* backend (the
 /// re-decode client) and the model itself lives in a resident server, not in
 /// this process: only its endpoint is handed to the child.
 pub fn refine_pcm(

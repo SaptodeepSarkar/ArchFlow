@@ -48,7 +48,7 @@ BIN="$ROOT/target/release/vaani-key-service"
 [ -x "$BIN" ] || { bad "release binary present at $BIN"; printf 'gate-03: %d passed, %d failed\n' "$pass" "$fail"; echo "gate-03 RED"; exit 1; }
 
 # 3. service starts, parses config once, publishes its pid
-printf 'hotkey = SUPER+H\nui_words = 4\nidle_timeout_s = 120\n' >"$TMP/vaani.conf"
+printf 'ui_words = 4\nidle_timeout_s = 120\n' >"$TMP/vaani.conf"
 "$BIN" "$TMP/vaani.conf" >"$TMP/svc.log" 2>&1 &
 SRV=$!
 IDLE=0
@@ -132,6 +132,19 @@ else
   bad "SIGTERM shutdown (exit=$CODE logged=$SHUT pidfile-still-present=$GONE)"
 fi
 SRV=0 # already reaped; trap becomes a no-op for the kill
+
+# 7. A stale pid must not signal an unrelated process.
+sleep 5 &
+SPID=$!
+echo "$SPID" >"$PIDFILE"
+"$ROOT/packaging/vaani-trigger"
+if kill -0 "$SPID" 2>/dev/null; then
+  ok "stale pid was not signalled"
+else
+  bad "stale pid signalled an unrelated process"
+fi
+kill "$SPID" 2>/dev/null
+rm -f "$PIDFILE" "$ENVFILE"
 
 printf 'gate-03: %d passed, %d failed (idle RSS %s kB)\n' "$pass" "$fail" "$RSS"
 if [ "$fail" -eq 0 ]; then echo "gate-03 GREEN"; exit 0; else echo "gate-03 RED"; exit 1; fi

@@ -24,6 +24,6 @@ The shared `Theme.qml` reads Caelestia colors optionally; copy all three QML
 files when installing manually. No Caelestia QML modules are imported.
 Settings receives an explicit controller bridge. The compact voice box renders
 daemon-provided provisional STT words in its primary line; it does not predict,
-clean, hold, or type transcript text. Its only action is `stop`; cleanup,
-focus checks, clipboard delivery, and virtual-keyboard insertion stay in
-`vaanid`/`inserter.rs`.
+clean, hold, or type transcript text. Its only action is `stop`, which cancels
+the run; cleanup, focus checks, clipboard delivery, and virtual-keyboard
+insertion stay in `vaanid`/`inserter.rs`.

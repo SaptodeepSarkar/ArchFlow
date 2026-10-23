@@ -30,6 +30,12 @@ fi
 
 [ -f "$PIDFILE" ] || exit 0
 PID="$(cat "$PIDFILE" 2>/dev/null)"
-case "$PID" in ''|*[!0-9]*) exit 0 ;; esac
+case "$PID" in ''|0|1|*[!0-9]*) exit 0 ;; esac
 kill -0 "$PID" 2>/dev/null || exit 0
+# A stale pid can be reused. Never signal a process that is not our daemon.
+EXE="$(readlink "/proc/$PID/exe" 2>/dev/null || true)"
+case "$EXE" in
+  */vaani-key-service) ;;
+  *) rm -f "$PIDFILE"; exit 0 ;;
+esac
 kill -USR1 "$PID" 2>/dev/null || exit 0

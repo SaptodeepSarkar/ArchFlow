@@ -145,12 +145,9 @@ else
   mkdir -p "$CONF_DIR"
   cat >"$CONF" <<'EOF'
 # Vaani default config (see DOCS/configuration.md). Safe to edit.
-hotkey = SUPER+H
 ui_words = 4
 stt_model = small.en
 stt_fallback_model = base.en
-llm_model = qwen2.5-1.5B-q4
-prefer_device = auto
 idle_timeout_s = 120
 end_of_speech_ms = 2000
 
@@ -167,12 +164,13 @@ fi
 # config must exist. Never overwrite an existing one (user may have edited).
 QS_DIR="$HOME/.config/quickshell/vaani"
 mkdir -p "$QS_DIR"
-if [ -e "$QS_DIR/shell.qml" ] && ! cmp -s "$ROOT/UI/quickshell/shell.qml" "$QS_DIR/shell.qml"; then
-  cp "$QS_DIR/shell.qml" "$QS_DIR/shell.qml.bak-$(date +%Y%m%d%H%M)"
-  note "backed up your modified shell.qml before installing the shipped one"
-fi
 for f in "$ROOT"/UI/quickshell/*.qml; do
-  install -m644 "$f" "$QS_DIR/$(basename "$f")"
+  dst="$QS_DIR/$(basename "$f")"
+  if [ -e "$dst" ] && ! cmp -s "$f" "$dst"; then
+    cp "$dst" "$dst.bak-$(date +%Y%m%d%H%M)"
+    note "backed up modified $(basename "$dst") before installing the shipped one"
+  fi
+  install -m644 "$f" "$dst"
 done
 note "overlay config -> $QS_DIR ($(ls "$ROOT"/UI/quickshell/*.qml | wc -l) QML files)"
 

@@ -337,9 +337,9 @@ Scope {
                     }
 
                     Button {
-                        Accessible.name: "Stop dictation"
-                        Accessible.description: "Stop the current dictation"
-                        text: "Stop"
+                        Accessible.name: "Cancel dictation"
+                        Accessible.description: "Cancel the current dictation without typing"
+                        text: "Cancel"
                         enabled: root.state === "RECORDING" || root.state === "STARTING"
                         // Keep the visible affordance compact; the 24 px
                         // target remains keyboard/accessibility reachable.

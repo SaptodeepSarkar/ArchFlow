@@ -33,12 +33,9 @@ cargo run -q -p vaani-config --example dump -- "$SAMPLE" \
   >"$TMP/sample.out" 2>"$TMP/sample.err"
 code=$?
 if [ $code -eq 0 ] \
-  && grep -q '^hotkey = SUPER+H$' "$TMP/sample.out" \
   && grep -q '^ui_words = 4$' "$TMP/sample.out" \
   && grep -q '^stt_model = small.en$' "$TMP/sample.out" \
   && grep -q '^stt_fallback_model = base.en$' "$TMP/sample.out" \
-  && grep -q '^llm_model = qwen2.5-1.5B-q4$' "$TMP/sample.out" \
-  && grep -q '^prefer_device = auto$' "$TMP/sample.out" \
   && grep -q '^idle_timeout_s = 120$' "$TMP/sample.out" \
   && grep -q '^saptodeep = Saptodeep Sarkar$' "$TMP/sample.out" \
   && grep -q '^github = https://github.com/SaptodeepSarkar$' "$TMP/sample.out" \
@@ -59,12 +56,10 @@ fi
 
 # 5. broken conf: warnings on stderr, exit 0, sane fallbacks
 cat >"$TMP/broken.conf" <<'EOF'
-hotkey = SUPER+H
 bogus_key = 1
 ui_words = not-a-number
 this line has no equals
 idle_timeout_s = -5
-prefer_device = warpdrive
 [wat]
 x = y
 [names]
@@ -78,7 +73,6 @@ if [ "$code" -eq 0 ] \
   && [ "$nwarnings" -ge 5 ] \
   && grep -q '^ui_words = 4$' "$TMP/broken.out" \
   && grep -q '^idle_timeout_s = 120$' "$TMP/broken.out" \
-  && grep -q '^prefer_device = auto$' "$TMP/broken.out" \
   && grep -q '^alice = Alice Liddell$' "$TMP/broken.out"; then
   ok "broken conf handled: exit 0, $nwarnings warnings, defaults kept"
 else
@@ -90,11 +84,8 @@ cargo run -q -p vaani-config --example dump -- "$TMP/does-not-exist.conf" \
   >"$TMP/missing.out" 2>"$TMP/missing.err"
 code=$?
 if [ "$code" -eq 0 ] \
-  && grep -q '^hotkey = SUPER+H$' "$TMP/missing.out" \
   && grep -q '^ui_words = 4$' "$TMP/missing.out" \
   && grep -q '^stt_model = small.en$' "$TMP/missing.out" \
-  && grep -q '^llm_model = qwen2.5-1.5B-q4$' "$TMP/missing.out" \
-  && grep -q '^prefer_device = auto$' "$TMP/missing.out" \
   && grep -q '^idle_timeout_s = 120$' "$TMP/missing.out"; then
   ok "missing file yields documented defaults"
 else

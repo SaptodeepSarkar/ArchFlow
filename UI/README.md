@@ -22,7 +22,7 @@ Daemon → UI:
   "session_id":…,"state":…}` — the overlay quits at once if it is idle, so the
   daemon publishes STARTING *before* spawning the overlay.
 - `{"event":"state","state":…,"message":…}` — STARTING, RECORDING,
-  TRANSCRIBING, CLEANING, INSERTING, READY, IDLE, ERROR.
+  TRANSCRIBING, CLEANING, INSERTING, READY, IDLE, CANCELLED, ERROR.
 - `…,"data":{"text":…,"copied":true}` on the final state: the text and whether
   it is on the clipboard (a clipboard confirmation lingers longer).
 - `{"event":"provisional","data":{"tail":…,"words":…,"hidden":…}}` — live
@@ -31,8 +31,8 @@ Daemon → UI:
   (~10 Hz) while recording, for the activity bars.
 
 UI → daemon: `{"protocol_version":1,"request_id":…,"session_id":…,
-"kind":{"op":"stop"}}`. `stop` finishes the current recording and runs the
-normal clean-and-type path.
+"kind":{"op":"stop"}}`. `stop` cancels the current run: audio and STT stop, nothing is
+formatted or typed.
 
 ## Focus rule
 

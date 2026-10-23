@@ -40,7 +40,6 @@ export PATH="$TMP/shim:$PATH" VAANI_WTYPE_STUB="$TMP/shim/wtype" VAANI_WTYPE_LOG
 
 # 1. sample conf parses (drives vaani-config the way gate-02 does, minus cargo).
 if "$DUMP" TESTS/fixtures/config-sample.conf >"$TMP/conf.out" 2>"$TMP/conf.err" \
-  && grep -q '^hotkey = SUPER+H$' "$TMP/conf.out" \
   && grep -q '^idle_timeout_s = 120$' "$TMP/conf.out" \
   && grep -q '^saptodeep = Saptodeep Sarkar$' "$TMP/conf.out" \
   && grep -q '^github = https://github.com/SaptodeepSarkar$' "$TMP/conf.out"; then

@@ -25,7 +25,7 @@ pub mod llm;
 pub mod vocab;
 
 /// Spoken filler tokens dropped wherever they appear (whole-word match).
-const FILLERS: &[&str] = &["umm", "hmm", "um", "uh", "like", "er", "ah"];
+const FILLERS: &[&str] = &["umm", "hmm", "um", "uh", "er", "ah"];
 
 /// Self-correction markers: everything before the LAST marker is retracted.
 const MARKERS: &[&str] = &["no wait", "i mean", "no actually"];
@@ -35,16 +35,21 @@ const PARENTS: &[&str] = &["basically", "actually"];
 
 /// A sentence ending on one of these is trailing off, not finished.
 const TRAILERS: &[&str] = &[
-    "is", "are", "was", "were", "be", "been", "at", "to", "so", "and", "or", "but", "the", "a",
+    "is", "are", "was", "were", "be", "been", "at", "to", "and", "or", "but", "the", "a",
     "an", "of", "in", "on", "for",
 ];
 
-/// Sentence starters that take `?` instead of `.`.
-const QWORDS: &[&str] = &[
-    "did", "do", "does", "is", "are", "was", "were", "can", "could", "will", "would", "shall",
-    "should", "may", "might", "must", "have", "has", "had", "what", "when", "where", "who",
-    "whom", "why", "how", "which", "whose",
+/// Wh-words always take `?` instead of `.`.
+const WH_WORDS: &[&str] = &[
+    "what", "when", "where", "who", "whom", "why", "how", "which", "whose",
 ];
+/// Auxiliaries only take `?` when the next word makes it a question.
+const AUX_WORDS: &[&str] = &[
+    "did", "do", "does", "is", "are", "was", "were", "can", "could", "will", "would", "shall",
+    "should", "may", "might", "must", "have", "has", "had",
+];
+const PRONOUNS: &[&str] = &["i", "you", "we", "they", "he", "she", "it"];
+const DETERMINERS: &[&str] = &["the", "a", "an", "this", "that", "these", "those"];
 
 /// Verbatim expansions, longest phrase first (Phase 12: move to `vaani.conf`
 /// `[names]`/`[links]`; the matcher already supports multi-word keys).
@@ -224,10 +229,13 @@ fn format_impl(raw: &str, expansions: &[(&str, &str)]) -> String {
         }
     }
     if let Some((pos, len)) = cut {
-        tokens = joined[pos + len..]
+        let tail: Vec<String> = joined[pos + len..]
             .split_whitespace()
             .map(str::to_string)
             .collect();
+        if !tail.is_empty() {
+            tokens = tail;
+        }
     }
     if tokens.is_empty() {
         return String::new();
@@ -240,6 +248,11 @@ fn format_impl(raw: &str, expansions: &[(&str, &str)]) -> String {
         if tokens[i] == "you" && i + 1 < tokens.len() && tokens[i + 1] == "know" {
             i += 2;
         } else if FILLERS.contains(&tokens[i].as_str()) {
+            i += 1;
+        } else if tokens[i] == "like"
+            && i > 0
+            && FILLERS.contains(&tokens[i - 1].as_str())
+        {
             i += 1;
         } else {
             kept.push(tokens[i].clone());
@@ -286,22 +299,44 @@ fn format_impl(raw: &str, expansions: &[(&str, &str)]) -> String {
     }
     tokens = norm;
     // ... then single words: numbers, am/pm, pronoun, contractions, proper nouns.
-    for t in tokens.iter_mut() {
-        if let Some(n) = number_word(t) {
-            *t = n.to_string();
-        } else if t == "pm" {
-            *t = "PM".to_string();
-        } else if t == "am" {
-            *t = "AM".to_string();
-        } else if t == "i" {
-            *t = "I".to_string();
-        } else if let Some(c) = contraction(t) {
-            *t = c.to_string();
-        } else if PROPER.contains(&t.as_str()) {
-            let mut w = t.clone();
-            w[..1].make_ascii_uppercase();
-            *t = w;
+    // A number word is only a number in a numeric context ("at five", "room two",
+    // "five pm"); "one of the best" must stay a word.
+    const NUM_CONTEXT: &[&str] = &[
+        "at", "room", "page", "number", "line", "section", "chapter", "version",
+        "step", "in", "after", "before", "within", "for",
+    ];
+    const NUM_UNITS: &[&str] = &[
+        "pm", "am", "percent", "dollars", "rupees", "minutes", "hours", "days",
+        "weeks", "months", "years", "people", "copies", "slides", "questions",
+    ];
+    let mut idx = 0;
+    while idx < tokens.len() {
+        let t = tokens[idx].clone();
+        let prev = idx.checked_sub(1).map(|i| tokens[i].as_str());
+        let next = tokens.get(idx + 1).map(String::as_str);
+        let numeric = prev.is_some_and(|p| NUM_CONTEXT.contains(&p))
+            || next.is_some_and(|n| NUM_UNITS.contains(&n));
+        if numeric {
+            if let Some(n) = number_word(&t) {
+                tokens[idx] = n.to_string();
+                idx += 1;
+                continue;
+            }
         }
+        if t == "pm" {
+            tokens[idx] = "PM".to_string();
+        } else if t == "am" {
+            tokens[idx] = "AM".to_string();
+        } else if t == "i" {
+            tokens[idx] = "I".to_string();
+        } else if let Some(c) = contraction(&t) {
+            tokens[idx] = c.to_string();
+        } else if PROPER.contains(&t.as_str()) {
+            let mut w = t;
+            w[..1].make_ascii_uppercase();
+            tokens[idx] = w;
+        }
+        idx += 1;
     }
 
     // Verbatim name/link expansion, longest phrase first (Phase 12: config-driven).
@@ -357,15 +392,35 @@ fn format_impl(raw: &str, expansions: &[(&str, &str)]) -> String {
         .join(" ")
 }
 
+fn is_question(c: &[String]) -> bool {
+    let Some(first) = c.first() else { return false };
+    let first = first.trim_end_matches(',').to_ascii_lowercase();
+    if WH_WORDS.contains(&first.as_str()) {
+        return true;
+    }
+    if !AUX_WORDS.contains(&first.as_str()) {
+        return false;
+    }
+    let Some(next) = c.get(1).map(|w| w.trim_end_matches(',').to_ascii_lowercase()) else {
+        return false;
+    };
+    if matches!(first.as_str(), "do" | "does" | "have") {
+        PRONOUNS.contains(&next.as_str())
+    } else {
+        PRONOUNS.contains(&next.as_str()) || DETERMINERS.contains(&next.as_str())
+    }
+}
+
 fn finish_clause(mut c: Vec<String>) -> String {
     if let Some(first) = c.first_mut() {
-        if let Some(pos) = first.find(|c: char| c.is_ascii_alphabetic()) {
-            first.replace_range(pos..pos + 1, &first[pos..pos + 1].to_ascii_uppercase());
+        let is_url = first.starts_with("http://") || first.starts_with("https://");
+        if !is_url {
+            if let Some(pos) = first.find(|c: char| c.is_ascii_alphabetic()) {
+                first.replace_range(pos..pos + 1, &first[pos..pos + 1].to_ascii_uppercase());
+            }
         }
     }
-    let question = c
-        .first()
-        .is_some_and(|w| QWORDS.contains(&w.trim_end_matches(',').to_ascii_lowercase().as_str()));
+    let question = is_question(&c);
     let trailing = c
         .last()
         .is_some_and(|w| TRAILERS.contains(&w.trim_end_matches(',')));
@@ -421,5 +476,22 @@ mod tests {
     fn empty_stays_empty() {
         assert_eq!(format(""), "");
         assert_eq!(format("   "), "");
+    }
+
+    #[test]
+    fn context_free_rules_do_not_change_meaning() {
+        // "like" is a verb here, not a filler.
+        assert_eq!(format("I like the design"), "I like the design.");
+        // "one of" is a pronoun phrase, not a number.
+        assert_eq!(format("one of the best"), "One of the best.");
+        // A marker at the end has no correction to keep.
+        assert_eq!(format("that's what I mean"), "That's what I mean.");
+        // Imperatives are not questions.
+        assert_eq!(format("do the thing"), "Do the thing.");
+        assert_eq!(format("have a nice day"), "Have a nice day.");
+        // A URL at the start keeps its scheme's case.
+        assert!(format("github").starts_with("https://"));
+        // "so" is a complete ending here, not a trailing-off.
+        assert_eq!(format("I think so"), "I think so.");
     }
 }

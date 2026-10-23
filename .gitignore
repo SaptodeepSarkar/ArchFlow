@@ -5,3 +5,9 @@ __pycache__/
 
 # training research: models, venvs, logs (shipped as release assets, not source)
 .research/
+
+# V8 training data and run artifacts
+.data/
+data-prep/.venv/
+training/.venv/
+training/out/

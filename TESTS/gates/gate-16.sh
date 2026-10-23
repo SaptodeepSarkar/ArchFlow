@@ -74,7 +74,7 @@ map_row "no cloud / no telemetry / no accounts" "PRD/overview" "-" struct "negat
 map_row "Linux-only scope" "PRD/overview" "-" struct "platform scope, not gated"
 map_row "not a voice assistant, no app control" "PRD/overview" "-" struct "scope statement, not gated"
 # --- PRD/config.md ---
-map_row "hotkey/ui_words/stt_model/fallback/llm_model/prefer_device/idle_timeout_s parse" "PRD/config" "02" load "-"
+map_row "ui_words/stt_model/fallback/idle_timeout_s parse" "PRD/config" "02" load "-"
 map_row "[names]/[links] sections expand verbatim" "PRD/config" "12" load "-"
 # --- PRD/key-service.md ---
 map_row "SUPER+H grab via compositor, not evdev" "PRD/key-service" "03" load "-"
