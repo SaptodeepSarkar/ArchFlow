@@ -6,10 +6,6 @@
 //! `Vec<(String, String)>`); pass `names` then `links` concatenated.
 //! Missing/empty sections are just empty slices: input passes through
 //! unchanged. No dependencies, no I/O.
-//!
-//! NOTE: this module is inert until `lib.rs` declares `pub mod vocab;`
-//! and routes the expansion step through [`expand_tokens`] (see the
-//! Phase 12 hook snippet in the module report).
 
 /// Expand vocab `pairs` over word `tokens`.
 ///

@@ -65,14 +65,25 @@ pub fn format_llm(raw: &str, endpoint: &str, vocab: &[(String, String)]) -> Opti
         eprintln!("llm-formatter: no message content in the response; using rule engine");
         return None;
     };
-    let text = strip_ack(content.trim().trim_matches('"').trim())
-        .trim_matches('"')
-        .trim();
-    if !looks_like_formatting(raw, text) {
+    let text = one_line(
+        strip_ack(content.trim().trim_matches('"').trim()).trim_matches('"'),
+    );
+    if !looks_like_formatting(raw, &text) {
         eprintln!("llm-formatter: response rejected as unformatted; using rule engine");
         return None;
     }
-    Some(text.to_string())
+    Some(text)
+}
+
+/// The reply is typed as keystrokes into whatever window has focus, so it must
+/// be one line of printable text: a newline would press Return in that app, and
+/// a stray control character can make `wtype` fail the whole insertion.
+fn one_line(out: &str) -> String {
+    out.split_whitespace()
+        .map(|w| w.chars().filter(|c| !c.is_control()).collect::<String>())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Acknowledgment openers the prompt forbids but models still emit.
@@ -302,5 +313,14 @@ mod tests {
         let p = prompt(&[("github".to_string(), "https://github.com/x".to_string())]);
         assert!(p.contains("github"));
         assert!(p.contains("https://github.com/x"));
+    }
+
+    #[test]
+    fn a_reply_is_reduced_to_one_printable_line() {
+        assert_eq!(one_line("We ship it.\n"), "We ship it.");
+        assert_eq!(one_line("  two\r\nlines\there "), "two lines here");
+        // Control characters are dropped, not typed as keystrokes.
+        assert_eq!(one_line("bad\u{1b}[31mred\u{7}"), "bad[31mred");
+        assert_eq!(one_line("\n\n"), "");
     }
 }
