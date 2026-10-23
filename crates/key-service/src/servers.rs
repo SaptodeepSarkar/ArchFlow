@@ -163,7 +163,7 @@ impl Server {
         }
         let deadline = Instant::now() + timeout;
         loop {
-            if port_open(self.port) {
+            if health_ok(self.port) {
                 return true;
             }
             // `running` reaps an exited launcher; a zombie in /proc must not
@@ -299,6 +299,26 @@ fn port_open(port: u16) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok()
 }
 
+/// Ready means the HTTP surface says 200. llama-server binds its port and
+/// answers 503 while the weights load, so a bare TCP connect counted a loading
+/// formatter as ready, the run got an empty reply, and formatting fell back to
+/// the rule engine.
+fn health_ok(port: u16) -> bool {
+    use std::io::{Read, Write};
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(150)) else {
+        return false;
+    };
+    let _ = s.set_read_timeout(Some(Duration::from_millis(500)));
+    let req = format!("GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    if s.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 32];
+    let n = s.read(&mut buf).unwrap_or(0);
+    String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,6 +349,24 @@ mod tests {
             t0.elapsed() < Duration::from_secs(2),
             "a dead launcher must not burn the whole readiness budget"
         );
+    }
+
+    /// A bound port that is still loading (llama-server answers 503) is not
+    /// ready; a bare TCP connect used to count it as ready.
+    #[test]
+    fn a_bound_port_answering_503_is_not_ready() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = l.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            use std::io::Write;
+            if let Ok((mut s, _)) = l.accept() {
+                let _ = s.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n");
+            }
+        });
+        let mut srv = Server::new("llm", PathBuf::from("/nonexistent"), port);
+        srv.child = Some(Command::new("sleep").arg("5").spawn().expect("spawn sleep"));
+        assert!(!srv.wait_ready(Duration::from_millis(300)));
+        srv.stop();
     }
 
     #[test]
