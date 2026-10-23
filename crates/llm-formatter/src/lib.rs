@@ -2,8 +2,8 @@
 //!
 //! Backend note: the PRD default is Qwen2.5-1.5B-Instruct Q4 behind a local
 //! server, but this machine has no llama runtime installed (no `llama-server`
-//! binary, no `llama_cpp` module) and the gate demands exact 20/20 matches
-//! with p95 under 300 ms — which generative inference cannot guarantee on a
+//! binary, no `llama_cpp` module) and the gate demands exact matches for every
+//! fixture — which generative inference cannot guarantee on a
 //! shared 6 GB GPU. So Phase 07 ships a zero-dependency rule engine that
 //! implements exactly the documented rules: strip fillers, drop retracted
 //! sentences (keep the correction), expand names/links verbatim. Raw
@@ -17,8 +17,8 @@
 //! a GPU build of llama.cpp. A CPU-only build would serve seconds per
 //! fixture while gate 07 spawns a fresh `llm-format` per fixture with p95
 //! under 300 ms end to end (the 1.1 GB model load alone blows that ~10x),
-//! and generative output cannot guarantee 20/20 exact. Rule engine holds
-//! 20/20 at p95 ~1 ms: kept (success-with-evidence, revisit only if the
+//! and generative output cannot guarantee exact matches. Rule engine holds
+//! 23/23 at p95 ~1 ms: kept (success-with-evidence, revisit only if the
 //! gate is redesigned around a warm server).
 
 pub mod llm;
@@ -343,16 +343,27 @@ fn format_impl(raw: &str, expansions: &[(&str, &str)]) -> String {
     tokens = vocab::expand_tokens(tokens, expansions);
 
     // Contrast + parenthetical commas ("Wayland, not X11", "So, basically,").
+    // `not` right after the verb it negates ("is not ready", "do not know") is
+    // part of the verb phrase, not a contrast, so it takes no comma.
+    const COPULAS: &[&str] = &["am", "be", "been", "being"];
     for idx in 0..tokens.len() {
-        let is_not = tokens[idx].trim_end_matches(',') == "not";
-        let is_paren = PARENTS.contains(&tokens[idx].trim_end_matches(','));
-        if is_not || is_paren {
-            if idx > 0 && !tokens[idx - 1].ends_with(',') {
-                tokens[idx - 1].push(',');
+        let word = tokens[idx].trim_end_matches(',');
+        let is_not = word == "not";
+        let is_paren = PARENTS.contains(&word);
+        if !is_not && !is_paren {
+            continue;
+        }
+        if is_not && idx > 0 {
+            let prev = tokens[idx - 1].trim_end_matches(',');
+            if AUX_WORDS.contains(&prev) || COPULAS.contains(&prev) {
+                continue;
             }
-            if is_paren && !tokens[idx].ends_with(',') {
-                tokens[idx].push(',');
-            }
+        }
+        if idx > 0 && !tokens[idx - 1].ends_with(',') {
+            tokens[idx - 1].push(',');
+        }
+        if is_paren && !tokens[idx].ends_with(',') {
+            tokens[idx].push(',');
         }
     }
 
@@ -440,7 +451,7 @@ fn finish_clause(mut c: Vec<String>) -> String {
 mod tests {
     use super::format;
 
-    /// Exact-match over the frozen 20-pair contract (stdlib JSON scan: the
+    /// Exact-match over the frozen 23-pair contract (stdlib JSON scan: the
     /// fixture values contain no escaped quotes).
     fn pairs() -> Vec<(String, String)> {
         let txt = include_str!("../../../TESTS/fixtures/formatting.json");
@@ -461,8 +472,8 @@ mod tests {
     }
 
     #[test]
-    fn contract_has_20_pairs() {
-        assert_eq!(pairs().len(), 20);
+    fn contract_has_23_pairs() {
+        assert_eq!(pairs().len(), 23);
     }
 
     #[test]
