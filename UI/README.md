@@ -42,8 +42,9 @@ clipboard must target the window the user was in, not the overlay. It also
 renders a pointer-blocking curtain during INSERTING so a stray click cannot
 move focus mid-delivery.
 
-## Not wired yet
+## Settings
 
-`SettingsView.qml` / `OnboardingView.qml` ship with the config (the overlay
-needs them to load) but the daemon has no config IPC for them yet: opening
-settings (`VAANI_OPEN_SETTINGS=1`) shows the UI without live values.
+There is no settings UI. The overlay reads `~/.config/vaani/vaani.conf` once at
+startup and the control socket implements exactly one op, `stop`; the old
+Settings/Onboarding views drove a config IPC that never existed, so they were
+deleted rather than left as dead toggles.

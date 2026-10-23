@@ -207,6 +207,12 @@ pub fn take_stop() -> bool {
     STOP.swap(false, Ordering::SeqCst)
 }
 
+/// Non-consuming peek: a long wait polls this and bails out, leaving the flag
+/// for the caller to take and publish CANCELLED.
+pub fn stop_pending() -> bool {
+    STOP.load(Ordering::SeqCst)
+}
+
 /// Drop a stop left over from a previous run or an idle client.
 pub fn reset_stop() {
     STOP.store(false, Ordering::SeqCst);

@@ -528,9 +528,14 @@ fn run_pipeline(
             }
             let mut refined: Vec<String> = Vec::new();
             let pcm = stt_manager::bytes_to_pcm(&captured);
-            match stt_manager::refine_pcm(&pcm, &r.python, &r.backend, &r.endpoint, &mut |w| {
-                refined.push(w.text.clone())
-            }) {
+            match stt_manager::refine_pcm_with(
+                &pcm,
+                &r.python,
+                &r.backend,
+                &r.endpoint,
+                &control::stop_pending,
+                &mut |w| refined.push(w.text.clone()),
+            ) {
                 Ok(s) => {
                     let (chosen, used) = pick_transcript(&committed, &refined);
                     log(
@@ -559,6 +564,14 @@ fn run_pipeline(
         } else {
             log("refine", "nothing heard; skipping the fine-tuned re-decode");
         }
+    }
+    // Cancel during the second pass: the wait polls stop_pending and returns
+    // early, so honour it before anything is formatted or typed.
+    if control::take_stop() {
+        ui.dismiss();
+        control::state("IDLE", "Cancelled");
+        log("cancel", "stopped during transcription");
+        return;
     }
     if text.is_empty() {
         ui.dismiss();

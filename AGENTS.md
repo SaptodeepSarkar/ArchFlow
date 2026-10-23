@@ -25,7 +25,9 @@ bash TESTS/ci.sh                 # the hermetic CI gate set — run before pushi
 
 `.github/workflows/ci.yml` runs on every push/PR to `main` and `vaani-scaffold`:
 `TESTS/ci.sh` (shell + python syntax, workspace build/tests, hermetic gates
-01,02,07,10,11,12,19) plus a gate-inventory check. The rest of the board needs a
+01,02,07,10,11,12,19,22) plus a gate-inventory check. Gate 22 is the hermetic
+end-to-end run: daemon boot, the real trigger path, a fixture wav through the
+pipeline, and every failure path. The rest of the board needs a
 mic, PipeWire, a compositor, a GPU or a model server, so it only runs on the real
 machine. `.github/workflows/release.yml` runs on a `v*` tag: hermetic gates,
 release build, tarball, GitHub release.

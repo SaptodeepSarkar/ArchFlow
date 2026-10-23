@@ -284,7 +284,7 @@ Scope {
                         Accessible.name: "Cancel dictation"
                         Accessible.description: "Cancel the current dictation without typing"
                         text: "Cancel"
-                        enabled: root.state === "RECORDING" || root.state === "STARTING"
+                        enabled: root.state === "RECORDING" || root.state === "STARTING" || root.state === "TRANSCRIBING"
                         // Keep the visible affordance compact; the 24 px
                         // target remains keyboard/accessibility reachable.
                         Layout.preferredWidth: 24
