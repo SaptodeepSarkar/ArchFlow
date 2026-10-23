@@ -335,15 +335,23 @@ const BYTES_PER_MS: usize = 32;
 
 /// Execute the cancel decision table: stop audio/STT, skip formatting, hide
 /// the pill. The table is the single place that names what cancel means.
-fn cancel_run(rec: &mut audio_helper::Recorder, stt: &mut stt_manager::LiveSession, ui: &mut UiGuard) {
-    for action in cancel::decide(cancel::Phase::Listening, cancel::Signal::Cancel).actions {
+fn cancel_run(
+    phase: cancel::Phase,
+    rec: &mut audio_helper::Recorder,
+    stt: &mut stt_manager::LiveSession,
+    ui: &mut UiGuard,
+) {
+    // The terminal state goes first: the overlay exits by itself on CANCELLED,
+    // so dismiss() returns at once instead of waiting out its linger.
+    control::state("CANCELLED", "Cancelled");
+    for action in cancel::decide(phase, cancel::Signal::Cancel).actions {
         match action {
             "kill_audio" => rec.stop_stream(),
             "kill_stt" => stt.unload(),
             "pill_hide" => ui.dismiss(),
             "skip_formatting" => {} // this function returns before formatting
             "offload_all" => {}
-            "idle" => control::state("CANCELLED", "Cancelled"),
+            "idle" => {} // published before the loop
             _ => {}
         }
     }
@@ -367,18 +375,18 @@ fn run_pipeline(
     let mut ui = UiGuard::start();
     let (python, model) = match (
         stt_manager::resolve_python(),
-        stt_manager::resolve_model_with(&cfg.stt_model, &cfg.stt_fallback_model),
+        stt_manager::resolve_model_checked(&cfg.stt_model, &cfg.stt_fallback_model),
     ) {
-        (Some(p), Some(m)) => (p, m),
+        (Some(p), Ok(m)) => (p, m),
         (None, _) => {
             control::state("ERROR", "No STT python found");
             log("error", "no STT python found");
             ui.dismiss();
             return;
         }
-        (_, None) => {
-            control::state("ERROR", "No STT model found");
-            log("error", "no STT model found");
+        (_, Err(e)) => {
+            control::state("ERROR", &format!("STT model unusable: {e}"));
+            log("error", &format!("stt model: {e}"));
             ui.dismiss();
             return;
         }
@@ -465,8 +473,8 @@ fn run_pipeline(
         if GOT_SHUTDOWN.load(Ordering::SeqCst) {
             rec.stop_stream();
             stt.unload();
-            ui.dismiss();
             control::state("IDLE", "");
+            ui.dismiss();
             log("error", "shutdown during recording, run aborted");
             return;
         }
@@ -492,7 +500,7 @@ fn run_pipeline(
     }
     rec.stop_stream();
     if cancelled || control::take_stop() {
-        cancel_run(&mut rec, &mut stt, &mut ui);
+        cancel_run(cancel::Phase::Listening, &mut rec, &mut stt, &mut ui);
         log("idle", "cancelled by the user");
         return;
     }
@@ -505,9 +513,9 @@ fn run_pipeline(
     }) {
         Ok(s) => s,
         Err(e) => {
-            ui.dismiss();
             control::state("ERROR", &format!("STT failed: {e}"));
             log("error", &format!("stt failed: {e}"));
+            ui.dismiss();
             return;
         }
     };
@@ -568,14 +576,13 @@ fn run_pipeline(
     // Cancel during the second pass: the wait polls stop_pending and returns
     // early, so honour it before anything is formatted or typed.
     if control::take_stop() {
-        ui.dismiss();
-        control::state("IDLE", "Cancelled");
+        cancel_run(cancel::Phase::Transcribing, &mut rec, &mut stt, &mut ui);
         log("cancel", "stopped during transcription");
         return;
     }
     if text.is_empty() {
-        ui.dismiss();
         control::state("IDLE", "Nothing heard");
+        ui.dismiss();
         log(
             "idle",
             &format!("empty transcript ({:.1}s audio), nothing typed", stats.audio_secs),
@@ -622,6 +629,10 @@ fn run_pipeline(
             log("error", &format!("typing failed: {e}"));
         }
     }
+    // The run is over and nothing will ask the formatter anything until the
+    // next trigger, so stop it here: its shutdown must not sit on the
+    // recording path.
+    servers::park_formatter(servers);
     ui.dismiss();
 }
 
@@ -846,8 +857,15 @@ fn servers_test(rest: &[String]) -> i32 {
     println!("step=start name=llm spawned={spawned} external={external}");
     ok &= spawned || external;
 
-    // 3. The next run begins: the formatter warm from this one is unloaded
-    //    before the speech model loads, so the two never share VRAM.
+    // 3. The run is over: the formatter is parked, so nothing holds VRAM
+    //    between runs and the next trigger has no shutdown on its path.
+    servers::park_formatter(&mut fleet);
+    let (running, external) = state(&mut fleet, "llm");
+    println!("step=park name=llm running={running} external={external}");
+    ok &= !running || external;
+
+    // 4. The next run begins: the speech server starts. Its own unload of the
+    //    formatter is the safety net; there is nothing left for it to stop.
     servers::start_stt(&mut fleet, 0);
     std::thread::sleep(std::time::Duration::from_millis(300));
     let (spawned, external) = state(&mut fleet, "stt");

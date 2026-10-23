@@ -248,6 +248,13 @@ pub fn start_stt(fleet: &mut [Server], now_s: u64) {
     }
 }
 
+/// A run ends with the formatter warm and nothing left to ask it. Stop it now
+/// rather than on the next trigger, whose path must not carry its shutdown.
+/// `start_stt`'s unload stays as the safety net.
+pub fn park_formatter(fleet: &mut [Server]) {
+    unload(fleet, "llm");
+}
+
 /// The PRD handoff: the speech server is stopped (and confirmed gone) before
 /// the formatter is spawned. Returns true when the formatter is usable: not
 /// owned, or answering on its port.
