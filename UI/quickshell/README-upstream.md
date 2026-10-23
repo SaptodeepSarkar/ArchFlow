@@ -1,8 +1,8 @@
 # ui — Quickshell "vaani" config (app-owned, NOT the desktop shell)
 
 - `shell.qml`: event-driven overlay (Socket + SplitParser, snapshot-first,
-  amplitude ≤30 Hz). Exits when idle.
-- `Theme.qml` / `VaaniLockup.qml`: colours and the wordmark the overlay draws.
+  amplitude ≤30 Hz). Exits when idle. It is the whole config: no theme or
+  component files, every colour is inline.
 
 Install: `~/.config/quickshell/vaani/shell.qml`
 (pkg: `/usr/share/quickshell/vaani/`). The overlay is launched on demand by
