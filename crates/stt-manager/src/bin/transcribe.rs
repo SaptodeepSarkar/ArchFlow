@@ -1,7 +1,7 @@
 //! Manual self-check binary used by TESTS/gates/gate-05.sh.
 //! Transcribes one --wav, streaming words as they decode, then prints stats.
 
-use stt_manager::{pick_device, resolve_model, resolve_python};
+use stt_manager::{pick_device, resolve_model_checked, resolve_python};
 
 fn main() {
     let wav = std::env::args()
@@ -14,11 +14,11 @@ fn main() {
 
     let device = pick_device();
     let python = resolve_python().unwrap_or_else(|| {
-        eprintln!("no python with vosk found (tried VAANI_STT_PYTHON, Kyuma venv, python3)");
+        eprintln!("no usable python with vosk (VAANI_STT_PYTHON is final when set; else tried the Kyuma venv and python3)");
         std::process::exit(1);
     });
-    let model = resolve_model().unwrap_or_else(|| {
-        eprintln!("no STT model dir found");
+    let model = resolve_model_checked("small.en", "base.en").unwrap_or_else(|e| {
+        eprintln!("{e}");
         std::process::exit(1);
     });
     println!("device={device:?} python={python} model={model}");
