@@ -123,6 +123,17 @@ for b in $BINS; do
     install -m755 "$ROOT/target/release/$b" "$BINDIR/$b"
   fi
 done
+# The trained formatter needs llama-server + the base GGUF + the LoRA adapter.
+# When all three are on disk, opt the daemon into owning the formatter; unset
+# means it keeps whatever OpenAI-compatible server you run by hand.
+FMT_LLAMA="${VAANI_FMT_LLAMA_SERVER:-/home/saptodeep/Projects/Kyuma/model-server/vendor/llama-b11588/llama-server}"
+FMT_BASE="${VAANI_FMT_BASE_GGUF:-/home/saptodeep/Projects/Kyuma/models/qwen2.5-1.5b-instruct-q4_k_m.gguf}"
+FMT_LORA="${VAANI_FMT_LORA_GGUF:-$ROOT/.research/indic-stt-llm-training/out/formatter-lora.gguf}"
+if [ -z "${VAANI_LLM_SERVER:-}" ] && [ -x "$FMT_LLAMA" ] && [ -f "$FMT_BASE" ] && [ -f "$FMT_LORA" ]; then
+  VAANI_LLM_SERVER="$ROOT/packaging/serve-formatter.sh"
+  VAANI_LLM_ENDPOINT="${VAANI_LLM_ENDPOINT:-http://127.0.0.1:8082}"
+  note "formatter: found llama-server + base + LoRA, daemon will own serve-formatter.sh"
+fi
 {
   echo "export VAANI_STT_PYTHON=\"$py\""
   # The model is not exported: `stt_model` in vaani.conf picks it, so editing

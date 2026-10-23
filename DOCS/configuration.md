@@ -67,7 +67,9 @@ dictations, and the two never load at the same instant to race for it.
 
 Unset either one and that server is not owned: whatever you started by hand keeps
 serving, exactly as before. A port that already answers is never spawned over and
-never killed by the daemon.
+never killed by the daemon. `install.sh` sets `VAANI_LLM_SERVER` for you when the
+llama.cpp binary, the base GGUF and the LoRA adapter are all on disk (the paths
+`packaging/serve-formatter.sh` already defaults to).
 
 The port a server is told to bind comes from the endpoint Vaani will actually
 call (`VAANI_STT_REFINE_ENDPOINT`, `VAANI_LLM_ENDPOINT`), so what is owned is what
