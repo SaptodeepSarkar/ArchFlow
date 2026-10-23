@@ -78,8 +78,9 @@ pub fn resolve_python() -> Option<String> {
 
 /// Model dir, or why the configured one is unusable.
 ///
-/// An absolute path is taken as-is: a local model the user points at is not
-/// second-guessed or replaced. A bare name keeps the keyword mapping to the
+/// A value with a slash is a path, taken as-is: a local model the user points
+/// at is not second-guessed or replaced, and a relative path resolves against
+/// the process working directory. A bare name keeps the keyword mapping to the
 /// two installed Vosk dirs. A configured path that does not exist is an error,
 /// never a silent fallback to the default model.
 pub fn resolve_model_checked(preferred: &str, fallback: &str) -> Result<String, String> {
@@ -107,15 +108,19 @@ pub fn resolve_model_checked(preferred: &str, fallback: &str) -> Result<String, 
             })
     };
     let pick = |name: &str| -> Result<String, String> {
-        if name.starts_with('/') {
-            installed(name).ok_or_else(|| format!("stt model {name} does not exist"))
+        if name.contains('/') {
+            installed(name).ok_or_else(|| {
+                format!(
+                    "stt model {name} does not exist (relative paths resolve against the working directory)"
+                )
+            })
         } else {
             keyword(name)
         }
     };
     match pick(preferred) {
         // A path the config named is final: do not substitute the fallback.
-        Err(e) if preferred.starts_with('/') => Err(e),
+        Err(e) if preferred.contains('/') => Err(e),
         Ok(m) => Ok(m),
         Err(_) => pick(fallback),
     }
@@ -844,6 +849,26 @@ mod tests {
             assert!(resolve_model_with("/nonexistent/vaani-model", "base.en").is_none());
         });
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_relative_model_path_is_a_path_not_a_keyword() {
+        with_env(&[("VAANI_STT_MODEL", None)], || {
+            // An existing relative directory is taken as-is...
+            assert_eq!(resolve_model_checked("./", "base.en").as_deref(), Ok("./"));
+            // ...and a missing one is an error, never the silent default the
+            // keyword map used to hand back.
+            let err = resolve_model_checked("models/vosk-small", "base.en")
+                .expect_err("a relative path that does not exist must not become the default");
+            assert!(
+                err.contains("models/vosk-small"),
+                "reason must name the path: {err}"
+            );
+            assert!(
+                err.contains("working directory"),
+                "reason must say how a relative path resolves: {err}"
+            );
+        });
     }
 
     #[test]
