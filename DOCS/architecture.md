@@ -33,10 +33,13 @@ degrades to the previous behaviour, so a box without them runs exactly as before
 re-decode client and a model server answers on `VAANI_STT_REFINE_ENDPOINT`, the
 finished utterance is re-transcribed by the fine-tuned Whisper and *those* words
 are what get formatted and typed. The streaming words remain the fallback for
-every failure mode — no backend configured, server unreachable, empty answer —
-so a missing model can never lose what was said. Server:
-`packaging/serve-refine-stt.sh`; client: `crates/stt-manager/backend/refine_whisper.py`;
-covered by gate 20.
+every failure mode — no backend configured, server unreachable, empty answer,
+or the client-side deadline (`VAANI_STT_REFINE_DEADLINE`, 20 s, shorter than the
+backend's own 120 s guard) — so a missing model can never lose what was said.
+The wait is also cancellable: `refine_pcm_with` takes a cancel check while the
+re-decode runs, so the daemon can end the pass on Cancel instead of waiting it
+out. Server: `packaging/serve-refine-stt.sh`; client:
+`crates/stt-manager/backend/refine_whisper.py`; covered by gate 20.
 
 **Trained formatter.** No code change and no new interface: point
 `VAANI_LLM_ENDPOINT` at the server `packaging/serve-formatter.sh` starts (the

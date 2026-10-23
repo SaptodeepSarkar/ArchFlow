@@ -75,6 +75,7 @@ map_row "Linux-only scope" "PRD/overview" "-" struct "platform scope, not gated"
 map_row "not a voice assistant, no app control" "PRD/overview" "-" struct "scope statement, not gated"
 # --- PRD/config.md ---
 map_row "ui_words/stt_model/fallback/idle_timeout_s parse" "PRD/config" "02" load "-"
+map_row "stt_model path used as configured or the run errors, never a silent default" "DOCS/configuration" "22" load "-"
 map_row "[names]/[links] sections expand verbatim" "PRD/config" "12" load "-"
 # --- PRD/key-service.md ---
 map_row "SUPER+H grab via compositor, not evdev" "PRD/key-service" "03" load "-"
@@ -109,6 +110,7 @@ map_row "lifecycle SUPER+H to typed text" "DOCS/architecture" "13" load "-"
 map_row "killable/busy replaces supervisor" "DOCS/architecture" "09 10" load "-"
 map_row "one small daemon rationale" "DOCS/architecture" "-" struct "design note, vault Hypothesis.md"
 map_row "fine-tuned STT two-pass re-decode, streaming words as fallback" "DOCS/architecture" "20" load "-"
+map_row "hermetic daemon end-to-end: boot, trigger, transcribe, type, error paths" "DOCS/architecture" "22" load "-"
 map_row "trained formatter served at VAANI_LLM_ENDPOINT" "DOCS/architecture" "19" load "-"
 map_row "repository layout documented (folder map)" "DOCS/layout" "-" struct "wording-only coverage"
 # --- DOCS/configuration.md ---

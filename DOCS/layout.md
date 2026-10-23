@@ -58,7 +58,7 @@ links logic instead of shelling out to itself.
 |---|---|
 | `gate.sh` | the board: every gate status in one shot, and `gate.sh NN` to run one. |
 | `gates/gate-NN.sh` | one script per phase, each asserting a contract and printing `gate-NN GREEN`/`RED`. |
-| `ci.sh` | the hermetic subset that runs on GitHub runners (no mic, no GPU, no model servers), plus build and workspace tests. |
+| `ci.sh` | the hermetic subset that runs on GitHub runners (no mic, no GPU, no model servers), plus build and workspace tests. It includes gate 22, which runs the real daemon against stub mic/STT/typing backends. |
 | `fixtures/` | the shared fixtures: formatting cases and the audio wavs (`fixtures/audio/`). |
 | `drivers/` | helpers the gates use to drive the real system (`run_loop.sh`, `soak.py`, `pill_events.py`). |
 | `test_fixtures.py` | the formatting-fixture contract test (gate 01). |
