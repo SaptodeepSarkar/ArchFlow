@@ -59,8 +59,9 @@ done
 # drops the hardcode. Owed fix, not fixed here (crates are out of scope).
 KYPY="/home/saptodeep/Projects/Kyuma/.venv/bin/python"
 # Indian English first: the users dictate en-in, and the US small model turns
-# accented speech into plausible nonsense. The 0.5 model is the accurate one.
-KYMB="$HOME/.config/vaani/models/vosk-model-en-in-0.5"
+# accented speech into plausible nonsense. Both of these are 16 kHz; the big
+# `vosk-model-en-in-0.5` is an 8 kHz telecom model that loads in 2.5 s and
+# leaves the VAD's no-speech window with almost nothing, so it is not used.
 KYMF="/home/saptodeep/Projects/Kyuma/models/vosk-model-small-en-in-0.4"
 KYMO="/home/saptodeep/Projects/Kyuma/models/vosk-model-small-en-us-0.15"
 py=""
@@ -77,8 +78,6 @@ fi
 model=""
 if [ -n "${VAANI_STT_MODEL:-}" ] && [ -d "$VAANI_STT_MODEL" ]; then
   model="$VAANI_STT_MODEL"
-elif [ -d "$KYMB" ]; then
-  model="$KYMB"
 elif [ -d "$KYMF" ]; then
   model="$KYMF"
 elif [ -d "$KYMO" ]; then

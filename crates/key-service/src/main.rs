@@ -429,6 +429,7 @@ fn run_pipeline(
     let mut captured: Vec<u8> = Vec::new();
     let refine = stt_manager::resolve_refine(&python);
     let mut heard = false;
+    let mut peak = 0.0f64;
     let mut cancelled = false;
     loop {
         // 50 ms tick: chunk in, words out, then check the stop conditions.
@@ -442,6 +443,7 @@ fn run_pipeline(
                     // Bars are gain-scaled: speech sits well below full scale.
                     let level = chunk_rms(&chunk);
                     control::amplitude((level * 4.0).min(1.0));
+                    peak = peak.max(level);
                     let _ = stt.feed(&chunk);
                     captured.extend_from_slice(&chunk);
                 }
@@ -484,7 +486,9 @@ fn run_pipeline(
         if got_ms > 0 {
             if let vad::Decision::End { heard: h } = vad.tick(got_ms, changed) {
                 heard = h;
-                log("idle", &format!("end of speech (heard={h})"));
+                // Peak mic level: tells a silent capture (noise floor only)
+                // apart from a decoder that failed on real speech.
+                log("idle", &format!("end of speech (heard={h} peak={peak:.3})"));
                 break;
             }
         }
@@ -504,7 +508,6 @@ fn run_pipeline(
         log("idle", "cancelled by the user");
         return;
     }
-    log("transcribing", &format!("{} words decoded", committed.len()));
     control::state("TRANSCRIBING", "Transcribing");
     // Words flushed by the backend at end-of-stream land here; losing them
     // was why short runs typed nothing.
@@ -519,6 +522,9 @@ fn run_pipeline(
             return;
         }
     };
+    // After the flush, so the count is what will actually be formatted: this
+    // used to log "0 words decoded" and then type a word.
+    log("transcribing", &format!("{} words decoded", committed.len()));
     // Second pass: the fine-tuned model re-reads the finished utterance and,
     // when it answers, its words are the ones that get formatted and typed. The
     // streaming words stay the fallback, so a missing model server can never
