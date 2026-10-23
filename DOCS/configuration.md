@@ -18,6 +18,8 @@ github = https://github.com/SaptodeepSarkar
 
 Rules: unknown keys are ignored with a warning, never a crash. Missing file means all defaults. `[names]` and `[links]` match whole spoken phrases, longest match wins.
 
+`stt_model` is either a bare model name (`small.en`, `base.en`) or an absolute path to a Vosk model directory. A path that does not exist is an error, never a silent fallback to the default model: the config named it, so it is used as-is or the run fails loudly. The same rule applies to `VAANI_STT_MODEL`.
+
 Keys must sit **above** the first `[section]` header. Anything inside an
 unrecognised section is ignored (with a warning in
 `journalctl --user -u vaani-key.service`), which is the usual reason an edited
@@ -42,6 +44,12 @@ rule engine formats instead, so dictation never depends on a model being up.
 ```sh
 llama-server -m models/qwen2.5-1.5b-instruct-q4_k_m.gguf --port 8081 -ngl 99 -c 2048
 ```
+
+## STT interpreter and the second pass
+
+`VAANI_STT_PYTHON` selects the interpreter that runs the STT backend. When it is set it is final: an interpreter that cannot `import vosk` makes STT fail loudly instead of quietly using another one. Unset, the daemon tries the Kyuma venv and then `python3`.
+
+The optional re-decode pass is bounded on the client side: `VAANI_STT_REFINE_DEADLINE` (seconds, default `20`) is well under the backend's own 120 s HTTP guard. Past it, or when the pass fails, the daemon keeps the streaming words and types those, so a slow or dead re-decode server costs accuracy, never the utterance.
 
 ## Model servers: who loads and unloads them
 

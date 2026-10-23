@@ -1,7 +1,9 @@
-# Vaani — 16 Phases
+# Vaani — 16 Phases, 22 Gates
 
 Each phase is independently usable and ends in a gate (`./TESTS/gate.sh <NN>`).
-Gates 02+ unlock as components land; a gate is GREEN only on this machine, no stubs.
+Gates 01–16 are the original phase plan; 17–22 are the later live and harness
+gates. A gate is GREEN only on this machine (hardware included), except the
+hermetic subset CI runs — see `TESTS/ci.sh`.
 
 | # | Phase | Builds | Gate GREEN means |
 |---|---|---|---|
@@ -21,6 +23,14 @@ Gates 02+ unlock as components land; a gate is GREEN only on this machine, no st
 | 14 | soak | 13 | 3x75 scripted sentences, zero crashes, zero disk audio, gibberish declined |
 | 15 | packaging | 14 | systemd user unit starts at boot, installer smoke test on fresh checkout |
 | 16 | harden-release | 15 | docs-match 100%, perf numbers recorded, sign-off in vault |
+| 17 | live-pipeline | 13 | daemon runs a fixture wav through transcribe → format → type; an empty transcript types nothing |
+| 18 | live-ui | 06 | overlay protocol: live words, snapshot + state events, stop op, clean QML load |
+| 19 | formatter-pipeline | 07 | dead endpoint falls back to the deterministic rule engine; a live server formats |
+| 20 | fine-tuned-stt | 17 | re-decode client ships and speaks the same protocol; failures keep the streaming words |
+| 21 | model-lifecycle | 15 | daemon spawns and kills only the model servers it owns; a server it does not own is left alone |
+| 22 | e2e-stubs | 03, 13 | real daemon boots, trigger reaches STARTING, fixture wav types, error paths end in ERROR with no resident helper, no wav on disk |
+
+Board status (2026-10-24, `./TESTS/gate.sh`): 22/22 GREEN.
 
 ## Rules
 
@@ -174,3 +184,26 @@ Goal: numbers, docs, sign-off — release only when all three agree.
 - [ ] Docs-match: every behavior in `PRD/` and `DOCS/` has a passing gate; mismatches listed as owed, not silently fixed
 - [ ] Vault Build Log entry: numbers, soak results, gibberish verdicts, deviations
 - [ ] Gate: `gate.sh 16` verifies docs-match 100% and a signed-off Build Log exists
+
+---
+
+## Gates 17–22 (after the phase plan)
+
+These gates were added as the live pipeline and the harness matured; they are
+part of the board and of CI's hermetic subset where marked.
+
+- **17 live-pipeline** — the daemon's full chain on a fixture wav (transcribe →
+  format → type), and the empty-transcript path typing nothing.
+- **18 live-ui** — the overlay protocol against the real daemon: live words,
+  snapshot plus state events, the stop op, and a clean QML load.
+- **19 formatter-pipeline** — the trained-formatter path, with the deterministic
+  rule engine as the documented fallback when no server answers.
+- **20 fine-tuned-stt** — the two-pass re-decode; every failure keeps the
+  streaming words instead of losing the utterance.
+- **21 model-lifecycle** — the daemon spawns and kills only the model servers it
+  owns; a server it does not own is never touched.
+- **22 e2e-stubs** — hermetic end-to-end, run by CI: real daemon boot, the real
+  trigger script to STARTING, a fixture wav to exact keystrokes, every error
+  path to ERROR with no resident helper, and no `*.wav*` under `/tmp`. The mic,
+  the physical hotkey, the GPU and speech accuracy are stubbed or absent, so it
+  proves the plumbing, not the hardware.
