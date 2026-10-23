@@ -2,10 +2,11 @@
 # Gate 21 — the daemon owns the model servers' lifecycle. GREEN only if:
 #   1. with no launcher configured the daemon owns nothing (opt-in unchanged,
 #      so a machine that hand-starts its servers behaves exactly as before),
-#   2. a run spawns the speech server first and the formatter second, and the
-#      launcher scripts themselves record that order,
-#   3. both are killed once idle_timeout_s has passed with no run, with no
-#      process left behind,
+#   2. a run spawns the speech server first and the formatter second, the next
+#      run unloads the formatter before speech starts again, and the launcher
+#      scripts themselves record that order,
+#   3. whatever is left is killed once idle_timeout_s has passed with no run,
+#      with no process left behind,
 #   4. a port that already answers is left alone: neither spawned nor killed.
 #
 # Hermetic: stub launchers (`exec sleep`) stand in for the real scripts, so this
@@ -64,13 +65,13 @@ grep -q "step=start name=stt spawned=true" <<<"$out" \
 grep -q "step=start name=llm spawned=true" <<<"$out" \
   && ok "formatter spawned" || bad "formatter not spawned: $out"
 grep -q "servers ok killed_after_idle=true" <<<"$out" \
-  && ok "both judged due and killed after the idle window" \
+  && ok "leftover server judged due and killed after the idle window" \
   || bad "not killed after the idle window: $out"
 
 seq_seen="$(tr '\n' ' ' <"$SEQ" 2>/dev/null | sed 's/ *$//')"
-[ "$seq_seen" = "stt llm" ] \
-  && ok "start order from the launchers: speech, then formatter" \
-  || bad "launcher order was '$seq_seen', wanted 'stt llm'"
+[ "$seq_seen" = "stt llm stt" ] \
+  && ok "launcher order from the launchers: speech, formatter, then speech for the next run" \
+  || bad "launcher order was '$seq_seen', wanted 'stt llm stt'"
 
 left=0
 while read -r p; do

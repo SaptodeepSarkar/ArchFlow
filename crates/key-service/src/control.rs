@@ -100,6 +100,20 @@ pub fn start() -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
+/// The op a UI line asks for. The wire format is one JSON object per line; this
+/// reads only the `kind.op` value, so an unknown op (or a line that is not the
+/// protocol at all) never matches.
+fn op_of(line: &str) -> Option<&str> {
+    let (_, rest) = line.split_once("\"op\"")?;
+    let rest = rest.trim_start().strip_prefix(':')?.trim_start();
+    rest.strip_prefix('"')?.split('"').next()
+}
+
+/// The only op the daemon implements: cancel the current run.
+fn is_stop(line: &str) -> bool {
+    op_of(line) == Some("stop")
+}
+
 /// Take over as the live client: send the snapshot, then read ops until the
 /// peer goes away.
 fn adopt(stream: UnixStream) {
@@ -134,7 +148,7 @@ fn adopt(stream: UnixStream) {
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let Ok(line) = line else { break };
-        if line.contains("\"op\"") && line.contains("stop") {
+        if is_stop(&line) {
             STOP.store(true, Ordering::SeqCst);
         }
     }
@@ -201,4 +215,36 @@ pub fn reset_stop() {
 /// Remove the socket file (shutdown).
 pub fn cleanup() {
     let _ = std::fs::remove_file(sock_path());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_stop;
+
+    #[test]
+    fn stop_op_is_recognised() {
+        assert!(is_stop(
+            r#"{"protocol_version":1,"request_id":"qml-1","session_id":null,"kind":{"op":"stop"}}"#
+        ));
+        // The reader strips the newline; the parser must not depend on it.
+        assert!(is_stop("{\"kind\":{\"op\":\"stop\"}}\n"));
+    }
+
+    #[test]
+    fn unknown_ops_do_not_cancel() {
+        assert!(!is_stop(r#"{"kind":{"op":"config_get"}}"#));
+        // "stop" elsewhere in the object is not the op.
+        assert!(!is_stop(
+            r#"{"request_id":"stop-1","kind":{"op":"config_get"}}"#
+        ));
+        assert!(!is_stop(r#"{"kind":{"op":"stopplease"}}"#));
+    }
+
+    #[test]
+    fn malformed_lines_do_not_cancel() {
+        assert!(!is_stop(""));
+        assert!(!is_stop("not json"));
+        assert!(!is_stop(r#"{"kind":{"op":}}"#));
+        assert!(!is_stop(r#"{"kind":{"op"}}"#));
+    }
 }
