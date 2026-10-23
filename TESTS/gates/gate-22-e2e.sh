@@ -13,8 +13,11 @@
 #      dead LLM endpoint, dead control socket) without hanging and without
 #      leaving a helper behind, ending in ERROR where the daemon has that
 #      state and in the documented fallback where it does not (dead LLM ->
-#      rule engine),
-#   6. writes no *.wav* under /tmp.
+#      rule engine), with the missing-model reason naming the configured path,
+#   6. writes no *.wav* under /tmp,
+#   7. cancels a run while it is TRANSCRIBING (the overlay's Cancel button in
+#      that state): a `stop` op on the control socket ends the run in CANCELLED
+#      and types nothing.
 #
 # Honest scope: a GitHub runner has no microphone, no Hyprland, no GPU and no
 # model server. This gate stubs pw-record, the STT backend and wtype, so it
@@ -95,6 +98,8 @@ chmod +x "$TMP/shim/quickshell"
 # STT stub: answers `-c "import vosk"` (the interpreter probe), then emits the
 # fixed word "hello" for both backend modes. Batch (--wav) exits after DONE;
 # stream (--stream) drains mic PCM until the daemon closes stdin, then DONE.
+# VAANI_GATE22_STT_PAUSE (cancel case only) delays that DONE so the daemon
+# stays in TRANSCRIBING long enough for the gate to send a stop.
 cat >"$TMP/stub-stt" <<'EOF'
 #!/bin/sh
 [ "$1" = "-c" ] && exit 0
@@ -104,6 +109,7 @@ for a in "$@"; do [ "$a" = "--stream" ] && stream=1; done
 if [ "$stream" = 1 ]; then
   printf 'W 0.00 hello\n'
   cat >/dev/null
+  [ -n "${VAANI_GATE22_STT_PAUSE:-}" ] && sleep "$VAANI_GATE22_STT_PAUSE"
 else
   printf 'W 0.00 hello\n'
 fi
@@ -126,12 +132,16 @@ idle_timeout_s = 120
 end_of_speech_ms = 600
 EOF
 
-# Control-socket client: appends one STATE=<name> line per state event so the
-# gate can wait on transitions without reading the daemon's log format.
+# Control-socket client: appends one STATE=<name> line (and the state detail as
+# MSG=<text>) per state event so the gate can wait on transitions without
+# reading the daemon's log format. With two more args it sends one op line as
+# soon as the named state appears -- the overlay's Cancel button.
 cat >"$TMP/client.py" <<'EOF'
 import json, socket, sys, time
 
 path, out, seconds = sys.argv[1], sys.argv[2], float(sys.argv[3])
+send_on = sys.argv[4] if len(sys.argv) > 4 else ""
+send_line = sys.argv[5] if len(sys.argv) > 5 else ""
 deadline = time.time() + seconds
 # A stale socket file can exist for a moment before the daemon rebinds it.
 while True:
@@ -163,7 +173,11 @@ with open(out, "a") as f:
                 continue
             if msg.get("state"):
                 f.write("STATE=" + msg["state"] + "\n")
+                f.write("MSG=" + msg.get("message", "") + "\n")
                 f.flush()
+                if send_on and msg["state"] == send_on:
+                    s.sendall(send_line.encode() + b"\n")
+                    send_on = ""
 EOF
 
 wait_state() { # $1=state $2=ticks (50ms each)
@@ -182,7 +196,8 @@ wait_file() { # $1=path $2=ticks
 }
 
 # Start the daemon and attach the state client; the pid lands in SRV.
-start_daemon() { # $1=conf $2=log
+# $3/$4: state to wait for and the exact op line to send when it appears.
+start_daemon() { # $1=conf $2=log [$3=state $4=op line]
   : >"$TMP/states"
   : >"$VAANI_GATE22_PIDS"
   "$BIN" "$1" >"$2" 2>&1 &
@@ -191,15 +206,26 @@ start_daemon() { # $1=conf $2=log
     bad "daemon opened its control socket (see $2)"
     return 1
   fi
-  python3 "$TMP/client.py" "$SOCK" "$TMP/states" 20 &
+  python3 "$TMP/client.py" "$SOCK" "$TMP/states" 20 "${3:-}" "${4:-}" &
   CLIENT=$!
   # Out of the job table: killing it below must not print "Killed" noise.
   disown "$CLIENT" 2>/dev/null || true
   return 0
 }
 
-stop_daemon() { # SIGTERM, wait, return the exit code in RC
+stop_daemon() { # SIGTERM, up to 10s, then SIGKILL; exit code in RC
   kill -TERM "$SRV" 2>/dev/null
+  local i
+  for i in $(seq 1 100); do
+    kill -0 "$SRV" 2>/dev/null || break
+    sleep 0.1
+  done
+  # A daemon that ignores SIGTERM must fail this case in seconds, not sit on
+  # the CI job's timeout.
+  if kill -0 "$SRV" 2>/dev/null; then
+    bad "shutdown: daemon ignored SIGTERM for 10s, killed with SIGKILL"
+    kill -KILL "$SRV" 2>/dev/null
+  fi
   wait "$SRV" 2>/dev/null
   RC=$?
   SRV=0
@@ -267,6 +293,35 @@ stop_daemon
 [ -f "$PIDFILE" ] && bad "shutdown: pid file removed" || ok "shutdown: pid file removed"
 no_helpers_left "e2e run"
 
+# ---------------------------------------------------------------------- 7
+# Cancel while the daemon is TRANSCRIBING (the overlay enables Cancel in that
+# state): the stop ends the run with CANCELLED and types nothing. The stub
+# backend holds its DONE so the state stays observable for the gate.
+: >"$VAANI_GATE22_WTYPE_LOG"
+rm -f "$VAANI_GATE22_TYPED"
+export VAANI_GATE22_STT_PAUSE=3
+start_daemon "$TMP/ok.conf" "$TMP/cancel.log" TRANSCRIBING \
+  '{"protocol_version":1,"request_id":"gate22-stop","session_id":null,"kind":{"op":"stop"}}' || true
+"$ROOT/packaging/vaani-trigger"
+wait_state TRANSCRIBING 100 && ok "cancel: daemon reached TRANSCRIBING" \
+  || bad "cancel: daemon reached TRANSCRIBING (states: $(tr '\n' ' ' <"$TMP/states"))"
+# The run must end by itself; read the terminal state once it lands.
+last=""
+for i in $(seq 1 200); do
+  last="$(grep '^STATE=' "$TMP/states" | tail -1)"
+  case "$last" in STATE=CANCELLED|STATE=IDLE|STATE=ERROR) break ;; esac
+  sleep 0.05
+done
+[ "$last" = "STATE=CANCELLED" ] \
+  && ok "cancel: stop during transcription ends in CANCELLED" \
+  || bad "cancel: stop during transcription ends in CANCELLED (last: ${last:-none}, states: $(tr '\n' ' ' <"$TMP/states"))"
+[ ! -s "$VAANI_GATE22_WTYPE_LOG" ] && [ ! -e "$VAANI_GATE22_TYPED" ] \
+  && ok "cancel: nothing was typed" \
+  || bad "cancel: nothing was typed (wtype log: $(cat "$VAANI_GATE22_WTYPE_LOG" 2>/dev/null))"
+unset VAANI_GATE22_STT_PAUSE
+stop_daemon
+no_helpers_left "cancel during transcription"
+
 # ---------------------------------------------------------------------- 3
 # The documented test entry point, on a fixture wav, with the stub backend.
 : >"$VAANI_GATE22_WTYPE_LOG"
@@ -299,14 +354,18 @@ stop_daemon
 no_helpers_left "no STT python"
 
 # (b) missing model: a configured absolute path that does not exist is an
-# error, never a silent default.
+# error, never a silent default -- and the reason names the path the config
+# asked for, so a dropped detail fails here.
 start_daemon "$TMP/bad-model.conf" "$TMP/no-model.log" || true
 "$ROOT/packaging/vaani-trigger"
 wait_state ERROR 100 && ok "error: missing model path ends in ERROR" \
   || bad "error: missing model path ends in ERROR (states: $(tr '\n' ' ' <"$TMP/states"))"
-grep -qi 'state=error .*no stt model' "$TMP/no-model.log" 2>/dev/null \
-  && ok "error: missing model is reported, not silently replaced" \
-  || bad "error: missing model is reported"
+grep -qi 'stt model unusable' "$TMP/no-model.log" "$TMP/states" 2>/dev/null \
+  && ok "error: missing model is reported with its reason, not silently replaced" \
+  || bad "error: missing model is reported with its reason"
+grep -qi 'stt model unusable.*/nonexistent/vaani-model' "$TMP/no-model.log" "$TMP/states" 2>/dev/null \
+  && ok "error: the reason names the configured path" \
+  || bad "error: the reason names the configured path"
 stop_daemon
 [ "$RC" -eq 0 ] && ok "error: missing model does not hang or crash the daemon" \
   || bad "error: missing model daemon exit (got $RC)"
