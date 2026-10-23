@@ -89,21 +89,23 @@ const ACKS: &[&str] = &[
 /// Drop the model's acknowledgment opener ("Sure, here is the formatted
 /// text:") so the formatting underneath is typed instead of the whole reply
 /// being rejected. Only a leading line, or the text before a colon, that opens
-/// with a known ack is removed; anything else is returned untouched.
+/// with a known ack is removed; anything else is returned untouched. An opener
+/// that ends a sentence ("Okay.\nWe ship tomorrow.") is the speaker's own
+/// words, not the model's, so it stays.
 fn strip_ack(out: &str) -> &str {
     let mut text = out.trim();
     while ACKS.iter().any(|a| text.to_ascii_lowercase().starts_with(a)) {
-        let rest = match text.split_once('\n') {
-            Some((_, tail)) => tail,
-            None => match text.split_once(':') {
-                Some((_, tail)) => tail,
-                None => break,
-            },
+        let Some((head, tail)) = text.split_once('\n').or_else(|| text.split_once(':')) else {
+            break;
         };
-        if rest.trim().is_empty() {
+        // A sentence-ending opener is the speaker's own words, not a preamble.
+        if matches!(head.trim_end().chars().last(), Some('.' | '!' | '?')) {
             break;
         }
-        text = rest.trim();
+        if tail.trim().is_empty() {
+            break;
+        }
+        text = tail.trim();
     }
     text
 }
@@ -284,6 +286,15 @@ mod tests {
         // Text that merely starts with an ack and has no preamble is untouched.
         assert_eq!(strip_ack("Sure."), "Sure.");
         assert_eq!(strip_ack("So I think we should ship it."), "So I think we should ship it.");
+    }
+
+    #[test]
+    fn sentence_ending_opener_is_kept() {
+        assert_eq!(strip_ack("Okay.\nWe ship tomorrow."), "Okay.\nWe ship tomorrow.");
+        assert_eq!(strip_ack("Okay!\nWe ship tomorrow."), "Okay!\nWe ship tomorrow.");
+        // A bare ack line or a label is still the model talking.
+        assert_eq!(strip_ack("Sure\nWe ship tomorrow."), "We ship tomorrow.");
+        assert_eq!(strip_ack("Sure:\nWe ship tomorrow."), "We ship tomorrow.");
     }
 
     #[test]
