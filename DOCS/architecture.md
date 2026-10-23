@@ -19,6 +19,11 @@
 
 STT and formatter are never in VRAM together. Helpers reporting busy are never killed.
 
+Cancel is honored at every phase: mid-listen, while the streaming backend flushes
+its final words (`LiveSession::finish` polls the stop flag every 50 ms and kills
+the backend), and during the fine-tuned re-decode. Nothing is formatted or typed
+after a Cancel.
+
 ## Why this shape
 
 The resident set is one small daemon because model loads are the slow, heavy part and must be demand-driven on a 6GB GPU. Killable/busy replaces a supervisor. Decisions and measured numbers: vault `Projects/Vaani/Hypothesis.md`.

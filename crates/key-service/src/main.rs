@@ -511,10 +511,15 @@ fn run_pipeline(
     control::state("TRANSCRIBING", "Transcribing");
     // Words flushed by the backend at end-of-stream land here; losing them
     // was why short runs typed nothing.
-    let stats = match stt.finish(&mut |w| {
+    let stats = match stt.finish(&control::stop_pending, &mut |w| {
         committed.push(w.text.clone());
     }) {
         Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+            cancel_run(cancel::Phase::Transcribing, &mut rec, &mut stt, &mut ui);
+            log("cancel", "stopped during transcription");
+            return;
+        }
         Err(e) => {
             control::state("ERROR", &format!("STT failed: {e}"));
             log("error", &format!("stt failed: {e}"));
@@ -679,7 +684,7 @@ fn stream_test(wav: &str) -> i32 {
         }
     }
     let mut words: Vec<String> = Vec::new();
-    let stats = match stt.finish(&mut |w| words.push(w.text.clone())) {
+    let stats = match stt.finish(&|| false, &mut |w| words.push(w.text.clone())) {
         Ok(s) => s,
         Err(e) => {
             println!("STREAM-FAIL finish: {e}");

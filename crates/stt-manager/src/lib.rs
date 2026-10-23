@@ -407,13 +407,26 @@ impl LiveSession {
     /// Words flushed after the last [`LiveSession::poll`] (which is where
     /// Vosk emits the tail of an utterance) are handed to `on_word`, so they
     /// can never be dropped on the floor.
+    ///
+    /// `cancel` is polled every 50 ms: a user who stops during the flush must
+    /// not wait out the backend (a slow model can sit there for seconds). A
+    /// cancelled flush kills the child and returns `ErrorKind::Interrupted`.
     /// Safe to call twice; the second call returns empty stats.
-    pub fn finish(&mut self, on_word: &mut dyn FnMut(&Word)) -> std::io::Result<Stats> {
+    pub fn finish(
+        &mut self,
+        cancel: &dyn Fn() -> bool,
+        on_word: &mut dyn FnMut(&Word),
+    ) -> std::io::Result<Stats> {
         self.stdin = None; // EOF: backend flushes finals and exits
         let mut stats = Stats::default();
         let mut saw_done = false;
+        let mut cancelled = false;
         loop {
-            match self.events.recv_timeout(std::time::Duration::from_secs(20)) {
+            if cancel() {
+                cancelled = true;
+                break;
+            }
+            match self.events.recv_timeout(std::time::Duration::from_millis(50)) {
                 Ok(LiveEvent::Done(s)) => {
                     stats = s;
                     saw_done = true;
@@ -428,10 +441,17 @@ impl LiveSession {
                     break;
                 }
                 Ok(_) => {}
-                Err(_) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
         self.unload();
+        if cancelled {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "cancelled by the user",
+            ));
+        }
         if !saw_done {
             let detail = if self.stderr_tail.is_empty() {
                 "backend exited without DONE".to_string()
@@ -785,6 +805,51 @@ mod tests {
         let p = dir.join("backend.sh");
         std::fs::write(&p, "printf 'W 0.00 hi\\n'\nsleep 60\n").unwrap();
         p
+    }
+
+    #[test]
+    fn cancel_ends_the_flush_before_the_backend_finishes() {
+        let dir = std::env::temp_dir().join(format!("vaani-stt-finish-cancel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let backend = dir.join("backend.sh");
+        // stderr redirect: `unload` reaps through the stderr pipe, so the stub's
+        // sleep must not keep that pipe open after the shell is killed.
+        std::fs::write(&backend, "printf 'W 0.00 hi\\n'\nsleep 60 2>/dev/null\n").unwrap();
+        let t0 = std::time::Instant::now();
+        let res = with_env(&[("VAANI_STT_BACKEND", backend.to_str())], || {
+            let mut live = LiveSession::start("sh", "unused").expect("stub backend starts");
+            live.finish(
+                &|| t0.elapsed() > std::time::Duration::from_millis(100),
+                &mut |_| {},
+            )
+        });
+        let took = t0.elapsed();
+        let err = res.expect_err("a cancelled flush must report an error");
+        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+        assert!(
+            took < std::time::Duration::from_secs(5),
+            "cancel did not cut the flush: {took:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn finish_still_hands_back_the_flushed_words_and_stats() {
+        let dir = std::env::temp_dir().join(format!("vaani-stt-flush-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let backend = dir.join("backend.sh");
+        std::fs::write(&backend, "printf 'W 0.00 hi\\nDONE audio=1.5 infer=0.1\\n'").unwrap();
+        let (res, words) = with_env(&[("VAANI_STT_BACKEND", backend.to_str())], || {
+            let mut live = LiveSession::start("sh", "unused").expect("stub backend starts");
+            let mut words = Vec::new();
+            let res = live.finish(&|| false, &mut |w| words.push(w.text.clone()));
+            (res, words)
+        });
+        let stats = res.expect("a backend that answers DONE succeeds");
+        assert_eq!(words, vec!["hi"]);
+        assert_eq!(stats.words, 1);
+        assert!((stats.audio_secs - 1.5).abs() < 1e-9);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
