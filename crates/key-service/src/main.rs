@@ -418,7 +418,10 @@ fn run_pipeline(
     servers::start_stt(servers, boot.elapsed().as_secs());
     control::state("RECORDING", "Speak naturally…");
     control::provisional("", false);
-    log("listening", "mic open, press hotkey again to finish");
+    log(
+        "listening",
+        &format!("mic open, press hotkey again to finish model={model}"),
+    );
 
     let mut committed: Vec<String> = Vec::new();
     let mut partial = String::new();
@@ -1120,7 +1123,23 @@ fn main() {
         });
         std::process::exit(pipeline_test(&wav, &cfg_path));
     }
-    let cfg_path = std::env::args().nth(1).unwrap_or_else(|| {
+    // Daemon path only: the test entries above take their own arguments. An
+    // unknown flag used to be read as the config path, and a missing file
+    // silently fell back to defaults -- both booted the wrong config.
+    let positional = std::env::args().nth(1);
+    if let Some(a) = &positional {
+        if a.starts_with('-') {
+            eprintln!(
+                "usage: vaani-key-service [config] (test entries: --handoff-test, --format-test, --stream-test, --refine-test, --servers-test, --pipeline-test)"
+            );
+            std::process::exit(2);
+        }
+        if !std::path::Path::new(a).exists() {
+            eprintln!("vaani key-service: no such config: {a}");
+            std::process::exit(1);
+        }
+    }
+    let cfg_path = positional.unwrap_or_else(|| {
         format!(
             "{}/.config/vaani/vaani.conf",
             std::env::var("HOME").unwrap_or_else(|_| ".".into())

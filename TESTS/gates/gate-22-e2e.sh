@@ -17,7 +17,9 @@
 #   6. writes no *.wav* under /tmp,
 #   7. cancels a run while it is TRANSCRIBING (the overlay's Cancel button in
 #      that state): a `stop` op on the control socket ends the run in CANCELLED
-#      and types nothing.
+#      and types nothing,
+#   8. refuses an unknown flag or a missing config path instead of booting with
+#      the defaults.
 #
 # Honest scope: a GitHub runner has no microphone, no Hyprland, no GPU and no
 # model server. This gate stubs pw-record, the STT backend and wtype, so it
@@ -418,6 +420,24 @@ grep -q 'control socket unavailable' "$TMP/live-sock.log" 2>/dev/null \
   || bad "error: live control socket failure is reported"
 stop_daemon
 no_helpers_left "control socket"
+
+# (f) argument guard: an unknown flag must not be mistaken for a config path and
+# boot the daemon with defaults; a typo'd config path must name itself.
+timeout 10 "$BIN" --wav /tmp/whatever.wav >"$TMP/bad-flag.log" 2>&1
+RC=$?
+[ "$RC" -eq 2 ] && ok "args: unknown flag exits 2" \
+  || bad "args: unknown flag exits 2 (rc=$RC: $(tail -1 "$TMP/bad-flag.log"))"
+grep -q 'listening pid=' "$TMP/bad-flag.log" \
+  && bad "args: unknown flag never boots the daemon" \
+  || ok "args: unknown flag never boots the daemon"
+timeout 10 "$BIN" "$TMP/missing.conf" >"$TMP/bad-conf.log" 2>&1
+RC=$?
+if [ "$RC" -eq 1 ] && grep -q "$TMP/missing.conf" "$TMP/bad-conf.log"; then
+  ok "args: missing config path exits 1 naming the path"
+else
+  bad "args: missing config path (rc=$RC: $(tail -1 "$TMP/bad-conf.log"))"
+fi
+no_helpers_left "argument guard"
 
 # ---------------------------------------------------------------------- 6
 WAV_AFTER="$(find /tmp -maxdepth 2 -name '*.wav*' 2>/dev/null | sort)"
