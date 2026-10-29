@@ -58,10 +58,10 @@ done
 # backend/transcribe.py:54); these exports paper over it until that crate
 # drops the hardcode. Owed fix, not fixed here (crates are out of scope).
 KYPY="/home/saptodeep/Projects/Kyuma/.venv/bin/python"
-# Indian English first: the users dictate en-in, and the US small model turns
-# accented speech into plausible nonsense. Both of these are 16 kHz; the big
-# `vosk-model-en-in-0.5` is an 8 kHz telecom model that loads in 2.5 s and
-# leaves the VAD's no-speech window with almost nothing, so it is not used.
+# The daemon feeds 16 kHz mono. `vosk-model-small-en-in-0.4` is an 8 kHz model
+# (conf/mfcc.conf: --sample-frequency=8000), so at 16 kHz it emits no partials,
+# the VAD reads a silent run and a whole sentence finishes as one word. The
+# 16 kHz `vosk-model-small-en-us-0.15` streams partials, so it is the default.
 KYMF="/home/saptodeep/Projects/Kyuma/models/vosk-model-small-en-in-0.4"
 KYMO="/home/saptodeep/Projects/Kyuma/models/vosk-model-small-en-us-0.15"
 py=""
@@ -78,10 +78,10 @@ fi
 model=""
 if [ -n "${VAANI_STT_MODEL:-}" ] && [ -d "$VAANI_STT_MODEL" ]; then
   model="$VAANI_STT_MODEL"
-elif [ -d "$KYMF" ]; then
-  model="$KYMF"
 elif [ -d "$KYMO" ]; then
   model="$KYMO"
+elif [ -d "$KYMF" ]; then
+  model="$KYMF"
 else
   note "warning: no STT model dir found (tried VAANI_STT_MODEL, Kyuma models); STT will fail at runtime"
 fi
