@@ -34,7 +34,9 @@ Two trained models can be wired into this same pipeline. Each is opt-in and each
 degrades to the previous behaviour, so a box without them runs exactly as before.
 
 **Two-pass STT.** The streaming model keeps emitting words while the user speaks
-(RTF ~0.09, live overlay: unchanged). When `VAANI_STT_REFINE_BACKEND` names the
+(RTF ~0.09 for Vosk; a CTranslate2 Whisper `stt_model` streams by re-decoding
+the last few seconds, and is what this box runs — see
+`DOCS/configuration.md`). When `VAANI_STT_REFINE_BACKEND` names the
 re-decode client and a model server answers on `VAANI_STT_REFINE_ENDPOINT`, the
 finished utterance is re-transcribed by the fine-tuned Whisper and *those* words
 are what get formatted and typed. The streaming words remain the fallback for

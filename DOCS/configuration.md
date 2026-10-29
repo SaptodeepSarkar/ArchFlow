@@ -62,6 +62,8 @@ up the same env file it does under the unit (see "Environment file").
 
 `VAANI_STT_PYTHON` selects the interpreter that runs the STT backend. When it is set it is final: an interpreter that cannot `import vosk` makes STT fail loudly instead of quietly using another one. Unset, the daemon tries the Kyuma venv and then `python3`.
 
+`stt_model` may name either a Vosk model directory or a CTranslate2 Whisper one, and the backend picks the engine from the directory: `model.bin` present means faster-whisper (CUDA fp16, CPU int8 when CUDA cannot decode), anything else means Vosk. Whisper shows live words by re-decoding the last few seconds of speech as it arrives, and its final decode is what gets typed; trailing silence is cut before decoding, because Whisper invents words for silence. The interpreter must have `faster_whisper` importable for a CT2 directory, and `vosk` for a Vosk one.
+
 The optional re-decode pass is bounded on the client side: `VAANI_STT_REFINE_DEADLINE` (seconds, default `20`) is well under the backend's own 120 s HTTP guard. Past it, or when the pass fails, the daemon keeps the streaming words and types those, so a slow or dead re-decode server costs accuracy, never the utterance.
 
 ## Model servers: who loads and unloads them
