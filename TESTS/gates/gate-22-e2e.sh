@@ -61,9 +61,11 @@ export VAANI_GATE22_PIDS="$TMP/pids"
 export VAANI_GATE22_TYPED="$TMP/typed.txt"
 export VAANI_GATE22_WTYPE_LOG="$TMP/wtype.log"
 # The optional second pass and owned model servers must not run here: a stray
-# refine backend would add a network deadline to every case.
+# refine backend would add a network deadline to every case, and the installer's
+# env file would give this gate a formatter to own. The gate owns its STT stub.
 unset VAANI_STT_MODEL VAANI_STT_BACKEND VAANI_STT_REFINE_BACKEND \
       VAANI_STT_REFINE_ENDPOINT VAANI_STT_REFINE_SERVER VAANI_LLM_SERVER
+export VAANI_ENV_FILE=""
 export VAANI_LLM_ENDPOINT="http://127.0.0.1:1"
 
 PIDFILE="$TMP/run/vaani-key.pid"

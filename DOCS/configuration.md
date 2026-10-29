@@ -34,6 +34,15 @@ The decoder's own output is the speech signal (the mic sits behind a
 noise-suppression chain with a hot floor), so this is a hangover on *new
 words*, not a level threshold.
 
+## Environment file
+
+The daemon also reads the installer's env file once at startup: `VAANI_ENV_FILE`,
+default `${PREFIX:-$HOME/.local}/vaani-stt.env`. Only `export VAANI_*=` lines are
+taken, with no shell expansion, and a variable already set in the environment
+wins — the systemd unit and the gates keep control. An empty `VAANI_ENV_FILE`
+disables the read; a missing file is normal. That is why a bare `cargo run`
+behaves like the installed unit instead of owning no model servers.
+
 ## Formatter LLM endpoint
 
 `VAANI_LLM_ENDPOINT` (environment, default `http://127.0.0.1:8082`) points at
@@ -46,8 +55,8 @@ rule engine formats instead, so dictation never depends on a model being up.
 llama-server -m models/qwen2.5-1.5b-instruct-q4_k_m.gguf --port 8082 -ngl 99 -c 2048
 ```
 
-To run the daemon from a checkout, use `./packaging/dev-run.sh`: it sources the
-install's env file, which a bare `cargo run` does not get.
+To run the daemon from a checkout, `cargo run --bin vaani-key-service` now picks
+up the same env file it does under the unit (see "Environment file").
 
 ## STT interpreter and the second pass
 

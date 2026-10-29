@@ -102,6 +102,50 @@ fn adopt_live_wayland_env() {
     }
 }
 
+/// The systemd unit carries the installer's env, a bare `cargo run` gets none:
+/// read the same file so both own the same servers. `VAANI_ENV_FILE=""` opts
+/// out, an already-set variable always wins, and a missing file is normal.
+fn load_install_env() {
+    let path = match std::env::var("VAANI_ENV_FILE") {
+        Ok(v) if v.is_empty() => return,
+        Ok(v) => std::path::PathBuf::from(v),
+        Err(_) => {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+            let prefix = std::env::var("PREFIX").unwrap_or_else(|_| format!("{home}/.local"));
+            std::path::PathBuf::from(prefix).join("vaani-stt.env")
+        }
+    };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    for (k, v) in parse_env_file(&text) {
+        if std::env::var_os(&k).is_none() {
+            std::env::set_var(k, v);
+        }
+    }
+}
+
+/// `export KEY=VALUE` lines only; one layer of quotes off VALUE, no expansion.
+/// Blank lines and comments fall out at `strip_prefix`.
+fn parse_env_file(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let (k, v) = line.trim().strip_prefix("export ")?.trim_start().split_once('=')?;
+            let k = k.trim();
+            if !k.starts_with("VAANI_") {
+                return None;
+            }
+            let v = v.trim();
+            let v = v
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .or_else(|| v.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                .unwrap_or(v);
+            Some((k.to_string(), v.to_string()))
+        })
+        .collect()
+}
+
 // ---- Phase 09: STT -> LLM handoff (VRAM-serialized) ----
 //
 // Sequence: STT streams words, STT unloads, formatter loads, raw
@@ -1053,6 +1097,7 @@ impl Drop for UiGuard {
 }
 
 fn main() {
+    load_install_env();
     // Phase 09 selftest bypasses the hotkey loop (gate harness); the idle
     // path below is untouched so gate 03 behavior is identical.
     let args: Vec<String> = std::env::args().collect();
@@ -1235,7 +1280,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{chunk_rms, live_window, pcm_from_wav, pick_transcript, should_refine};
+    use super::{chunk_rms, live_window, parse_env_file, pcm_from_wav, pick_transcript, should_refine};
 
     fn w(s: &str) -> Vec<String> {
         s.split_whitespace().map(str::to_string).collect()
@@ -1294,6 +1339,20 @@ mod tests {
         // The VAD heard speech, or the streaming pass produced a word: refine.
         assert!(should_refine(true, ""));
         assert!(should_refine(false, "hello"));
+    }
+
+    #[test]
+    fn install_env_lines_are_parsed_without_a_shell() {
+        let parsed = parse_env_file(
+            "# a comment\nexport VAANI_LLM_ENDPOINT=\"http://127.0.0.1:8082\"\n\nexport HOME=/root\n",
+        );
+        assert_eq!(
+            parsed,
+            vec![(
+                "VAANI_LLM_ENDPOINT".to_string(),
+                "http://127.0.0.1:8082".to_string()
+            )]
+        );
     }
 
     #[test]
