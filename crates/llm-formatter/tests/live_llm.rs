@@ -1,5 +1,5 @@
 //! Live checks against a local formatter LLM. These need an OpenAI-compatible
-//! server on VAANI_LLM_ENDPOINT (default 127.0.0.1:8081), so they are
+//! server on VAANI_LLM_ENDPOINT (default 127.0.0.1:8082), so they are
 //! `#[ignore]`d and never run in CI. Run them on a box that has the model:
 //!     cargo test -p llm-formatter --test live_llm -- --ignored
 //! They assert *properties* (fillers gone, names expanded, no commentary),

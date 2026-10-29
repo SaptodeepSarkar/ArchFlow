@@ -21,10 +21,10 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(5);
 /// while, but the utterance still never waits forever.
 const REPLY_DEADLINE: Duration = Duration::from_secs(60);
 
-/// Default endpoint: a llama-server on this machine (any OpenAI-compatible
-/// chat endpoint works via `VAANI_LLM_ENDPOINT`).
+/// Default endpoint: the tuned formatter that `packaging/serve-formatter.sh`
+/// serves (any OpenAI-compatible chat endpoint works via `VAANI_LLM_ENDPOINT`).
 pub fn default_endpoint() -> String {
-    std::env::var("VAANI_LLM_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:8081".to_string())
+    std::env::var("VAANI_LLM_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:8082".to_string())
 }
 
 /// The instruction the PRD's formatter has to follow. Kept in one place so

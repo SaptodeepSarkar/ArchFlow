@@ -36,14 +36,18 @@ words*, not a level threshold.
 
 ## Formatter LLM endpoint
 
-`VAANI_LLM_ENDPOINT` (environment, default `http://127.0.0.1:8081`) points at
-any OpenAI-compatible chat server. The formatter sends the raw transcript
+`VAANI_LLM_ENDPOINT` (environment, default `http://127.0.0.1:8082`) points at
+any OpenAI-compatible chat server; the default is the tuned formatter that
+`packaging/serve-formatter.sh` serves. The formatter sends the raw transcript
 there and the reply is what gets typed. With no server answering, the built-in
 rule engine formats instead, so dictation never depends on a model being up.
 
 ```sh
-llama-server -m models/qwen2.5-1.5b-instruct-q4_k_m.gguf --port 8081 -ngl 99 -c 2048
+llama-server -m models/qwen2.5-1.5b-instruct-q4_k_m.gguf --port 8082 -ngl 99 -c 2048
 ```
+
+To run the daemon from a checkout, use `./packaging/dev-run.sh`: it sources the
+install's env file, which a bare `cargo run` does not get.
 
 ## STT interpreter and the second pass
 

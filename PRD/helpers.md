@@ -24,7 +24,7 @@
 1. Raw STT transcript in, formatted text out - per the working flow, the text
    that gets typed is the formatter's, never the raw STT.
 2. Backend: any OpenAI-compatible chat endpoint on this machine
-   (`VAANI_LLM_ENDPOINT`, default `http://127.0.0.1:8081`), e.g.
+   (`VAANI_LLM_ENDPOINT`, default `http://127.0.0.1:8082`), e.g.
    Qwen2.5-1.5B-Instruct Q4 served by llama-server; ~90 ms warm on this box.
 3. Prompt contract: strip fillers, keep the correction, fix capitalization and
    punctuation, expand the configured `[names]`/`[links]` pairs, and reply

@@ -73,7 +73,7 @@ impl Server {
         ) {
             v.push(s);
         }
-        if let Some(s) = from_env("llm", "VAANI_LLM_SERVER", "VAANI_LLM_ENDPOINT", 8081) {
+        if let Some(s) = from_env("llm", "VAANI_LLM_SERVER", "VAANI_LLM_ENDPOINT", 8082) {
             v.push(s);
         }
         v

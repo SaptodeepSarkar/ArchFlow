@@ -20,7 +20,8 @@ bad()  { printf '   FAIL: %s\n' "$1"; fail=1; }
 
 step "shell syntax"
 for f in install.sh TESTS/gate.sh TESTS/gates/*.sh packaging/vaani-trigger \
-         packaging/serve-formatter.sh packaging/serve-refine-stt.sh; do
+         packaging/serve-formatter.sh packaging/serve-refine-stt.sh \
+         packaging/dev-run.sh; do
   if bash -n "$f" 2>/dev/null; then note "ok $f"; else bad "syntax error in $f"; bash -n "$f"; fi
 done
 # Gate 20 (the fine-tuned two-pass path) needs vosk, so it stays off the
