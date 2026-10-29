@@ -70,17 +70,20 @@ if [ -n "${VAANI_STT_PYTHON:-}" ] && "$VAANI_STT_PYTHON" -c "import vosk" >/dev/
 else
   bad "VAANI_STT_PYTHON has vosk (got '${VAANI_STT_PYTHON:-unset}')"
 fi
-if [ -n "${VAANI_STT_MODEL:-}" ] && [ -d "$VAANI_STT_MODEL" ]; then
-  ok "VAANI_STT_MODEL is a dir ($VAANI_STT_MODEL)"
+# The model is not exported: stt_model in vaani.conf picks it.
+CONF="$T/home/.config/vaani/vaani.conf"
+model="$(grep -E '^stt_model[[:space:]]*=' "$CONF" 2>/dev/null | head -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//')"
+if [ -n "$model" ] && [ -d "$model" ]; then
+  ok "config stt_model names an existing dir ($model)"
 else
-  bad "VAANI_STT_MODEL is a dir (got '${VAANI_STT_MODEL:-unset}')"
+  bad "config stt_model names an existing dir (got '$model' in $CONF)"
 fi
 grep -q "Environment=VAANI_STT_PYTHON=" "$T/unit/vaani-key.service" \
-  && grep -q "Environment=VAANI_STT_MODEL=" "$T/unit/vaani-key.service" \
+  && grep -q "Environment=VAANI_STT_BACKEND=" "$T/unit/vaani-key.service" \
   && awk '/^\[Install\]/{f=1} f&&/^Environment=/{bad=1} END{exit bad}' "$T/unit/vaani-key.service" \
-  && ok "unit carries STT Environment= in [Service]" \
-  || bad "unit carries STT Environment= in [Service]"
-export VAANI_STT_PYTHON VAANI_STT_MODEL
+  && ok "unit carries STT python+backend Environment= in [Service]" \
+  || bad "unit carries STT python+backend Environment= in [Service]"
+export VAANI_STT_PYTHON
 
 # 5. installed binaries run.
 "$T/bin/vaani-key-service" --handoff-test "gate fifteen" >"$T/smoke-key.log" 2>&1 \
@@ -108,7 +111,6 @@ else
 fi
 
 # 6. existing config never overwritten.
-CONF="$T/home/.config/vaani/vaani.conf"
 if [ -f "$CONF" ] && grep -q "^ui_words = " "$CONF"; then
   ok "default vaani.conf created"
 else

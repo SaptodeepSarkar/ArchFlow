@@ -46,7 +46,7 @@ fi
 
 # 2. live model, properties only: a generative formatter cannot be pinned to
 # an exact string, so assert what the PRD actually promises.
-ENDPOINT="${VAANI_LLM_ENDPOINT:-http://127.0.0.1:8081}"
+ENDPOINT="${VAANI_LLM_ENDPOINT:-http://127.0.0.1:8082}"
 LIVE="$(VAANI_LLM_ENDPOINT="$ENDPOINT" "$BIN" --format-test \
   "umm send it to saptodeep hmm please" "$TMP/vaani.conf" 2>/dev/null | tail -1)"
 if printf '%s' "$LIVE" | grep -q 'backend=llm'; then
