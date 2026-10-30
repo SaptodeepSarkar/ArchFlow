@@ -35,7 +35,10 @@ trap 'rm -rf "$TMP" "$MARKER"' EXIT
 mkdir -p "$TMP/shim"
 cat >"$TMP/shim/wtype" <<'EOF'
 #!/usr/bin/env bash
-[ "$#" -eq 1 ] || { echo "stub wtype: expected 1 arg, got $#" >&2; exit 1; }
+[ "$1" = "-d" ] || { echo "stub wtype: expected -d <ms>, got: $*" >&2; exit 1; }
+shift 2
+[ "${1:-}" = "--" ] && shift
+[ "$#" -eq 1 ] || { echo "stub wtype: expected 1 text arg, got $#" >&2; exit 1; }
 printf '%s' "$1" >"$VAANI_WTYPE_SCRATCH"
 printf 'stub-fired bytes=%s\n' "${#1}" >>"$VAANI_WTYPE_LOG"
 EOF

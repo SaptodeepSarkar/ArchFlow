@@ -42,6 +42,13 @@ SILENCE_RMS = 164.0  # ~ -46 dBFS
 VAD_FRAME = 512
 VAD_THRESHOLD = 0.5
 VAD_QUIET_HOLD_S = 0.25
+# A decode segment whose text compresses this well is a loop, not speech: it is
+# whisper's own repeated-text signal, at whisper's own default. Measured on this
+# model: real speech 0.8-1.1, a noise window's loop 1.8-10.7.
+COMPRESSION_LIMIT = 2.4
+# One word this many times in a row is a decoder loop, not a person: real
+# disfluencies reach three ("no no no", "very very good"), never six.
+MAX_REPEAT = 5
 
 
 def feed(rec, frames, out):
@@ -129,6 +136,82 @@ def trim_trailing_silence(pcm):
     return frames[: end // FRAME].astype(np.int16).tobytes()
 
 
+def token_key(word):
+    """The comparison form of a decoded word: no case, no punctuation."""
+    return "".join(c for c in word if c.isalnum()).lower()
+
+
+def collapse_word(word):
+    """Collapse one token that is a short phrase repeated end to end.
+
+    A loop that loses its spaces arrives as a single token
+    ("headingheadingheading…"), so the run of words below cannot see it. Six or
+    more exact repeats of a phrase inside one token is that loop; one copy is
+    what was said.
+    """
+    n = len(word)
+    for p in range(1, n // 6 + 1):
+        if n % p == 0 and word == word[:p] * (n // p):
+            return word[:p]
+    return word
+
+
+def collapse_repeats(words):
+    """Cut a runaway run of one word down to one, keeping real disfluencies.
+
+    Whisper repeats instead of stopping when a window has no speech it can
+    resolve, and ~70 copies of one word reached the overlay and then the typed
+    text. Run lengths up to MAX_REPEAT pass through untouched, so "no no no" and
+    "very very good" survive; only a run no speaker produces is cut.
+    """
+    kept = []
+    i = 0
+    while i < len(words):
+        key = token_key(words[i])
+        j = i + 1
+        while key and j < len(words) and token_key(words[j]) == key:
+            j += 1
+        run = words[i:j]
+        kept.extend([collapse_word(run[0])] if len(run) > MAX_REPEAT else run)
+        i = j
+    return kept
+
+
+_VAD = None
+
+
+def speech_seen(pcm):
+    """True when Silero hears speech anywhere in this window.
+
+    Whisper hallucinates on a window that holds no speech: a room noise floor
+    turns into "heading" x70, at temperature 0 and with `no_speech_prob` reading
+    0.0, so the decoder cannot tell on its own. The VAD reads the audio instead
+    (measured here: noise peaks at 0.18, speech at 0.9+). Without onnxruntime it
+    answers True, so a missing VAD costs accuracy and never the utterance.
+    """
+    global _VAD
+    if _VAD is None:
+        try:
+            from faster_whisper.vad import get_vad_model
+
+            _VAD = get_vad_model()
+        except Exception as e:  # no onnxruntime, or the model is not cached
+            print(f"silero vad unavailable ({e}); decoding every window", file=sys.stderr)
+            _VAD = False
+    if _VAD is False:
+        return True
+    import numpy as np
+
+    a = np.frombuffer(pcm[: len(pcm) & ~1], np.int16).astype(np.float32) / 32768.0
+    n = a.size // VAD_FRAME
+    if n == 0:
+        return False
+    # shortcut: the whole window in one pass; batch it in VAD_FRAME chunks if a
+    # long window's memory ever matters (60 s is ~2 MB here).
+    return bool((_VAD(a[: n * VAD_FRAME]) > VAD_THRESHOLD).any())
+
+
+
 def load_whisper(model_dir):
     """Open a CTranslate2 Whisper model (see `class Whisper`)."""
     preload_cuda_libs()
@@ -193,6 +276,8 @@ class Whisper:
             return [], 0.0  # nothing above the noise floor: nothing to decode
         audio = np.frombuffer(pcm[: len(pcm) & ~1], np.int16).astype(np.float32) / 32768.0
         s = time.time()
+        if not speech_seen(pcm):
+            return [], time.time() - s  # a quiet window decodes to a hallucination
         segments, _ = self.model.transcribe(
             audio,
             language="en",
@@ -201,8 +286,16 @@ class Whisper:
             # temperature 0 pins one pass: the default fallback ladder re-decodes
             # at six temperatures whenever a chunk fails its thresholds (silence,
             # or the first second of speech), turning a 0.4s decode into 3-4s.
+            # That ladder is also what normally retries a repeated output, so the
+            # repetition is handled below instead: a window with no speech is not
+            # decoded at all (speech_seen), a looped segment is dropped
+            # (COMPRESSION_LIMIT), and a surviving run of one word is cut
+            # (collapse_repeats). no_repeat_ngram_size is the decoder's own
+            # guard against the same loop: measured cost zero and 0 of 100 bench
+            # clips changed, so it stays as cheap insurance.
             temperature=0.0,
             condition_on_previous_text=False,
+            no_repeat_ngram_size=3,
             vad_filter=False,
             without_timestamps=not timestamps,
         )
@@ -211,13 +304,16 @@ class Whisper:
             # Whisper invents words for silence even at temperature 0 and reports
             # no_speech_prob 0.0, so the tap's silent tail is trimmed above
             # instead of being trusted to a threshold.
+            if seg.compression_ratio > COMPRESSION_LIMIT:
+                continue  # whisper's own "this is a loop" signal: not speech
             # shortcut: one timestamp per segment instead of a word_timestamps
             # pass (which roughly doubles the decode); upgrade when the overlay
             # needs per-word timing inside a segment.
             t = seg.start if timestamps else 0.0
-            for w in seg.text.replace("\u200b", "").split():
+            for w in collapse_repeats(seg.text.replace("\u200b", "").split()):
                 words.append((t, w))
         return words, time.time() - s
+
 
 
 def whisper_batch(model, pcm, out):

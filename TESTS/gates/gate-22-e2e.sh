@@ -85,14 +85,22 @@ while True:
     time.sleep(0.1)
 EOF
 
-# wtype stub: records the exact argv it was handed.
+# wtype stub: records the exact text it was handed (`-d <ms> -- <text>`).
 cat >"$TMP/shim/wtype" <<'EOF'
 #!/usr/bin/env bash
-[ "$#" -eq 1 ] || { echo "stub wtype: expected 1 arg, got $#" >&2; exit 1; }
+[ "$1" = "-d" ] || { echo "stub wtype: expected -d <ms>, got: $*" >&2; exit 1; }
+shift 2
+[ "${1:-}" = "--" ] || { echo "stub wtype: expected -- before text, got: $*" >&2; exit 1; }
+shift
+[ "$#" -eq 1 ] || { echo "stub wtype: expected 1 text arg, got $#" >&2; exit 1; }
 printf '%s' "$1" >"$VAANI_GATE22_TYPED"
 printf 'wtype-fired bytes=%s\n' "${#1}" >>"$VAANI_GATE22_WTYPE_LOG"
 EOF
 chmod +x "$TMP/shim/pw-record" "$TMP/shim/wtype"
+# Keep the hermetic run silent: the done cue's players, stubbed like the rest.
+printf '#!/usr/bin/env bash\nexit 0\n' >"$TMP/shim/pw-play"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$TMP/shim/paplay"
+chmod +x "$TMP/shim/pw-play" "$TMP/shim/paplay"
 
 # No real overlay in a gate: quickshell exits at once (the daemon logs the
 # spawn failure on a runner, which is also fine, but this keeps it quiet).

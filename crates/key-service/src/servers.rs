@@ -3,9 +3,11 @@
 //! The PRD says the key service "owns the lifecycle of every helper". The two
 //! fine-tuned models are HTTP servers rather than in-process code, so owning
 //! them means spawning their launcher when a run starts and killing it once
-//! `idle_timeout_s` has passed with no runs. Order is the PRD's: the re-decode
-//! speech server starts first, the formatter second, and each start unloads the
-//! other side first -- the two models are never in VRAM at once.
+//! `idle_timeout_s` has passed with no runs. The formatter is preloaded at the
+//! same moment as the speech side, so its weights are in memory before the user
+//! stops talking, and both stay warm through the idle window so a repeat
+//! dictation pays no load at all. Only the formatter's *inference* waits for the
+//! speech side to finish; its weights may already be resident.
 //!
 //! Opt-in per server. `VAANI_STT_REFINE_SERVER` and `VAANI_LLM_SERVER` point at
 //! the launcher scripts; with either unset the daemon owns nothing for it and
@@ -224,40 +226,33 @@ impl Server {
     }
 }
 
-/// Stop one owned server before the other model loads. `stop` waits, so when
-/// this returns the VRAM is back. A server this daemon did not spawn is left
-/// alone (that is the external-server rule).
+/// Stop one owned server. `stop` waits, so when this returns its memory is back.
+/// A server this daemon did not spawn is left alone (that is the
+/// external-server rule).
 fn unload(fleet: &mut [Server], name: &str) {
     if let Some(s) = fleet.iter_mut().find(|s| s.name == name) {
         if s.running() {
             s.stop();
-            crate::log(
-                "offload",
-                &format!("{name} server stopped: one model in VRAM at a time"),
-            );
+            crate::log("offload", &format!("{name} server stopped"));
         }
     }
 }
 
-/// A run begins with the speech server. A formatter still warm from the last
-/// run is unloaded first: the two models are never resident together.
+/// A run begins with every owned server: the formatter loads alongside the
+/// speech side, so its ~2 s cold start overlaps the user speaking instead of
+/// sitting between the last word and the typed text. Both stay warm until the
+/// idle sweep reclaims them.
 pub fn start_stt(fleet: &mut [Server], now_s: u64) {
-    unload(fleet, "llm");
-    if let Some(s) = fleet.iter_mut().find(|s| s.name == "stt") {
+    for s in fleet.iter_mut() {
         s.start(now_s);
     }
 }
 
-/// A run ends with the formatter warm and nothing left to ask it. Stop it now
-/// rather than on the next trigger, whose path must not carry its shutdown.
-/// `start_stt`'s unload stays as the safety net.
-pub fn park_formatter(fleet: &mut [Server]) {
-    unload(fleet, "llm");
-}
-
-/// The PRD handoff: the speech server is stopped (and confirmed gone) before
-/// the formatter is spawned. Returns true when the formatter is usable: not
-/// owned, or answering on its port.
+/// The formatting step of a run. The speech server (only owned when the retired
+/// re-decode server is configured) is stopped before the formatter runs, so its
+/// memory is free for inference. The formatter was preloaded at run start, so
+/// this normally returns without waiting. Returns true when the formatter is
+/// usable: not owned, or answering on its port.
 pub fn handoff_to_llm(fleet: &mut [Server], now_s: u64, ready: Duration) -> bool {
     unload(fleet, "stt");
     match fleet.iter_mut().find(|s| s.name == "llm") {

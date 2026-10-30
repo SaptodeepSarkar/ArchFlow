@@ -65,16 +65,29 @@ else
   bad "unexpected spawned commands: $(echo "$CMDS" | tr '\n' ' ')"
 fi
 
-# 6. exec-edge stub wtype: records the exact argv bytes to a scratch file
+# 6. exec-edge stub wtype: records the exact argv bytes to a scratch file, and
+# rejects anything but `-d <ms> -- <text>` (the per-key delay contract).
 mkdir -p "$TMP/shim"
 cat >"$TMP/shim/wtype" <<'EOF'
 #!/usr/bin/env bash
 # Test stub: record exactly what the helper asked to type.
-[ "$#" -eq 1 ] || { echo "stub wtype: expected 1 arg, got $#" >&2; exit 1; }
+[ "$1" = "-d" ] || { echo "stub wtype: expected -d <ms>, got: $*" >&2; exit 1; }
+printf '%s' "$2" >"$VAANI_WTYPE_DELAY"
+shift 2
+[ "${1:-}" = "--" ] || { echo "stub wtype: expected -- before text, got: $*" >&2; exit 1; }
+shift
+[ "$#" -eq 1 ] || { echo "stub wtype: expected 1 text arg, got $#" >&2; exit 1; }
 printf '%s' "$1" >"$VAANI_WTYPE_SCRATCH"
 EOF
+# The done cue must fire without blocking typing; stub the players silent.
+for p in pw-play paplay; do
+  printf '#!/usr/bin/env bash\necho "$1" >>"$VAANI_SOUND_LOG"\n' >"$TMP/shim/$p"
+  chmod +x "$TMP/shim/$p"
+done
 chmod +x "$TMP/shim/wtype"
-export VAANI_WTYPE_SCRATCH="$TMP/scratch"
+export VAANI_WTYPE_SCRATCH="$TMP/scratch" VAANI_WTYPE_DELAY="$TMP/delay" \
+  VAANI_SOUND_LOG="$TMP/sound.log"
+: >"$VAANI_SOUND_LOG"
 
 run_case() { # $1=name $2=text
   rm -f "$VAANI_WTYPE_SCRATCH"
@@ -97,6 +110,21 @@ if [ -x "$BIN" ]; then
   run_case plain 'Hello world, this is Vaani.'
   run_case unicode-multiline "$(printf 'Line one.\nCaf\xc3\xa9 na\xc3\xafve \xe2\x80\x94 quoted & co. 123!')"
   run_case shell-hostile "$(printf 'Tabs\there, "quotes", $dollar `backtick` \\\\ slash!')"
+  run_case leading-dash '-not a wtype flag, just text.'
+fi
+
+# 6b. the keys stream in letter by letter (a natural per-key delay) and the
+# done cue fires after the last character without blocking the run.
+delay="$(cat "$VAANI_WTYPE_DELAY" 2>/dev/null || true)"
+if [ -n "$delay" ] && [ "$delay" -ge 6 ] && [ "$delay" -le 15 ]; then
+  ok "typed with -d $delay ms between keystrokes"
+else
+  bad "per-key delay missing or outside 6..15 ms (got '$delay')"
+fi
+if [ -s "$VAANI_SOUND_LOG" ]; then
+  ok "done cue played after typing"
+else
+  bad "no done cue after typing"
 fi
 
 # 7. focus rule: without --pill-hidden nothing types and clipboard is untouched

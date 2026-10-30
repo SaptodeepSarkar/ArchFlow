@@ -42,8 +42,10 @@ CI is green — not when the code compiles.
 ## Invariants — do not break these
 
 - **Audio stays in RAM.** No recording reaches disk, not even a temp wav.
-- **STT and the formatter are never in VRAM at once.** STT unloads before
-  formatting starts; a helper reporting busy is never killed.
+- **The formatter preloads while STT runs, and both stay warm for
+  `idle_timeout_s`.** Only the formatter's *inference* waits for the speech side
+  to unload; a quick repeat dictation pays no model load at all. A helper
+  reporting busy is never killed.
 - **No runtime keybinds.** Hyprland 0.56.2 crashes when an app registers binds;
   the static bind calls `packaging/vaani-trigger`, which signals the daemon.
 - **A missing model costs accuracy, never the utterance.** No refine server →

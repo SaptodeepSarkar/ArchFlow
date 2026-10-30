@@ -121,8 +121,8 @@ fn strip_ack(out: &str) -> &str {
     text
 }
 
-/// Sanity gate on a model response: non-empty, not a preamble, not wildly
-/// longer than what was said.
+/// Sanity gate on a model response: non-empty, not a preamble, not a loop, not
+/// wildly longer than what was said.
 fn looks_like_formatting(raw: &str, out: &str) -> bool {
     if out.is_empty() {
         return false;
@@ -133,7 +133,42 @@ fn looks_like_formatting(raw: &str, out: &str) -> bool {
             return false;
         }
     }
+    if repeats_itself(out) {
+        return false;
+    }
     out.len() <= raw.len().max(24) * MAX_GROWTH
+}
+
+/// Consecutive copies of one word above this is a loop, not formatting: a
+/// speaker reaches three ("no no no"), never six. A single "word" longer than
+/// this is the same loop with its spaces lost ("headingheading…").
+const MAX_REPEAT: usize = 5;
+const MAX_WORD: usize = 200;
+
+/// The reply repeats one word over and over, so it is the model's loop rather
+/// than the speaker's sentence and the rule engine answers instead.
+fn repeats_itself(out: &str) -> bool {
+    let mut prev: Option<String> = None;
+    let mut run = 0;
+    for w in out.split_whitespace() {
+        let key: String = w
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect();
+        if key.len() > MAX_WORD {
+            return true;
+        }
+        if key.is_empty() {
+            continue;
+        }
+        run = if prev.as_deref() == Some(key.as_str()) { run + 1 } else { 1 };
+        if run > MAX_REPEAT {
+            return true;
+        }
+        prev = Some(key);
+    }
+    false
 }
 
 fn build_request(raw: &str, instruction: &str) -> String {
@@ -279,6 +314,22 @@ mod tests {
         assert!(!looks_like_formatting("hello", ""));
         assert!(!looks_like_formatting("hello", "Sure, here is the formatted text: Hello."));
         assert!(!looks_like_formatting("hi", &"word ".repeat(50)));
+    }
+
+    #[test]
+    fn a_repeated_word_is_rejected_but_disfluencies_are_kept() {
+        // Same length as the input, so only the repeat guard can reject it.
+        let raw = "heading ".repeat(70);
+        assert!(!looks_like_formatting(&raw, &"Heading ".repeat(70)));
+        // The loop with its spaces lost is one 490-char "word".
+        assert!(!looks_like_formatting(&raw, &"Heading".repeat(70)));
+        // Six copies is over the threshold; real speech reaches three.
+        assert!(!looks_like_formatting("a a a a a a", "A a a a a a."));
+        assert!(looks_like_formatting("no no no", "No, no, no."));
+        assert!(looks_like_formatting("very very good", "Very very good."));
+        assert!(looks_like_formatting("a a a a a", "A a a a a."));
+        // A long URL in a dictated link is not a loop.
+        assert!(looks_like_formatting("see the docs", "See https://example.com/a/b/c."));
     }
 
     #[test]

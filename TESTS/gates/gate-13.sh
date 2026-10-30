@@ -30,7 +30,10 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/shim"
 cat >"$TMP/shim/wtype" <<'EOF'
 #!/usr/bin/env bash
-[ "$#" -eq 1 ] || { echo "stub wtype: expected 1 arg, got $#" >&2; exit 1; }
+[ "$1" = "-d" ] || { echo "stub wtype: expected -d <ms>, got: $*" >&2; exit 1; }
+shift 2
+[ "${1:-}" = "--" ] && shift
+[ "$#" -eq 1 ] || { echo "stub wtype: expected 1 text arg, got $#" >&2; exit 1; }
 printf '%s' "$1" >"$VAANI_WTYPE_SCRATCH"
 printf 'stub-fired bytes=%s\n' "${#1}" >>"$VAANI_WTYPE_LOG"
 EOF
@@ -113,11 +116,11 @@ fi
 
 # 5. key-service --handoff-test branch, if the flag exists.
 if [ -x "$KEYBIN" ] && "$KEYBIN" --handoff-test "hello" >"$TMP/handoff.log" 2>&1; then
-  if grep -q 'order=stt_stream,stt_unload,fmt_load,fmt_format,fmt_unload' "$TMP/handoff.log" \
-    && ! grep -q 'stt_loaded=true fmt_loaded=true' "$TMP/handoff.log"; then
-    ok "key-service handoff serialized, no VRAM overlap"
+  if grep -q 'order=fmt_preload,stt_stream,stt_unload,fmt_format,fmt_idle' "$TMP/handoff.log" \
+    && grep -q 'step=fmt_format vram_mb=[0-9]* stt_loaded=false fmt_loaded=true' "$TMP/handoff.log"; then
+    ok "key-service preloads the formatter and formats after speech unloads"
   else
-    bad "key-service handoff serialized (see $TMP/handoff.log)"
+    bad "key-service preloads the formatter (see $TMP/handoff.log)"
   fi
 else
   ok "key-service --handoff-test absent, branch skipped (no binary/flag on this checkout)"

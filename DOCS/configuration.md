@@ -69,11 +69,12 @@ The optional re-decode pass is bounded on the client side: `VAANI_STT_REFINE_DEA
 ## Model servers: who loads and unloads them
 
 The two fine-tuned models are HTTP servers. Point the daemon at their launchers
-and it owns them: the speech server is spawned when a run starts (the mic is
-already live, so it loads while you speak), the formatter when the run reaches
-formatting, and each is killed once `idle_timeout_s` (`idle_timeout_secs` in an
-older installer's file) has passed with no run. No model memory is held between
-dictations, and the two never load at the same instant to race for it.
+and it owns them: every owned server (the formatter included) is spawned at run
+start, so its load overlaps the user speaking instead of sitting between the
+last word and the typed text. Both stay warm through the run, and each is killed
+once `idle_timeout_s` (`idle_timeout_secs` in an older installer's file) has
+passed with no run, so a repeat dictation pays no load at all. Only the
+formatter's inference waits for the speech side to finish.
 
 | variable | what it points at |
 |---|---|

@@ -36,6 +36,14 @@ for f in crates/stt-manager/backend/transcribe.py \
     python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$f"
   fi
 done
+# The repetition guards are pure functions with no model behind them, so they
+# are checked here instead of on a box with GPU weights.
+if python3 TESTS/test_stt_guard.py >/tmp/ci-stt-guard.log 2>&1; then
+  note "$(tail -1 /tmp/ci-stt-guard.log)"
+else
+  bad "stt repetition guard"
+  tail -10 /tmp/ci-stt-guard.log
+fi
 
 step "rust: build + tests (whole workspace)"
 if cargo build --workspace --quiet; then note "workspace builds"; else bad "workspace build"; fi

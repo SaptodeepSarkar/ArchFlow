@@ -16,6 +16,10 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/shim"
 cat >"$TMP/shim/wtype" <<'EOF'
 #!/usr/bin/env bash
+[ "$1" = "-d" ] || { echo "stub wtype: expected -d <ms>, got: $*" >&2; exit 1; }
+shift 2
+[ "${1:-}" = "--" ] && shift
+[ "$#" -eq 1 ] || { echo "stub wtype: expected 1 text arg, got $#" >&2; exit 1; }
 printf '%s' "$1" >"$VAANI_WTYPE_SCRATCH"
 echo "stub-fired bytes=${#1}" >>"$VAANI_WTYPE_LOG"
 EOF

@@ -8,7 +8,22 @@
 //! previously focused window (PRD focus rule).
 
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
+
+/// Gap between keystrokes in ms, so the line streams in letter by letter
+/// instead of landing as one burst. Measured here: `wtype` spends ~5 ms of its
+/// own per-key round trip on top, so 6 ms lands at ~11 ms/char (~4 s for 400).
+const KEY_DELAY_MS: &str = "6";
+
+/// System cue sounds, in preference order; the first one that exists plays.
+const DONE_SOUNDS: [&str; 2] = [
+    "/usr/share/sounds/freedesktop/stereo/complete.oga",
+    "/usr/share/sounds/freedesktop/stereo/bell.oga",
+];
+
+/// Players that take the sound file as their only argument.
+const SOUND_PLAYERS: [&str; 2] = ["pw-play", "paplay"];
 
 /// Outcome of [`type_text`].
 pub struct TypeReport {
@@ -25,12 +40,8 @@ pub struct TypeReport {
 /// * A clipboard failure never blocks typing: typing is the actual delivery,
 ///   so it proceeds and the report says the copy did not happen (otherwise
 ///   a clipboard-only failure would silently lose the text).
-/// * `wtype` takes the text as one argv element, exactly its documented
-///   `wtype <text-to-type>` form; it errors rather than mistypes on input
-///   it cannot represent.
-// shortcut: text starting with `-` reaches wtype bare (no `--` separator
-// in its CLI), so wtype rejects it instead of typing; formatted dictation
-// always starts capitalized per the fixture contract, so this never fires.
+/// * `wtype -d <ms> -- <text>`: the delay makes the text appear key by key,
+///   and `--` keeps a leading `-` from being read as a wtype flag.
 pub fn type_text(text: &str, pill_hidden: bool) -> std::io::Result<TypeReport> {
     if !pill_hidden {
         return Err(std::io::Error::new(
@@ -45,13 +56,16 @@ pub fn type_text(text: &str, pill_hidden: bool) -> std::io::Result<TypeReport> {
             false
         }
     };
-    let status = Command::new("wtype").arg(text).status()?;
+    let status = Command::new("wtype")
+        .args(["-d", KEY_DELAY_MS, "--", text])
+        .status()?;
     if !status.success() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("wtype failed: {status}"),
         ));
     }
+    play_done_sound();
     Ok(TypeReport { clipboard_copied })
 }
 
@@ -83,6 +97,34 @@ fn copy_to_clipboard(text: &str) -> std::io::Result<bool> {
     Ok(true)
 }
 
+/// First existing cue sound, in preference order; None when this machine has
+/// no freedesktop sound theme.
+fn pick_sound_file(exists: impl Fn(&str) -> bool) -> Option<&'static str> {
+    DONE_SOUNDS.into_iter().find(|s| exists(s))
+}
+
+/// One short cue after the last keystroke: spawned and reaped on its own
+/// thread, never awaited, never fatal, silent with no player or sound file.
+fn play_done_sound() {
+    let Some(sound) = pick_sound_file(|p| Path::new(p).is_file()) else {
+        return;
+    };
+    for player in SOUND_PLAYERS {
+        let spawned = Command::new(player)
+            .arg(sound)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        if let Ok(mut child) = spawned {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            return;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,5 +136,13 @@ mod tests {
             Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput),
             Ok(_) => panic!("typed while pill visible"),
         }
+    }
+
+    #[test]
+    fn done_sound_falls_back_then_goes_silent() {
+        let only = |want: &'static str| move |p: &str| p == want;
+        assert_eq!(pick_sound_file(only(DONE_SOUNDS[0])), Some(DONE_SOUNDS[0]));
+        assert_eq!(pick_sound_file(only(DONE_SOUNDS[1])), Some(DONE_SOUNDS[1]));
+        assert_eq!(pick_sound_file(|_| false), None);
     }
 }

@@ -13,11 +13,15 @@
 
 1. Idle: key service listens. Nothing else loaded.
 2. Hotkey: overlay shows (STARTING then RECORDING), audio streams, STT loads and streams live words over the control socket.
-3. User finishes: audio stops, STT unloads, formatter loads, raw transcript in.
-4. Formatted text out (CLEANING then INSERTING): typing helper types + clipboard copy, overlay reports READY.
+3. User finishes: audio stops, STT unloads, the formatter (already preloaded at
+   step 2) formats the raw transcript.
+4. Formatted text out (CLEANING then INSERTING): typing helper types key by key, copies to clipboard, plays a done cue; overlay reports READY.
 5. Timeouts: each helper offloads when killable; key service returns to idle.
 
-STT and formatter are never in VRAM together. Helpers reporting busy are never killed.
+The formatter preloads while speech streams, so its cold start never sits
+between the last word and the typed text, and both models stay warm for
+`idle_timeout_s` so a repeat dictation pays no load. Only the formatter's
+inference waits for STT to unload. Helpers reporting busy are never killed.
 
 Cancel is honored at every phase: mid-listen, while the streaming backend flushes
 its final words (`LiveSession::finish` polls the stop flag every 50 ms and kills

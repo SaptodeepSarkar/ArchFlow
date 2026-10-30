@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Gate 09 (key-lifecycle): STT unloads before the formatter loads
-# (VRAM peaks serialized), busy helpers are never killed.
+# Gate 09 (key-lifecycle): the formatter preloads at run start, speech is
+# unloaded before formatting runs, busy helpers are never killed.
 # GREEN only if the handoff runs end to end, the daemon's real server lifecycle
-# unloads one model before the other starts, AND gate 03 still passes.
+# preloads the formatter alongside speech, AND gate 03 still passes.
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -31,25 +31,28 @@ else
   bad "handoff exits 0 (see $TMP/handoff.log)"; cat "$TMP/handoff.log"
 fi
 
-# 3. step order: stream -> unload -> load -> feed
+# 3. step order: preload -> stream -> unload stt -> format -> idle offload
 ORDER="$(sed -n 's/^handoff ok .* order=//p' "$TMP/handoff.log")"
-if [ "$ORDER" = "stt_stream,stt_unload,fmt_load,fmt_format,fmt_unload" ]; then
-  ok "handoff order serialized ($ORDER)"
+if [ "$ORDER" = "fmt_preload,stt_stream,stt_unload,fmt_format,fmt_idle" ]; then
+  ok "handoff order: preload, stream, unload speech, format ($ORDER)"
 else
-  bad "handoff order serialized (got '$ORDER')"
+  bad "handoff order (got '$ORDER')"
 fi
 
-# 4. VRAM sampled (numeric) at every step; never co-resident
+# 4. VRAM sampled (numeric) at every step; the formatter is resident before
+# speech and speech is gone before formatting runs.
 STEPS="$(grep -c '^step=.* vram_mb=[0-9][0-9]* stt_loaded=.* fmt_loaded=' "$TMP/handoff.log" || true)"
 if [ "$STEPS" -eq 5 ]; then
   ok "VRAM sampled at all 5 steps"
 else
   bad "VRAM sampled at all 5 steps (got $STEPS)"
 fi
-if grep -q 'stt_loaded=true fmt_loaded=true' "$TMP/handoff.log"; then
-  bad "no VRAM overlap (found co-resident step)"
+if grep -q '^step=fmt_preload .* stt_loaded=false fmt_loaded=true' "$TMP/handoff.log" \
+  && grep -q '^step=stt_stream .* stt_loaded=true fmt_loaded=true' "$TMP/handoff.log" \
+  && grep -q '^step=fmt_format .* stt_loaded=false fmt_loaded=true' "$TMP/handoff.log"; then
+  ok "formatter preloaded before speech; speech gone before formatting"
 else
-  ok "no VRAM overlap (peaks serialized)"
+  bad "formatter preloaded before speech; speech gone before formatting"
 fi
 PEAK="$(sed -n 's/^handoff ok .* vram_peak_mb=\([0-9]*\).*/\1/p' "$TMP/handoff.log")"
 [ -n "$PEAK" ] && ok "VRAM peak reported (${PEAK} MiB)" || bad "VRAM peak reported"
@@ -95,25 +98,25 @@ else
 fi
 
 LLM_START="$(grep '^start llm ' "$SEQ" 2>/dev/null | head -1)"
-if printf '%s' "$LLM_START" | grep -q 'stt_alive=no$'; then
-  ok "formatter launcher saw the speech launcher already dead (stt_alive=no)"
+if printf '%s' "$LLM_START" | grep -q 'stt_alive=yes$'; then
+  ok "formatter launcher ran while the speech server was still up (preload)"
 else
-  bad "formatter launcher saw the speech launcher already dead (got '${LLM_START:-nothing}')"
+  bad "formatter launcher ran while the speech server was still up (got '${LLM_START:-nothing}')"
 fi
 
 STT_STOP_NS="$(awk '$1=="stop" && $2=="stt" {print $3}' "$SEQ" 2>/dev/null | head -1)"
 LLM_START_NS="$(awk '$1=="start" && $2=="llm" {print $3}' "$SEQ" 2>/dev/null | head -1)"
-if [ -n "$STT_STOP_NS" ] && [ -n "$LLM_START_NS" ] && [ "$STT_STOP_NS" -lt "$LLM_START_NS" ]; then
-  ok "speech stop timestamp precedes the formatter start"
+if [ -n "$STT_STOP_NS" ] && [ -n "$LLM_START_NS" ] && [ "$LLM_START_NS" -lt "$STT_STOP_NS" ]; then
+  ok "formatter starts before the speech server is stopped (preloaded, not after)"
 else
-  bad "speech stop timestamp precedes the formatter start (stop='${STT_STOP_NS:-none}' start='${LLM_START_NS:-none}')"
+  bad "formatter starts before the speech server is stopped (start='${LLM_START_NS:-none}' stop='${STT_STOP_NS:-none}')"
 fi
 
 LAST_STT_START="$(grep '^start stt ' "$SEQ" 2>/dev/null | tail -1)"
-if printf '%s' "$LAST_STT_START" | grep -q 'llm_alive=no$'; then
-  ok "next run's speech launcher saw the formatter already dead (llm_alive=no)"
+if printf '%s' "$LAST_STT_START" | grep -q 'llm_alive=yes$'; then
+  ok "next run's speech launcher saw the formatter still warm (llm_alive=yes)"
 else
-  bad "next run's speech launcher saw the formatter already dead (got '${LAST_STT_START:-nothing}')"
+  bad "next run's speech launcher saw the formatter still warm (got '${LAST_STT_START:-nothing}')"
 fi
 
 # 7. gate 03 still passes (hotkey-idle behavior unchanged)

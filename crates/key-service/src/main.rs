@@ -146,13 +146,13 @@ fn parse_env_file(text: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-// ---- Phase 09: STT -> LLM handoff (VRAM-serialized) ----
+// ---- Phase 09: STT -> LLM handoff (formatter preloaded) ----
 //
-// Sequence: STT streams words, STT unloads, formatter loads, raw
-// transcript fed. VRAM is sampled via nvidia-smi at every step; a step
-// with both STT and formatter resident aborts to the error state.
-// Helpers reporting busy are never killed: offload requests return
-// false (deferred) while busy and are re-checked once idle.
+// Sequence: formatter preloads, STT streams words, STT unloads, formatter
+// formats, then the idle sweep unloads it. VRAM is sampled via nvidia-smi at
+// every step; STT must be gone before formatting runs. Helpers reporting busy
+// are never killed: offload requests return false (deferred) while busy and
+// are re-checked once idle.
 //
 // shortcut: StubStt still stands in for stt-manager::Session, which does
 // not fit this trait: Session::start needs (wav path, python, model dir)
@@ -285,13 +285,18 @@ mod handoff {
         Ok(StepSample { step, vram_mb, stt_loaded: stt, fmt_loaded: fmt })
     }
 
-    /// Owns the handoff. Returns per-step VRAM samples, or an error-state
-    /// string (caller offloads everything and returns to idle).
+    /// Owns the preload and the handoff. Returns per-step VRAM samples, or an
+    /// error-state string (caller offloads everything and returns to idle).
     pub fn run_handoff<S: SttBackend, L: LlmBackend>(
         stt: &mut S,
         llm: &mut L,
     ) -> Result<Vec<StepSample>, String> {
         let mut log = Vec::new();
+
+        // The formatter preloads at run start: its weights are in memory before
+        // the user stops talking, so the load never sits after transcription.
+        llm.load().map_err(|e| format!("state=error formatter load failed: {e}"))?;
+        log.push(snap("fmt_preload", stt.is_loaded(), llm.is_loaded())?);
 
         let transcript = stt.stream_words().map_err(|e| format!("state=error stt_stream failed: {e}"))?;
         log.push(snap("stt_stream", stt.is_loaded(), llm.is_loaded())?);
@@ -306,13 +311,6 @@ mod handoff {
             return Err("state=error stt still resident after unload".into());
         }
 
-        llm.load().map_err(|e| format!("state=error formatter load failed: {e}"))?;
-        if stt.is_loaded() && llm.is_loaded() {
-            llm.unload();
-            return Err("state=error vram overlap: stt+formatter co-resident".into());
-        }
-        log.push(snap("fmt_load", stt.is_loaded(), llm.is_loaded())?);
-
         if !request_offload(llm.is_busy(), llm.is_killable()) {
             println!("offload fmt=deferred_busy");
         }
@@ -320,17 +318,25 @@ mod handoff {
         log.push(snap("fmt_format", stt.is_loaded(), llm.is_loaded())?);
         println!("formatted={formatted:?}");
 
+        // The idle window keeps the formatter warm; the sweep is what unloads
+        // it, so a quick repeat dictation pays no load.
         llm.unload();
-        log.push(snap("fmt_unload", stt.is_loaded(), llm.is_loaded())?);
+        log.push(snap("fmt_idle", stt.is_loaded(), llm.is_loaded())?);
 
-        if log.iter().any(|s| s.stt_loaded && s.fmt_loaded) {
-            return Err("state=error vram peaks overlapped".into());
+        // The contract: preloaded before speech, both resident while speaking,
+        // and speech gone before formatting runs.
+        let ok = log.iter().any(|s| s.step == "fmt_preload" && s.fmt_loaded && !s.stt_loaded)
+            && log.iter().any(|s| s.step == "stt_stream" && s.stt_loaded && s.fmt_loaded)
+            && log.iter().any(|s| s.step == "fmt_format" && !s.stt_loaded && s.fmt_loaded);
+        if !ok {
+            return Err("state=error handoff order wrong".into());
         }
         Ok(log)
     }
 
     /// `--handoff-test` entrypoint: full sequence on one sample transcript.
-    /// Exit 0 only on serialized peaks + busy-kill refusal proven.
+    /// Exit 0 only when the formatter preloads, speech is gone before
+    /// formatting runs, and the busy-kill refusal holds.
     pub fn selftest(sample: &str) -> i32 {
         // Busy helpers are never killed: refused while busy, allowed idle.
         let refused = !request_offload(true, false);
@@ -346,7 +352,7 @@ mod handoff {
             Ok(steps) => {
                 let peak = steps.iter().map(|s| s.vram_mb).max().unwrap_or(0);
                 let order = steps.iter().map(|s| s.step).collect::<Vec<_>>().join(",");
-                println!("handoff ok peaks_serialized=true vram_peak_mb={peak} order={order}");
+                println!("handoff ok formatter_warm=true vram_peak_mb={peak} order={order}");
                 0
             }
             Err(e) => {
@@ -452,13 +458,11 @@ fn run_pipeline(
             return;
         }
     };
-    // The fine-tuned models are servers this daemon owns, loaded in the PRD's
-    // order: the speech server starts now that the mic is live, so it loads
-    // while the user is still speaking. A formatter still warm from the last
-    // run is unloaded first: the two models never share VRAM. The formatter
-    // starts later, at the formatting step, once the speech side is gone.
-    // Spawning never blocks this run; see servers::wait_ready at the point of
-    // use.
+    // The fine-tuned models are servers this daemon owns. Every owned server
+    // starts now that the mic is live (the formatter included), so both load
+    // while the user is still speaking; the formatter's load never sits between
+    // the last word and the typed text. Spawning never blocks this run; see
+    // servers::wait_ready at the point of use.
     servers::start_stt(servers, boot.elapsed().as_secs());
     control::state("RECORDING", "Speak naturally…");
     control::provisional("", false);
@@ -669,8 +673,8 @@ fn run_pipeline(
     control::state("CLEANING", "Cleaning transcript");
     // The PRD's pipeline: raw STT -> formatter LLM -> typed text. Falls back
     // to the rule engine if no LLM answers (see llm-formatter).
-    // The handoff unloads the speech server (and waits for it) before the
-    // formatter is spawned: the two models are never in VRAM at once.
+    // The formatter was preloaded at run start, so this normally does not wait;
+    // only the retired re-decode server, if configured, is stopped first.
     if !servers::handoff_to_llm(servers, boot.elapsed().as_secs(), servers::READY_TIMEOUT) {
         log("writing", "formatter server not ready, the rule engine answers");
     }
@@ -700,10 +704,9 @@ fn run_pipeline(
             log("error", &format!("typing failed: {e}"));
         }
     }
-    // The run is over and nothing will ask the formatter anything until the
-    // next trigger, so stop it here: its shutdown must not sit on the
-    // recording path.
-    servers::park_formatter(servers);
+    // The formatter stays warm: the idle sweep reclaims it (and the speech
+    // side) after idle_timeout_s with no run, so the next quick dictation pays
+    // no load at all.
     ui.dismiss();
 }
 
@@ -911,40 +914,40 @@ fn servers_test(rest: &[String]) -> i32 {
         None => (false, false),
     };
 
-    // 1. A run begins: the speech server starts (nothing warm to unload yet).
+    // 1. A run begins: every owned server starts, the formatter included, so
+    //    its cold load overlaps speech instead of sitting after it.
     servers::start_stt(&mut fleet, 0);
     std::thread::sleep(std::time::Duration::from_millis(300));
-    let (spawned, external) = state(&mut fleet, "stt");
-    println!("step=start name=stt spawned={spawned} external={external}");
-    ok &= spawned || external;
+    for name in ["stt", "llm"] {
+        let (spawned, external) = state(&mut fleet, name);
+        println!("step=start name={name} spawned={spawned} external={external}");
+        ok &= spawned || external;
+    }
 
-    // 2. The handoff: speech is stopped and reaped before the formatter spawns.
+    // 2. The formatting step stops the speech server (only owned with the
+    //    retired re-decode server configured); the formatter is already warm
+    //    from step 1 and is only waited on.
     servers::handoff_to_llm(&mut fleet, 0, std::time::Duration::ZERO);
     std::thread::sleep(std::time::Duration::from_millis(300));
     let (running, external) = state(&mut fleet, "stt");
     println!("step=handoff name=stt running={running} external={external}");
     ok &= !running || external; // a server outside the daemon is not ours to kill
-    let (spawned, external) = state(&mut fleet, "llm");
-    println!("step=start name=llm spawned={spawned} external={external}");
-    ok &= spawned || external;
 
-    // 3. The run is over: the formatter is parked, so nothing holds VRAM
-    //    between runs and the next trigger has no shutdown on its path.
-    servers::park_formatter(&mut fleet);
+    // 3. The run is over: the formatter stays warm for the idle window, so a
+    //    repeat dictation pays no load at all.
     let (running, external) = state(&mut fleet, "llm");
-    println!("step=park name=llm running={running} external={external}");
-    ok &= !running || external;
+    println!("step=keep name=llm running={running} external={external}");
+    ok &= running || external;
 
-    // 4. The next run begins: the speech server starts. Its own unload of the
-    //    formatter is the safety net; there is nothing left for it to stop.
+    // 4. The next run starts speech again while the formatter is still warm.
     servers::start_stt(&mut fleet, 0);
     std::thread::sleep(std::time::Duration::from_millis(300));
     let (spawned, external) = state(&mut fleet, "stt");
     println!("step=start name=stt spawned={spawned} external={external}");
     ok &= spawned || external;
     let (running, external) = state(&mut fleet, "llm");
-    println!("step=handoff name=llm running={running} external={external}");
-    ok &= !running || external;
+    println!("step=keep name=llm running={running} external={external}");
+    ok &= running || external;
 
     // Nothing touches them again, so the sweep must judge what is left due at
     // t=2 with a 1s window and it must be gone once it has run.
