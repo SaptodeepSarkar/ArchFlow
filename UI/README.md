@@ -1,8 +1,8 @@
 # UI
 
 The overlay is the Quickshell config `vaani` from ArchFlow `ui/` (verbatim in
-`quickshell/`), installed to `~/.config/quickshell/vaani/`. Charcoal
-`#17181C` card, lilac activity mark, uppercase state label, live words, Stop.
+`quickshell/`), installed to `~/.config/quickshell/vaani/`. Graphite
+`#17191C` card, lime activity mark, uppercase state label, live words, Stop.
 
 ## Who runs it
 

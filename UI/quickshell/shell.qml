@@ -209,8 +209,8 @@ Scope {
                 width: 440
                 height: 72
                 radius: 22
-                color: "#19161C"
-                border.color: "#19161C"
+                color: "#17191C"
+                border.color: "#17191C"
                 border.width: 2
                 opacity: root.dismissing ? 0 : 1
                 transform: Translate {
@@ -223,12 +223,12 @@ Scope {
                     anchors.margins: 12
                     spacing: 13
 
-                    // Same 44 px lilac activity mark as the brand-kit voice box.
+                    // Same 44 px activity mark as the brand-kit voice box, in brand lime.
                     Rectangle {
                         Layout.preferredWidth: 44
                         Layout.preferredHeight: 44
                         radius: 13
-                        color: "#E8DCFF"
+                        color: "#C8F169"
                         Item {
                             anchors.centerIn: parent
                             width: 25
@@ -244,7 +244,7 @@ Scope {
                                         height: root.state === "RECORDING" ? Math.max(7, root.barH(index * 3)) : [10, 18, 25, 18, 10][index]
                                         anchors.verticalCenter: parent.verticalCenter
                                         radius: 2
-                                        color: "#54296C"
+                                        color: "#17191C"
                                         Behavior on height { NumberAnimation { duration: 90 } }
                                     }
                                 }
@@ -258,7 +258,7 @@ Scope {
                         spacing: 2
                         Text {
                             text: root.state === "STARTING" ? "STARTING MICROPHONE" : root.state === "INSERTING" ? "TYPING CLEAN TEXT" : root.state === "CLEANING" ? "CLEANING TRANSCRIPT" : root.state === "TRANSCRIBING" ? "TRANSCRIBING" : root.state === "ERROR" ? "NEEDS ATTENTION" : "LISTENING"
-                            color: "#CFC6D3"
+                            color: "#B3F0F1EC"
                             font.pixelSize: 10
                             font.weight: Font.Bold
                             font.letterSpacing: 1
@@ -271,7 +271,7 @@ Scope {
                             // deliberately presentation-only: no QML prediction or typing.
                             text: (root.state === "RECORDING" || root.state === "TRANSCRIBING") && root.liveWords !== "" ? root.liveWords : (root.statusText || "Speak naturally…")
                             textFormat: Text.PlainText
-                            color: root.state === "ERROR" ? "#FFB4AB" : "#FDFBF8"
+                            color: root.state === "ERROR" ? "#FFB4AB" : "#F0F1EC"
                             font.pixelSize: 14
                             font.weight: Font.DemiBold
                             elide: Text.ElideRight
@@ -293,7 +293,7 @@ Scope {
                         onClicked: root.sendOp("stop")
                         contentItem: Rectangle {
                             width: 10; height: 10; radius: 2
-                            color: "#FFD4A3"
+                            color: "#737B84"
                             anchors.centerIn: parent
                         }
                         background: Rectangle { radius: 8; color: "transparent" }

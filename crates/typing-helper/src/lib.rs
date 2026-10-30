@@ -22,9 +22,6 @@ const DONE_SOUNDS: [&str; 2] = [
     "/usr/share/sounds/freedesktop/stereo/bell.oga",
 ];
 
-/// Players that take the sound file as their only argument.
-const SOUND_PLAYERS: [&str; 2] = ["pw-play", "paplay"];
-
 /// Outcome of [`type_text`].
 pub struct TypeReport {
     /// True when `wl-copy` accepted the text; false when no `wl-copy`
@@ -105,23 +102,34 @@ fn pick_sound_file(exists: impl Fn(&str) -> bool) -> Option<&'static str> {
 
 /// One short cue after the last keystroke: spawned and reaped on its own
 /// thread, never awaited, never fatal, silent with no player or sound file.
+/// Volume is kept low (~30%) so the done cue is subtle, not jarring.
+/// pw-play uses a 0.0..=2.0 multiplier; paplay uses 0..=65536.
 fn play_done_sound() {
     let Some(sound) = pick_sound_file(|p| Path::new(p).is_file()) else {
         return;
     };
-    for player in SOUND_PLAYERS {
-        let spawned = Command::new(player)
-            .arg(sound)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
-        if let Ok(mut child) = spawned {
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-            return;
-        }
+    if let Ok(mut child) = Command::new("pw-play")
+        .args(["--volume", "0.3", sound])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        return;
+    }
+    if let Ok(mut child) = Command::new("paplay")
+        .args(["--volume", "20000", sound])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
     }
 }
 
