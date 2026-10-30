@@ -9,6 +9,7 @@ different model.
 Protocol on stdout (library logs stay on stderr):
   W <t_sec> <word>          one final word
   P <t_sec> <phrase>        current partial phrase (live UI), empty = cleared
+  V <0|1>                   Silero VAD: is the mic hearing speech right now
   DONE audio=<s> infer=<s> words=<n> model=<dir>
 
 Input: --wav PATH (16kHz mono wav), --stdin (whole raw s16le 16k mono), or
@@ -34,6 +35,13 @@ MAX_AUDIO_S = 60.0
 # 10 ms frame and the RMS floor under which a frame counts as silence.
 FRAME = 160
 SILENCE_RMS = 164.0  # ~ -46 dBFS
+# Silero VAD frame: 512 samples (32 ms) at 16 kHz, what the bundled model wants,
+# and the speech probability above which a frame counts as speech. A quiet run
+# this long is what flips the flag to "stopped": one dip (a stop consonant) is
+# not the end of a sentence.
+VAD_FRAME = 512
+VAD_THRESHOLD = 0.5
+VAD_QUIET_HOLD_S = 0.25
 
 
 def feed(rec, frames, out):
@@ -221,6 +229,61 @@ def whisper_batch(model, pcm, out):
     return len(words), infer
 
 
+class VoiceDetector:
+    """Silero speech flag for the live stream, via faster-whisper's ONNX model.
+
+    The daemon used to read "the user stopped" out of the decoder's own output,
+    which lags the audio by a second or more (every partial re-decodes an 8 s
+    window). Silero reads the audio itself, so the end of speech is a property
+    of what the mic heard, and the run can end the moment the room is quiet
+    instead of waiting for the decoder to catch up. Emits a `V` line whenever
+    the flag flips; if onnxruntime is missing the backend simply never sends
+    one and the daemon keeps its old decoder-activity rule.
+    """
+
+    def __init__(self, out):
+        from faster_whisper.vad import get_vad_model
+
+        self._vad = get_vad_model()
+        self._out = out
+        self._buf = bytearray()
+        self._quiet = 0.0
+        # None until the first verdict; False means "confirmed quiet", which
+        # the stream loop uses to skip the partial decodes nobody is waiting on.
+        self.speaking = None
+
+    @staticmethod
+    def open(out):
+        """A detector, or `None` when Silero cannot be loaded at all."""
+        try:
+            return VoiceDetector(out)
+        except Exception as e:
+            print(f"silero vad unavailable ({e}); end of speech uses the decoder", file=sys.stderr)
+            return None
+
+    def feed(self, data):
+        """Consume PCM bytes; write `V 0`/`V 1` when the speech flag flips."""
+        import numpy as np
+
+        self._buf += data
+        n = len(self._buf) // (2 * VAD_FRAME)
+        if n == 0:
+            return
+        pcm = np.frombuffer(bytes(self._buf[: n * 2 * VAD_FRAME]), np.int16)
+        del self._buf[: n * 2 * VAD_FRAME]
+        probs = self._vad(pcm.astype(np.float32) / 32768.0)
+        if (probs > VAD_THRESHOLD).any():
+            self._quiet = 0.0
+            speaking = True
+        else:
+            self._quiet += n * VAD_FRAME / SAMPLE_RATE
+            speaking = self.speaking is True and self._quiet < VAD_QUIET_HOLD_S
+        if speaking != self.speaking:
+            self.speaking = speaking
+            self._out.write(f"V {1 if speaking else 0}\n")
+            self._out.flush()
+
+
 def whisper_stream(model, out):
     """Incremental stdin feed for Whisper: cheap tail partials, then one final.
 
@@ -230,6 +293,7 @@ def whisper_stream(model, out):
     Returns (words, infer_secs, audio_secs).
     """
     stdin = sys.stdin.buffer
+    detector = VoiceDetector.open(out)
     pcm = bytearray()
     audio_secs = 0.0
     infer = 0.0
@@ -243,6 +307,14 @@ def whisper_stream(model, out):
             continue
         pcm += data[:n]
         audio_secs += n / (2 * SAMPLE_RATE)
+        if detector is not None:
+            detector.feed(data[:n])
+            # Confirmed quiet after speech: there is no new preview to show, so
+            # skip the tail decode and let the final one start the moment the
+            # daemon closes the stream.
+            if detector.speaking is False:
+                last_partial = audio_secs
+                continue
         if audio_secs - last_partial < PARTIAL_EVERY_S:
             continue
         last_partial = audio_secs

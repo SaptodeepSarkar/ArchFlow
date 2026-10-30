@@ -1,14 +1,15 @@
 //! End-of-speech detection, so the user never presses the hotkey twice.
 //!
-//! The microphone here sits behind a PipeWire noise-suppression chain with a
-//! hot floor (ambient RMS ≈ 0.18 of full scale), which makes level-based
-//! detection either fire on room tone or never clear the bar. The recognizer
-//! is the better signal: across every silent run its output stayed empty,
-//! while speech produces words. So "speech" means *the decoder produced
-//! something*, and the run ends when that output stops changing.
+//! The preferred signal is the backend's Silero VAD (`V` lines): it reads the
+//! audio itself, so it knows the room went quiet the moment it did. The
+//! fallback is the recognizer: across every silent run its output stayed empty,
+//! while speech produces words, so without a backend VAD "speech" means *the
+//! decoder produced something*. The decoder's output trails the mic by a second
+//! or more (a partial re-decodes an 8 s window), which is why it is only the
+//! fallback — a hot mic floor makes level thresholds unreliable on this box.
 //!
 //! Rules:
-//!   * any decoder output (a final word or a changed partial) = activity
+//!   * activity (Silero speech, else decoder output) resets the quiet timer
 //!   * once activity has been seen, end after `silence_ms` without any
 //!   * end after [`NO_SPEECH_MS`] with no activity at all (nothing was said,
 //!     so nothing is typed)

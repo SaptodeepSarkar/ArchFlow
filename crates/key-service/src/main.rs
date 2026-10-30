@@ -470,6 +470,11 @@ fn run_pipeline(
     let mut committed: Vec<String> = Vec::new();
     let mut partial = String::new();
     let mut vad = vad::Vad::new(cfg.end_of_speech_ms);
+    // Silero's flag from the backend, once it sends one: end of speech then
+    // follows the audio instead of the decoder, whose output trails the mic by
+    // a second or more and used to hold every run open that long.
+    let mut speaking = false;
+    let mut silero = false;
     let t0 = std::time::Instant::now();
     // Raw utterance, kept so the fine-tuned model can re-read exactly the audio
     // the streaming pass saw. Bounded by MAX_RECORD_SECS (~2 MB).
@@ -512,6 +517,10 @@ fn run_pipeline(
                         changed = true;
                     }
                 }
+                stt_manager::LiveEvent::Speech(s) => {
+                    speaking = s;
+                    silero = true;
+                }
                 stt_manager::LiveEvent::Done(_) => {}
                 stt_manager::LiveEvent::Failed(_) => {}
             }
@@ -531,8 +540,12 @@ fn run_pipeline(
         // presses twice. A second press / the Stop button still end the
         // run early, and the cap covers a stuck detector.
         if got_ms > 0 {
-            if let vad::Decision::End { heard: h } = vad.tick(got_ms, changed) {
+            let activity = if silero { speaking } else { changed };
+            if let vad::Decision::End { heard: h } = vad.tick(got_ms, activity) {
                 heard = h;
+                // The partial being shown is stale the moment the mic is
+                // quiet; drop it now so the pill stops before the final text.
+                control::provisional("", false);
                 // Peak mic level: tells a silent capture (noise floor only)
                 // apart from a decoder that failed on real speech.
                 log("idle", &format!("end of speech (heard={h} peak={peak:.3})"));

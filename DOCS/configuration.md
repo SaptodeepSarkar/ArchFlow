@@ -27,12 +27,12 @@ setting does nothing.
 
 ## End of speech
 
-`end_of_speech_ms` (default `2000`) is how long the decoder must produce
-nothing before the run ends and the text is typed. Raise it if Vaani cuts you
-off mid-thought; lower it if the text appears too late after you stop talking.
-The decoder's own output is the speech signal (the mic sits behind a
-noise-suppression chain with a hot floor), so this is a hangover on *new
-words*, not a level threshold.
+`end_of_speech_ms` (default `2000`) is how long the mic must stay quiet before
+the run ends and the text is typed. Raise it if Vaani cuts you off mid-thought;
+lower it if the text appears too late after you stop talking. With a Whisper
+`stt_model` the backend's Silero VAD (`V` lines) is the speech signal, so the
+hangover starts the instant you actually stop; the fallback signal is the
+decoder's own output, which trails the mic by a second or more.
 
 ## Environment file
 

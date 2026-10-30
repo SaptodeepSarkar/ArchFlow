@@ -38,7 +38,7 @@ links logic instead of shelling out to itself.
 
 | file | role |
 |---|---|
-| `transcribe.py` | the streaming backend (Vosk): emits `W` words and `P` partials while the user speaks |
+| `transcribe.py` | the streaming backend: emits `W` words and `P` partials while the user speaks, plus `V` Silero speech flags when the engine is Whisper |
 | `refine_whisper.py` | the re-decode client: posts the finished utterance to the fine-tuned model server and emits the same `W`/`DONE` lines |
 
 ## `packaging/` — runtime pieces that are not Rust

@@ -294,8 +294,12 @@ impl Drop for Session {
 pub enum LiveEvent {
     /// A finalized word (already counted in stats).
     Word(Word),
-    /// Current partial phrase: what Vosk thinks is being said right now.
+    /// Current partial phrase: what the recognizer thinks is being said now.
     Partial(String),
+    /// Silero VAD's speech flag from the backend (`V`): true while it hears
+    /// speech. Whisper streams send it; without one the daemon keeps its
+    /// decoder-activity rule for end of speech.
+    Speech(bool),
     /// Stream ended; final stats.
     Done(Stats),
     /// The backend exited without its DONE line (missing model, import error).
@@ -366,6 +370,10 @@ impl LiveSession {
                         // "P <t> <phrase>"; the phrase may be empty.
                         let phrase = rest.splitn(2, ' ').nth(1).unwrap_or("").to_string();
                         if tx.send(LiveEvent::Partial(phrase)).is_err() {
+                            return;
+                        }
+                    } else if let Some(rest) = line.strip_prefix("V ") {
+                        if tx.send(LiveEvent::Speech(rest.trim() == "1")).is_err() {
                             return;
                         }
                     } else if let Some(rest) = line.strip_prefix("DONE ") {
@@ -849,6 +857,38 @@ mod tests {
         assert_eq!(words, vec!["hi"]);
         assert_eq!(stats.words, 1);
         assert!((stats.audio_secs - 1.5).abs() < 1e-9);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_backend_vad_flag_reaches_the_daemon() {
+        let dir = std::env::temp_dir().join(format!("vaani-stt-vad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let backend = dir.join("backend.sh");
+        std::fs::write(
+            &backend,
+            "printf 'V 1\\nV 0\\nDONE audio=1.0 infer=0.1 words=0\\n'",
+        )
+        .unwrap();
+        let flags = with_env(&[("VAANI_STT_BACKEND", backend.to_str())], || {
+            let mut live = LiveSession::start("sh", "unused").expect("stub backend starts");
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let mut flags = Vec::new();
+            let mut done = false;
+            while !done && std::time::Instant::now() < deadline {
+                for ev in live.poll() {
+                    match ev {
+                        LiveEvent::Speech(s) => flags.push(s),
+                        LiveEvent::Done(_) => done = true,
+                        _ => {}
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(done, "the stub backend must reach DONE");
+            flags
+        });
+        assert_eq!(flags, vec![true, false], "V 1/V 0 must arrive in that order");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
